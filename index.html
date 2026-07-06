@@ -132,6 +132,8 @@
     <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:10px;align-items:start">
       <span class="small" style="padding-top:9px">Notes</span><textarea id="profNotes" rows="3" placeholder="short write-up: bean, roast level, what the curve is doing… (saved & exported with the profile)"></textarea>
     </div>
+    <canvas id="profCanvas" style="height:200px;touch-action:none;margin-bottom:6px"></canvas>
+    <div class="small" style="margin-bottom:10px">✏️ <b>Drag points</b> to shape the curve · <b>press empty space</b> to add a point · <b>double-tap a point</b> to delete. Dashed pink = the RoR each segment implies (0–30 °C/min). Fine-tune times/temps and set fan % in the table.</div>
     <div class="ptbl"><span class="hd">Time m:ss</span><span class="hd">Target °C</span><span class="hd">Fan % (opt)</span><span></span></div>
     <div id="ptPoints"></div>
     <div class="row" style="margin:8px 0 10px"><button id="profAddRow">+ Add point</button><button id="profSave" class="green">Save profile</button><button id="profImport">Import JSON</button><button id="profExport">Export JSON</button></div>
@@ -374,8 +376,67 @@ function renderPoints(){
     if(k==='t')renderPoints(); else drawChart();
   }));
   box.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',e=>{editPts.splice(+e.target.dataset.del,1);renderPoints();}));
-  drawChart();
+  drawChart();drawProfEditor();
 }
+
+// ---------- Graph-driven profile editor ----------
+const pcv=$('profCanvas');let pcGeom=null,pcDrag=null;
+function drawProfEditor(){
+  const ctx=pcv.getContext('2d'),dpr=window.devicePixelRatio||1;
+  const W=pcv.clientWidth,H=pcv.clientHeight;
+  if(pcv.width!==Math.round(W*dpr)){pcv.width=W*dpr;pcv.height=H*dpr;}
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
+  const pL=32,pR=8,pT=10,pB=16,pw=W-pL-pR,ph=H-pT-pB;
+  const pts=editPts.map((p,i)=>({i,t:+p.t||0,sv:+p.sv||0})).sort((a,b)=>a.t-b.t);
+  const tMax=Math.max(600,(pts.length?pts[pts.length-1].t:0)+60);
+  const X=t=>pL+t/tMax*pw,Y=v=>pT+(1-v/260)*ph,Yr=v=>pT+(1-v/30)*ph;
+  pcGeom={pL,pT,pw,ph,tMax};
+  ctx.strokeStyle='#2a231b';ctx.fillStyle='#6b5f4e';ctx.lineWidth=1;ctx.font='10px system-ui';
+  for(let v=0;v<=260;v+=50){const y=Y(v);ctx.beginPath();ctx.moveTo(pL,y);ctx.lineTo(W-pR,y);ctx.stroke();ctx.fillText(v,3,y+3);}
+  for(let s=0;s<=tMax;s+=60){const x=X(s);ctx.beginPath();ctx.moveTo(x,pT);ctx.lineTo(x,H-pB);ctx.stroke();ctx.fillText((s/60)+'m',x-4,H-4);}
+  ctx.strokeStyle='rgba(209,91,143,.55)';ctx.setLineDash([3,3]);ctx.beginPath();   // implied RoR per segment
+  for(let i=0;i<pts.length-1;i++){const a=pts[i],b=pts[i+1],dt=b.t-a.t;if(dt<=0)continue;
+    const r=Math.max(0,Math.min(30,(b.sv-a.sv)/dt*60));ctx.moveTo(X(a.t),Yr(r));ctx.lineTo(X(b.t),Yr(r));}
+  ctx.stroke();ctx.setLineDash([]);
+  ctx.strokeStyle='#5ec16f';ctx.lineWidth=2;ctx.beginPath();
+  pts.forEach((p,i)=>{const x=X(p.t),y=Y(p.sv);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.stroke();
+  pts.forEach(p=>{const x=X(p.t),y=Y(p.sv),sel=pcDrag&&pcDrag.i===p.i;
+    ctx.beginPath();ctx.arc(x,y,sel?7:5,0,7);ctx.fillStyle=sel?'#a8f0b5':'#5ec16f';ctx.fill();
+    ctx.strokeStyle='#0c0a08';ctx.lineWidth=1.5;ctx.stroke();});
+  if(pcDrag&&editPts[pcDrag.i]){const p=editPts[pcDrag.i];
+    ctx.fillStyle='#f2ebe1';ctx.font='600 13px system-ui';
+    ctx.fillText(fmt(+p.t||0)+' · '+Math.round(+p.sv||0)+' °C',pL+8,pT+14);}
+}
+function pcXY(ev){const r=pcv.getBoundingClientRect();return{x:ev.clientX-r.left,y:ev.clientY-r.top};}
+function pcToData(x,y){const g=pcGeom;
+  const t=Math.round(Math.max(0,Math.min(g.tMax,(x-g.pL)/g.pw*g.tMax))/5)*5;
+  const sv=Math.round(Math.max(0,Math.min(260,(1-(y-g.pT)/g.ph)*260)));return{t,sv};}
+function pcHit(x,y){const g=pcGeom;let best=null,bd=16;
+  editPts.forEach((p,i)=>{const px=g.pL+(+p.t||0)/g.tMax*g.pw,py=g.pT+(1-(+p.sv||0)/260)*g.ph;
+    const d=Math.hypot(px-x,py-y);if(d<bd){bd=d;best=i;}});return best;}
+pcv.addEventListener('pointerdown',ev=>{
+  if(!pcGeom)return;ev.preventDefault();pcv.setPointerCapture(ev.pointerId);
+  const{x,y}=pcXY(ev);let i=pcHit(x,y);
+  if(i==null){const d=pcToData(x,y);
+    let at=editPts.findIndex(p=>(+p.t||0)>d.t);if(at<0)at=editPts.length;
+    editPts.splice(at,0,{t:d.t,sv:d.sv,fan:''});i=at;}
+  pcDrag={i};drawProfEditor();
+});
+pcv.addEventListener('pointermove',ev=>{
+  if(!pcDrag||!pcGeom)return;
+  const{x,y}=pcXY(ev),d=pcToData(x,y),i=pcDrag.i;
+  const lo=i>0?(+editPts[i-1].t||0)+5:0;
+  const hi=i<editPts.length-1?(+editPts[i+1].t||0)-5:d.t;
+  editPts[i].t=Math.max(lo,Math.min(hi,d.t));
+  editPts[i].sv=d.sv;
+  drawProfEditor();
+});
+const pcEnd=()=>{if(!pcDrag)return;pcDrag=null;renderPoints();};
+pcv.addEventListener('pointerup',pcEnd);pcv.addEventListener('pointercancel',pcEnd);
+pcv.addEventListener('dblclick',ev=>{
+  if(!pcGeom)return;const{x,y}=pcXY(ev),i=pcHit(x,y);
+  if(i!=null&&editPts.length>2){editPts.splice(i,1);pcDrag=null;renderPoints();}
+});
 function getPoints(){
   return editPts.filter(p=>p.t!=null&&p.sv!==''&&p.sv!=null)
     .map(p=>({t:+p.t,sv:+p.sv,fan:(p.fan===''||p.fan==null)?null:+p.fan}))
@@ -529,7 +590,7 @@ function drawChart(){
    ctx.stroke();}
   line('et','#4ea1c9');line('sv','#5ec16f',[5,4]);line('bt','#e08a3c');
 }
-window.addEventListener('resize',drawChart);
+window.addEventListener('resize',()=>{drawChart();drawProfEditor();});
 setInterval(()=>{if(connectMs)updateTimer();},1000);
 
 // ---------- Data: CSV + saved roasts ----------
