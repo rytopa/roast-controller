@@ -64,6 +64,8 @@ You can have an AI assistant (e.g. Claude) design a roast curve and load it stra
 
 Example prompt: *"Design a roast profile for [beans / batch size / roast level] as a minute-by-minute table of target bean temperature (°C) and fan %. Include a short write-up of what the curve is doing in the `notes` field. Output it as a downloadable JSON file in this format: …"* (paste the JSON above as the template).
 
+For a complete, paste-into-Claude spec — field semantics, how the app interpolates the curve, and machine-specific design guidance — see **[PROFILE_FORMAT.md](PROFILE_FORMAT.md)**.
+
 ## The protocol (for the curious)
 
 All roaster comms are plain ASCII lines over BLE. Outbound commands:
