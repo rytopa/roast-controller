@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Roast Controller</title>
+<style>
+  :root{
+    --bg:#14110e;--panel:#1e1a16;--panel2:#262019;--line:#3a3128;
+    --text:#f2ebe1;--dim:#b6a993;--bt:#e08a3c;--et:#4ea1c9;--sv:#5ec16f;--ror:#d15b8f;
+    --ok:#4fbf6b;--warn:#e6b800;--danger:#e0503c;--r:13px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.4;
+    background:var(--bg);color:var(--text);padding:12px;max-width:840px;margin:0 auto}
+  h1{font-size:18px;margin:0 0 2px}
+  .sub{color:var(--dim);font-size:12.5px;margin-bottom:10px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px;margin-bottom:10px}
+  .panel h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:0 0 10px}
+  button{font:inherit;font-weight:600;color:#fff;background:var(--panel2);border:1px solid var(--line);
+    border-radius:9px;padding:9px 12px;cursor:pointer}
+  button:active{transform:translateY(1px)} button:disabled{opacity:.4;cursor:not-allowed}
+  button.primary{background:var(--bt);border-color:var(--bt);color:#1a1206}
+  button.blue{background:var(--et);border-color:var(--et);color:#06222e}
+  button.green{background:var(--sv);border-color:var(--sv);color:#06280f}
+  button.danger{background:var(--danger);border-color:var(--danger)}
+  input,select{font:inherit;background:#0f0d0a;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 9px;width:100%}
+  label.ck{display:flex;gap:9px;align-items:flex-start;font-size:13.5px;color:var(--dim);cursor:pointer}
+  input[type=checkbox]{width:20px;height:20px;margin-top:1px;accent-color:var(--bt);flex:none}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:7px}
+  @media(max-width:620px){.tiles{grid-template-columns:repeat(3,1fr)}}
+  .tile{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:9px 6px;text-align:center}
+  .tile .v{font-size:23px;font-weight:700;font-variant-numeric:tabular-nums}
+  .tile .u{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.04em;margin-top:1px}
+  .tile.bt .v{color:var(--bt)} .tile.et .v{color:var(--et)} .tile.ror .v{color:var(--ror)} .tile.sv .v{color:var(--sv)}
+  .kv{font-size:12px;color:var(--dim);display:flex;justify-content:space-between;gap:10px;padding:1px 0}
+  .kv b{color:var(--text);font-weight:600;word-break:break-all;text-align:right}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
+  .pill.on{background:#12331c;color:var(--ok);border:1px solid #1d5a30}
+  .pill.off{background:#2c1512;color:var(--danger);border:1px solid #5a2a22}
+  canvas{width:100%;height:260px;background:#0c0a08;border:1px solid var(--line);border-radius:10px;display:block}
+  .legend{display:flex;gap:14px;font-size:12px;color:var(--dim);margin-top:8px;flex-wrap:wrap}
+  .legend i{display:inline-block;width:11px;height:3px;border-radius:2px;vertical-align:middle;margin-right:5px}
+  .ctl-row{display:grid;grid-template-columns:70px 1fr auto;gap:8px;align-items:center;margin-bottom:8px}
+  .banner{border-radius:10px;padding:9px 11px;font-size:12.5px;margin-bottom:10px;border:1px solid}
+  .banner.warn{background:#2a2410;border-color:#5a4d1a;color:#f2df9e}
+  .banner.err{background:#2c1512;border-color:#5a2a22;color:#f2b3a8}
+  #emergency{width:100%;font-size:16px;padding:15px;margin-top:4px}
+  #log{background:#0c0a08;border:1px solid var(--line);border-radius:9px;padding:7px;height:120px;overflow:auto;
+    font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;white-space:pre-wrap;color:#cfc4b2}
+  details{margin-top:8px} summary{cursor:pointer;color:var(--dim);font-size:13px}
+  .small{font-size:12px;color:var(--dim)} hr{border:none;border-top:1px solid var(--line);margin:10px 0}
+  .evt{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+  .evt button{padding:11px 4px;font-size:13px}
+  .ptbl{display:grid;grid-template-columns:1fr 1fr 1fr 40px;gap:6px;align-items:center;margin-bottom:6px}
+  .ptbl .hd{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.04em}
+  .ptbl button{padding:8px 0}
+</style>
+</head>
+<body>
+  <h1>🔥 Roast Controller</h1>
+  <div class="sub">Web-Bluetooth controller for Hamid / Matchbox (TC4) roasters — no vendor app, no WeChat.</div>
+
+  <div id="supportBanner" class="banner err" style="display:none">
+    <b>Web Bluetooth isn't available.</b> Use <b>Chrome</b> or Edge on Android or Windows/macOS/Linux, Bluetooth on. iOS Safari is unsupported.
+  </div>
+  <div class="banner warn">⚠️ Controls drive a <b>real heating element</b>. They stay locked until you enable them. Keep the fan on, don't leave it unattended, use <b>HEATER OFF</b> if anything looks wrong.</div>
+
+  <div class="panel">
+    <h2>Connection</h2>
+    <div class="row" style="margin-bottom:8px">
+      <button id="btnConnect" class="primary">Connect roaster</button>
+      <button id="btnDisconnect" disabled>Disconnect</button>
+      <span id="state" class="pill off">disconnected</span>
+    </div>
+    <label class="ck" style="margin-bottom:6px"><input type="checkbox" id="acceptAll"><span>Can't find it by name? List all Bluetooth devices and pick manually.</span></label>
+    <details>
+      <summary>Connection details / advanced</summary>
+      <div style="margin-top:8px">
+        <div class="ctl-row" style="grid-template-columns:1fr"><input type="text" id="customSvc" placeholder="custom Service UUID from nRF Connect (if auto-detect fails)"></div>
+        <div class="kv"><span>Device</span><b id="devName">—</b></div>
+        <div class="kv"><span>Service</span><b id="svcUuid">—</b></div>
+        <div class="kv"><span>Notify</span><b id="notifyUuid">—</b></div>
+        <div class="kv"><span>Write</span><b id="writeUuid">—</b></div>
+      </div>
+    </details>
+    <div id="ctlNote" class="small" style="margin-top:6px"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Live</h2>
+    <div class="tiles">
+      <div class="tile bt"><div class="v" id="tBt">—</div><div class="u">Bean °C</div></div>
+      <div class="tile et"><div class="v" id="tEt">—</div><div class="u">ET °C</div></div>
+      <div class="tile ror"><div class="v" id="tRor">—</div><div class="u">RoR °C/m</div></div>
+      <div class="tile sv"><div class="v" id="tSv">—</div><div class="u">Target °C</div></div>
+      <div class="tile"><div class="v" id="tHeat">—</div><div class="u">Heater %</div></div>
+      <div class="tile"><div class="v" id="tFan">—</div><div class="u">Fan %</div></div>
+    </div>
+    <div class="row" style="justify-content:space-between;margin-top:8px">
+      <div class="small">Roast time <b id="tTimer" style="color:var(--text);font-size:15px">0:00</b> <span id="pidPill" class="pill off" style="margin-left:6px">PID off</span></div>
+      <div class="small" id="tDev"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Chart</h2>
+    <canvas id="chart"></canvas>
+    <div class="legend">
+      <span><i style="background:var(--bt)"></i>Bean (BT)</span>
+      <span><i style="background:var(--et)"></i>Exhaust (ET)</span>
+      <span><i style="background:var(--sv)"></i>Target (SV)</span>
+      <span class="small">grid = 1 min / 50°C · markers = roast events · dashed = profile plan</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Profile designer</h2>
+    <div class="row" style="margin-bottom:8px">
+      <select id="profSelect" style="flex:1;min-width:130px"><option value="">— New profile —</option></select>
+      <button id="profNew">New</button>
+      <button id="profDelete" class="danger">Delete</button>
+    </div>
+    <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:10px">
+      <span class="small">Name</span><input type="text" id="profName" placeholder="e.g. City roast 250g">
+    </div>
+    <div class="ptbl"><span class="hd">Time m:ss</span><span class="hd">Target °C</span><span class="hd">Fan % (opt)</span><span></span></div>
+    <div id="ptPoints"></div>
+    <div class="row" style="margin:8px 0 10px"><button id="profAddRow">+ Add point</button><button id="profSave" class="green">Save profile</button></div>
+    <div class="small" style="margin-bottom:10px">Build a target-temperature curve: <b>time from Charge → target °C</b>, with optional fan %. When you Run it, the app ramps the PID setpoint smoothly along the curve (leave fan blank to control the fan by hand). Saved in this browser.</div>
+    <button id="profRun" class="green" style="width:100%">▶ Run profile</button>
+  </div>
+
+  <div class="panel">
+    <h2>Roast session</h2>
+    <div class="evt">
+      <button id="evCharge" class="primary">▶ Charge</button>
+      <button id="evDry">Dry End</button>
+      <button id="evFc">First Crack</button>
+      <button id="evDrop" class="danger">⏹ Drop</button>
+    </div>
+    <div class="small" style="margin-top:8px" id="evTimes">Press <b>Charge</b> when beans go in to start the timer.</div>
+  </div>
+
+  <div class="panel">
+    <h2>Control</h2>
+    <label class="ck" style="margin-bottom:12px"><input type="checkbox" id="enableControl"><span><b style="color:var(--warn)">Enable control.</b> I understand this commands real heater/fan hardware.</span></label>
+    <div id="controls" style="opacity:.4;pointer-events:none">
+      <div class="row" style="margin-bottom:6px">
+        <button data-raw="IO3,0">Fan 0</button><button data-raw="IO3,30">Fan 30</button>
+        <button data-raw="IO3,50">Fan 50</button><button data-raw="IO3,70">Fan 70</button>
+        <input type="number" id="fanVal" min="0" max="100" value="50" style="width:70px"><button id="btnFan" class="blue">Set fan</button>
+      </div>
+      <div class="small" style="margin-bottom:12px">Fan must be running before the heater will fire.</div>
+      <hr>
+      <div class="ctl-row">
+        <span class="small">Target °C</span>
+        <input type="number" id="svVal" min="0" max="260" value="150">
+        <button id="btnSv" class="green">Set target</button>
+      </div>
+      <div class="ctl-row">
+        <span class="small">Ramp to</span>
+        <div class="row" style="flex-wrap:nowrap">
+          <input type="number" id="rampTo" min="0" max="260" value="200" placeholder="°C">
+          <span class="small" style="white-space:nowrap">@</span>
+          <input type="number" id="rampRate" min="1" max="60" value="15" placeholder="°C/min">
+        </div>
+        <button id="btnRamp" class="green">Start ramp</button>
+      </div>
+      <div class="small" style="margin-bottom:6px">Manual heating. For a full roast curve use the <b>Profile designer</b> above. Ramping the target avoids overshoot.</div>
+      <details>
+        <summary>Advanced (manual power / PID)</summary>
+        <div style="margin-top:8px">
+          <div class="ctl-row"><span class="small">Heater % (PID off only)</span><input type="number" id="ot1Val" min="0" max="100" value="0"><button id="btnOt1">Set OT1</button></div>
+          <div class="row"><button data-raw="PID,ON ">PID ON</button><button data-raw="PID,OFF ">PID OFF</button></div>
+        </div>
+      </details>
+    </div>
+    <button id="emergency" class="danger" disabled>■ HEATER OFF (stop)</button>
+  </div>
+
+  <div class="panel">
+    <h2>Data</h2>
+    <div class="row" style="margin-bottom:8px"><button id="btnCsv" class="blue">Download CSV</button><button id="btnClear">Clear chart</button><span class="small" id="rowCount">0 samples</span></div>
+    <hr>
+    <div class="row">
+      <button id="btnSaveRoast" class="green">Save this roast</button>
+      <select id="roastSelect" style="flex:1;min-width:120px"><option value="">— saved roasts —</option></select>
+      <button id="btnLoadRoast">Load</button><button id="btnDelRoast" class="danger">Del</button>
+    </div>
+    <div class="small" style="margin-top:6px">Saved roasts live in this browser. Load one to review its chart; Download CSV exports whatever's on the chart now.</div>
+    <details><summary>Raw fields &amp; log (for verifying the ET channel)</summary>
+      <div id="allFields" class="tiles" style="grid-template-columns:repeat(6,1fr);margin:8px 0"></div>
+      <div id="log"></div>
+    </details>
+  </div>
+  <div class="small" style="text-align:center;margin:4px 0 20px">Device must advertise as <b>MATCHBOX</b>/<b>MBOX</b>. Frame decode: <b>ET</b>=field 0, <b>BT</b>=field 1, heater=field 2, fan=field 3 (4-field form).</div>
+
+<script>
+"use strict";
+const CANDIDATE_SERVICES=[0xffe0,0xfff0,'6e400001-b5a3-f393-e0a9-e50e24dcca9e','49535343-fe7d-4ae5-8fa9-9fafd205e455',0xffe5,0xfee0,0xff00];
+const $=id=>document.getElementById(id);
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+let device=null,server=null,notifyChar=null,writeChar=null,rxBuffer='';
+let connectMs=null,chargeMs=null,curSV=null,ramp=null,profile=null,pidEngaged=false;
+const samples=[];          // {t,bt,et,heat,fan,sv,raw}
+const btHist=[];           // {ms,bt} for RoR
+const events={charge:null,dry:null,fc:null,drop:null};
+
+function setState(t,on){const s=$('state');s.textContent=t;s.className='pill '+(on?'on':'off');}
+function log(m){const el=$('log');const ts=connectMs?((Date.now()-connectMs)/1000).toFixed(0)+'s ':'';el.textContent+=ts+m+'\n';el.scrollTop=el.scrollHeight;}
+function nowT(){return connectMs?(Date.now()-connectMs)/1000:0;}
+function fmt(s){s=Math.max(0,Math.floor(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
+if(!navigator.bluetooth){$('supportBanner').style.display='block';$('btnConnect').disabled=true;}
+
+$('enableControl').addEventListener('change',e=>{const on=e.target.checked&&writeChar;$('controls').style.opacity=on?'1':'.4';$('controls').style.pointerEvents=on?'auto':'none';});
+
+// ---------- Connect ----------
+$('btnConnect').addEventListener('click',async()=>{
+  try{
+    const opt={optionalServices:CANDIDATE_SERVICES.slice()};
+    const cu=$('customSvc').value.trim(); if(cu)opt.optionalServices.push(cu.toLowerCase());
+    if($('acceptAll').checked)opt.acceptAllDevices=true;
+    else opt.filters=[{namePrefix:'MATCHBOX'},{namePrefix:'MBOX'},{namePrefix:'Matchbox'},{namePrefix:'Mbox'}];
+    log('Requesting device…');
+    device=await navigator.bluetooth.requestDevice(opt);
+    $('devName').textContent=device.name||'(unnamed)';
+    device.addEventListener('gattserverdisconnected',onDisc);
+    setState('connecting…',false);
+    server=await device.gatt.connect();
+    const svcs=await server.getPrimaryServices();
+    let picked=null,n=null,w=null;
+    for(const s of svcs){
+      const cs=await s.getCharacteristics(); let ln=null,lw=null;
+      for(const c of cs){if((c.properties.notify||c.properties.indicate)&&!ln)ln=c;if((c.properties.write||c.properties.writeWithoutResponse)&&!lw)lw=c;}
+      log('service '+s.uuid+(ln?' [notify]':'')+(lw?' [write]':''));
+      if(ln&&lw&&!picked){picked=s;n=ln;w=lw;} else if(ln&&!n){picked=s;n=ln;w=lw;}
+    }
+    if(!n)throw new Error('No notify characteristic. Use nRF Connect to find the Service UUID and paste it in advanced.');
+    notifyChar=n;writeChar=w;
+    $('svcUuid').textContent=picked.uuid;$('notifyUuid').textContent=n.uuid;$('writeUuid').textContent=w?w.uuid:'(read-only)';
+    $('ctlNote').innerHTML=w?'':'⚠️ Connected read-only — no writable channel found; control unavailable.';
+    await notifyChar.startNotifications();
+    notifyChar.addEventListener('characteristicvaluechanged',onNotify);
+    connectMs=Date.now();
+    setState('connected',true);
+    $('btnConnect').disabled=true;$('btnDisconnect').disabled=false;$('emergency').disabled=!w;
+    if($('enableControl').checked)$('enableControl').dispatchEvent(new Event('change'));
+    log('✅ Connected.');
+  }catch(err){log('❌ '+err.message);setState('disconnected',false);}
+});
+$('btnDisconnect').addEventListener('click',()=>{if(device&&device.gatt.connected)device.gatt.disconnect();});
+function onDisc(){setState('disconnected',false);$('btnConnect').disabled=false;$('btnDisconnect').disabled=true;$('emergency').disabled=true;notifyChar=writeChar=null;stopRamp();stopProfile();pidEngaged=false;setPidPill();log('Disconnected.');}
+
+// ---------- Telemetry ----------
+function onNotify(e){
+  rxBuffer+=new TextDecoder().decode(e.target.value);
+  if(rxBuffer.length>4000)rxBuffer=rxBuffer.slice(-1000);
+  let i; while((i=rxBuffer.search(/[\n;]/))>=0){const ln=rxBuffer.slice(0,i);rxBuffer=rxBuffer.slice(i+1);processLine(ln);}
+}
+function mapFrame(n){
+  if(n.length>=6)return{et:n[1],bt:n[2],heat:n[3],fan:n[4]};
+  if(n.length===5)return{et:n[1],bt:n[2],heat:n[3],fan:n[4]};
+  if(n.length===4)return{et:n[0],bt:n[1],heat:n[2],fan:n[3]};
+  return null;
+}
+function processLine(line){
+  const t=line.trim(); if(!t)return; log('RX '+t.replace(/[^\x20-\x7E]/g,'·'));
+  if(/DATA_OUT/i.test(t))return;
+  const m=t.match(/-?\d+(?:\.\d+)?(?:\s*,\s*-?\d+(?:\.\d+)?){2,}/);   // extract numeric CSV, ignore binary junk the roaster prepends
+  if(!m)return;
+  const clean=m[0];
+  const nums=clean.split(',').map(s=>parseFloat(s.trim()));
+  if(nums.some(x=>Number.isNaN(x)))return;
+  renderFields(nums);
+  const f=mapFrame(nums);
+  let bt=null,et=null,heat=null,fan=null;
+  if(f){
+    bt=f.bt;et=f.et;heat=Math.round(f.heat);fan=Math.round(f.fan);
+    $('tBt').textContent=Math.round(bt);$('tEt').textContent=Math.round(et);$('tHeat').textContent=heat;$('tFan').textContent=fan;
+    const ms=Date.now(); btHist.push({ms,bt}); while(btHist.length&&ms-btHist[0].ms>60000)btHist.shift();
+    let ror='—'; const past=btHist.find(s=>ms-s.ms>=15000);
+    if(past){const dt=(ms-past.ms)/1000; if(dt>0)ror=Math.round((bt-past.bt)/dt*60);}
+    $('tRor').textContent=ror;
+  }
+  $('tSv').textContent=curSV==null?'—':curSV;
+  samples.push({t:nowT(),bt,et,heat,fan,sv:curSV,raw:clean});
+  $('rowCount').textContent=samples.length+' samples';
+  updateTimer(); drawChart();
+}
+function renderFields(nums){
+  const roles=nums.length>=5?{1:'ET',2:'BT',3:'Heat',4:'Fan'}:(nums.length===4?{0:'ET',1:'BT',2:'Heat',3:'Fan'}:{});
+  const box=$('allFields');box.innerHTML='';
+  nums.forEach((v,i)=>{const el=document.createElement('div');el.className='tile';el.style.padding='7px 3px';
+    el.innerHTML='<div class="v" style="font-size:17px">'+(Number.isInteger(v)?v:v.toFixed(1))+'</div><div class="u">f'+i+(roles[i]?' '+roles[i]:'')+'</div>';
+    if(roles[i])el.style.borderColor='var(--bt)';box.appendChild(el);});
+}
+
+// ---------- Commands ----------
+async function send(cmd){
+  if(!writeChar){log('⚠️ no write channel');return;}
+  try{const d=new TextEncoder().encode(cmd+'\n');
+    if(writeChar.properties.write&&writeChar.writeValueWithResponse)await writeChar.writeValueWithResponse(d);
+    else if(writeChar.writeValueWithoutResponse)await writeChar.writeValueWithoutResponse(d);
+    else await writeChar.writeValue(d);
+    log('TX '+cmd);
+  }catch(err){log('❌ TX '+err.message);}
+}
+function setSV(v){v=Math.max(0,Math.min(260,Math.round(v)));curSV=v;$('tSv').textContent=v;send('PID,SV,'+Math.abs(v)+' ');}
+function setPidPill(){const p=$('pidPill');if(p){p.textContent='PID '+(pidEngaged?'ON':'off');p.className='pill '+(pidEngaged?'on':'off');}}
+let engaging=false;
+async function engagePID(target){
+  if(engaging)return; engaging=true;
+  try{
+    target=Math.max(0,Math.min(260,Math.round(target)));
+    setSV(target); await delay(200);
+    await send('PID,ON '); pidEngaged=true; setPidPill();
+    for(let i=0;i<4;i++){await delay(250);setSV(target);}
+  }finally{engaging=false;}
+}
+function clampPct(v){v=parseInt(v,10);return Number.isNaN(v)?0:Math.max(0,Math.min(100,v));}
+
+document.querySelectorAll('[data-raw]').forEach(b=>b.addEventListener('click',()=>send(b.dataset.raw)));
+$('btnFan').addEventListener('click',()=>send('IO3,'+clampPct($('fanVal').value)));
+$('btnSv').addEventListener('click',async()=>{stopRamp();stopProfile();const v=+$('svVal').value;if(pidEngaged)setSV(v);else await engagePID(v);});
+$('btnOt1').addEventListener('click',()=>send('OT1,'+clampPct($('ot1Val').value)));
+$('emergency').addEventListener('click',async()=>{stopRamp();stopProfile();await send('PID,OFF ');pidEngaged=false;setPidPill();setTimeout(()=>send('OT1,0'),300);});
+document.querySelectorAll('[data-raw="PID,OFF "]').forEach(b=>b.addEventListener('click',()=>{pidEngaged=false;setPidPill();}));
+document.querySelectorAll('[data-raw="PID,ON "]').forEach(b=>b.addEventListener('click',()=>{pidEngaged=true;setPidPill();}));
+
+// ---------- Manual ramp ----------
+$('btnRamp').addEventListener('click',()=>{ramp?stopRamp():startRamp();});
+async function startRamp(){
+  stopProfile();
+  const target=+$('rampTo').value, rate=Math.max(1,+$('rampRate').value);
+  const startSV=curSV!=null?curSV:(samples.length?Math.round(samples[samples.length-1].bt):30);
+  if(!pidEngaged)await engagePID(startSV); else setSV(startSV);
+  ramp={target,rate,tid:setInterval(()=>{
+    const step=rate*(2/60);
+    const nv=target>=curSV?Math.min(target,curSV+step):Math.max(target,curSV-step);
+    setSV(nv);
+    if(nv===target)stopRamp();
+  },2000)};
+  $('btnRamp').textContent='Stop ramp';$('btnRamp').classList.add('danger');
+  log('Ramp → '+target+'°C @ '+rate+'°C/min');
+}
+function stopRamp(){if(ramp){clearInterval(ramp.tid);ramp=null;}const b=$('btnRamp');if(b){b.textContent='Start ramp';b.classList.remove('danger');}}
+
+// ---------- Profile designer + playback ----------
+let editPts=[{t:0,sv:150,fan:50},{t:300,sv:185,fan:''},{t:600,sv:205,fan:''}];
+function parseTime(s){s=(''+s).trim();if(s.includes(':')){const p=s.split(':');return (+p[0]||0)*60+(+p[1]||0);}return +s||0;}
+function renderPoints(){
+  const box=$('ptPoints');box.innerHTML='';
+  editPts.forEach((p,i)=>{
+    const row=document.createElement('div');row.className='ptbl';
+    row.innerHTML='<input data-i="'+i+'" data-k="t" value="'+(p.t!=null?fmt(p.t):'')+'" placeholder="0:00">'
+      +'<input type="number" data-i="'+i+'" data-k="sv" value="'+(p.sv??'')+'" placeholder="°C">'
+      +'<input type="number" data-i="'+i+'" data-k="fan" value="'+(p.fan??'')+'" placeholder="opt">'
+      +'<button data-del="'+i+'">✕</button>';
+    box.appendChild(row);
+  });
+  box.querySelectorAll('input').forEach(inp=>inp.addEventListener('change',e=>{
+    const i=+e.target.dataset.i,k=e.target.dataset.k,val=e.target.value.trim();
+    if(k==='t')editPts[i].t=parseTime(val); else editPts[i][k]=(val===''?'':+val);
+    if(k==='t')renderPoints();
+  }));
+  box.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',e=>{editPts.splice(+e.target.dataset.del,1);renderPoints();}));
+}
+function getPoints(){
+  return editPts.filter(p=>p.t!=null&&p.sv!==''&&p.sv!=null)
+    .map(p=>({t:+p.t,sv:+p.sv,fan:(p.fan===''||p.fan==null)?null:+p.fan}))
+    .sort((a,b)=>a.t-b.t);
+}
+$('profAddRow').addEventListener('click',()=>{const last=editPts[editPts.length-1];editPts.push({t:(last?last.t:0)+120,sv:last?last.sv:190,fan:''});renderPoints();});
+
+const PROF_KEY='rc_profiles_v1';
+function loadProfilesStore(){try{return JSON.parse(localStorage.getItem(PROF_KEY)||'[]');}catch(e){return[];}}
+function saveProfilesStore(a){try{localStorage.setItem(PROF_KEY,JSON.stringify(a));}catch(e){alert('Browser storage full.');}}
+function refreshProfileSelect(sel){const a=loadProfilesStore(),s=$('profSelect');s.innerHTML='<option value="">— New profile —</option>';
+  a.forEach(p=>{const o=document.createElement('option');o.value=p.id;o.textContent=p.name;s.appendChild(o);});if(sel)s.value=sel;}
+$('profSave').addEventListener('click',()=>{
+  const pts=getPoints();if(pts.length<2){alert('Add at least 2 points (time + target).');return;}
+  const name=$('profName').value.trim()||('Profile '+new Date().toLocaleString());
+  const a=loadProfilesStore(),cur=$('profSelect').value;let id=cur;
+  if(cur){const ex=a.find(p=>p.id===cur);if(ex){ex.name=name;ex.points=pts;}else{id='p'+Date.now();a.push({id,name,points:pts});}}
+  else{id='p'+Date.now();a.push({id,name,points:pts});}
+  saveProfilesStore(a);refreshProfileSelect(id);$('profName').value=name;log('Profile saved: '+name);
+});
+$('profSelect').addEventListener('change',()=>{
+  const id=$('profSelect').value;
+  if(!id){editPts=[{t:0,sv:150,fan:50},{t:300,sv:185,fan:''},{t:600,sv:205,fan:''}];$('profName').value='';renderPoints();return;}
+  const p=loadProfilesStore().find(x=>x.id===id);
+  if(p){$('profName').value=p.name;editPts=p.points.map(q=>({t:q.t,sv:q.sv,fan:q.fan==null?'':q.fan}));renderPoints();}
+});
+$('profNew').addEventListener('click',()=>{$('profSelect').value='';$('profSelect').dispatchEvent(new Event('change'));});
+$('profDelete').addEventListener('click',()=>{const id=$('profSelect').value;if(!id)return;if(!confirm('Delete this saved profile?'))return;
+  saveProfilesStore(loadProfilesStore().filter(p=>p.id!==id));refreshProfileSelect();$('profSelect').dispatchEvent(new Event('change'));});
+
+function interpAt(pts,e){
+  if(!pts.length)return null;
+  if(e<=pts[0].t)return{sv:pts[0].sv,fan:pts[0].fan};
+  const last=pts[pts.length-1];if(e>=last.t)return{sv:last.sv,fan:last.fan};
+  for(let i=0;i<pts.length-1;i++){const a=pts[i],b=pts[i+1];if(e>=a.t&&e<=b.t){const f=(e-a.t)/((b.t-a.t)||1);
+    return{sv:a.sv+(b.sv-a.sv)*f,fan:(a.fan!=null&&b.fan!=null)?a.fan+(b.fan-a.fan)*f:(a.fan!=null?a.fan:b.fan)};}}
+  return{sv:last.sv,fan:last.fan};
+}
+$('profRun').addEventListener('click',()=>{profile?stopProfile():startProfile();});
+async function startProfile(){
+  const pts=getPoints();if(pts.length<2){alert('Add at least 2 points.');return;}
+  if(!writeChar){alert('Connect the roaster first.');return;}
+  if(!$('enableControl').checked){alert('Tick "Enable control" in the Control panel first.');return;}
+  stopRamp();
+  const fan0=pts[0].fan!=null?Math.round(pts[0].fan):40; send('IO3,'+fan0); await delay(300);
+  if(!pidEngaged)await engagePID(pts[0].sv); else setSV(pts[0].sv);
+  const startT=nowT(); let lastFan=fan0;
+  profile={points:pts,startT,tid:setInterval(()=>{
+    const e=nowT()-startT,p=interpAt(pts,e);
+    if(p){setSV(p.sv); if(p.fan!=null){const fv=Math.round(p.fan); if(fv!==lastFan){send('IO3,'+fv);lastFan=fv;}}}
+    if(e>=pts[pts.length-1].t)stopProfile();
+  },2000)};
+  $('profRun').textContent='■ Stop profile';$('profRun').classList.remove('green');$('profRun').classList.add('danger');
+  log('Running profile ('+pts.length+' points, ends '+fmt(pts[pts.length-1].t)+')');
+}
+function stopProfile(){if(profile){clearInterval(profile.tid);profile=null;}const b=$('profRun');if(b){b.textContent='▶ Run profile';b.classList.add('green');b.classList.remove('danger');}}
+
+// ---------- Roast timer + events ----------
+$('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;events.dry=events.fc=events.drop=null;renderEvents();log('CHARGE');});
+$('evDry').addEventListener('click',()=>{if(chargeMs){events.dry=(Date.now()-chargeMs)/1000;renderEvents();}});
+$('evFc').addEventListener('click',()=>{if(chargeMs){events.fc=(Date.now()-chargeMs)/1000;renderEvents();}});
+$('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-chargeMs)/1000;renderEvents();}});
+function updateTimer(){$('tTimer').textContent=chargeMs?fmt((Date.now()-chargeMs)/1000):'0:00';}
+function renderEvents(){
+  const parts=[];for(const kl of [['dry','Dry End'],['fc','First Crack'],['drop','Drop']])if(events[kl[0]]!=null)parts.push(kl[1]+' '+fmt(events[kl[0]]));
+  $('evTimes').innerHTML=parts.length?parts.join(' · '):'Timer running…';
+  if(events.fc!=null&&events.drop!=null&&events.drop>events.fc){const dev=(events.drop-events.fc),pct=Math.round(dev/events.drop*100);$('tDev').innerHTML='Development <b style="color:var(--text)">'+fmt(dev)+' ('+pct+'%)</b>';}
+  else $('tDev').textContent='';
+}
+
+// ---------- Chart ----------
+function drawChart(){
+  const c=$('chart'),ctx=c.getContext('2d'),dpr=window.devicePixelRatio||1;
+  const W=c.clientWidth,H=c.clientHeight; if(c.width!==Math.round(W*dpr)){c.width=W*dpr;c.height=H*dpr;}
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
+  const pL=32,pR=8,pT=8,pB=16,pw=W-pL-pR,ph=H-pT-pB;
+  const yMax=260;let tMax=Math.max(300,samples.length?samples[samples.length-1].t:0);
+  if(profile)tMax=Math.max(tMax,profile.startT+profile.points[profile.points.length-1].t);
+  const X=t=>pL+t/tMax*pw, Y=v=>pT+(1-v/yMax)*ph;
+  ctx.strokeStyle='#2a231b';ctx.fillStyle='#6b5f4e';ctx.lineWidth=1;ctx.font='10px system-ui';
+  for(let v=0;v<=yMax;v+=50){const y=Y(v);ctx.beginPath();ctx.moveTo(pL,y);ctx.lineTo(W-pR,y);ctx.stroke();ctx.fillText(v,3,y+3);}
+  for(let s=0;s<=tMax;s+=60){const x=X(s);ctx.beginPath();ctx.moveTo(x,pT);ctx.lineTo(x,H-pB);ctx.stroke();ctx.fillText((s/60)+'m',x-4,H-4);}
+  if(chargeMs&&connectMs){const base=(chargeMs-connectMs)/1000;
+    for(const ecl of [['charge','#8a7a5f','C'],['dry','#c9a24e','DE'],['fc','#e0503c','FC'],['drop','#4ea1c9','DR']]){
+      if(events[ecl[0]]!=null){const x=X(base+events[ecl[0]]);ctx.strokeStyle=ecl[1];ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(x,pT);ctx.lineTo(x,H-pB);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=ecl[1];ctx.fillText(ecl[2],x+2,pT+10);}
+    }}
+  if(profile&&profile.points){ctx.strokeStyle='rgba(94,193,111,.5)';ctx.setLineDash([2,4]);ctx.lineWidth=1.5;ctx.beginPath();
+    profile.points.forEach((p,i)=>{const x=X(profile.startT+p.t),y=Y(p.sv);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.stroke();ctx.setLineDash([]);}
+  const line=(key,col,dash)=>{ctx.strokeStyle=col;ctx.lineWidth=2;ctx.setLineDash(dash||[]);ctx.beginPath();let started=false;
+    for(const s of samples){const v=s[key];if(v==null||Number.isNaN(v)){continue;}const x=X(s.t),y=Y(v);if(!started){ctx.moveTo(x,y);started=true;}else ctx.lineTo(x,y);}ctx.stroke();ctx.setLineDash([]);};
+  line('et','#4ea1c9');line('sv','#5ec16f',[5,4]);line('bt','#e08a3c');
+}
+window.addEventListener('resize',drawChart);
+setInterval(()=>{if(connectMs)updateTimer();},1000);
+
+// ---------- Data: CSV + saved roasts ----------
+function evAt(t){for(const kl of [['charge','CHARGE'],['dry','DRY_END'],['fc','FIRST_CRACK'],['drop','DROP']]){if(events[kl[0]]!=null&&chargeMs&&connectMs){const et=(chargeMs-connectMs)/1000+events[kl[0]];if(Math.abs(t-et)<1)return kl[1];}}return'';}
+$('btnCsv').addEventListener('click',()=>{
+  const num=(v,d)=>(v==null||Number.isNaN(v))?'':v.toFixed(d);
+  const csv='time_s,bean_bt,exhaust_et,heater_pct,fan_pct,target_sv,event,raw\n'+
+    samples.map(s=>s.t.toFixed(1)+','+num(s.bt,1)+','+num(s.et,1)+','+(s.heat==null?'':s.heat)+','+(s.fan==null?'':s.fan)+','+(s.sv==null?'':s.sv)+','+evAt(s.t)+',"'+((s.raw||'').replace(/"/g,'""'))+'"').join('\n');
+  const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  const a=document.createElement('a');a.href=url;a.download='roast.csv';document.body.appendChild(a);a.click();
+  setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},4000);
+  log('CSV exported: '+samples.length+' rows');
+});
+$('btnClear').addEventListener('click',()=>{samples.length=0;btHist.length=0;$('log').textContent='';$('rowCount').textContent='0 samples';drawChart();});
+
+const LOG_KEY='rc_logs_v1';
+function loadLogs(){try{return JSON.parse(localStorage.getItem(LOG_KEY)||'[]');}catch(e){return[];}}
+function saveLogs(a){try{localStorage.setItem(LOG_KEY,JSON.stringify(a));return true;}catch(e){alert('Storage full — export & delete old roasts to free space.');return false;}}
+function refreshRoastSelect(){const a=loadLogs(),s=$('roastSelect');s.innerHTML='<option value="">— saved roasts ('+a.length+') —</option>';a.slice().reverse().forEach(r=>{const o=document.createElement('option');o.value=r.id;o.textContent=r.name;s.appendChild(o);});}
+$('btnSaveRoast').addEventListener('click',()=>{
+  if(!samples.length){alert('No roast data on the chart yet.');return;}
+  const name=prompt('Name this roast:','Roast '+new Date().toLocaleString());if(name==null)return;
+  const rec={id:'r'+Date.now(),name:name||('Roast '+new Date().toLocaleString()),date:new Date().toISOString(),
+    samples:samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv})),events:Object.assign({},events)};
+  const a=loadLogs();a.push(rec);if(saveLogs(a)){refreshRoastSelect();log('Roast saved: '+rec.name);}
+});
+$('btnLoadRoast').addEventListener('click',()=>{
+  const id=$('roastSelect').value;if(!id)return;const r=loadLogs().find(x=>x.id===id);if(!r)return;
+  if(device&&device.gatt&&device.gatt.connected&&!confirm('Load a saved roast into the chart (replaces the current view)?'))return;
+  samples.length=0;r.samples.forEach(s=>samples.push(Object.assign({raw:''},s)));
+  Object.assign(events,{charge:null,dry:null,fc:null,drop:null},r.events||{});
+  $('rowCount').textContent=samples.length+' samples · '+r.name;renderEvents();drawChart();log('Loaded roast: '+r.name);
+});
+$('btnDelRoast').addEventListener('click',()=>{const id=$('roastSelect').value;if(!id)return;if(!confirm('Delete this saved roast?'))return;saveLogs(loadLogs().filter(r=>r.id!==id));refreshRoastSelect();});
+
+// ---------- init ----------
+renderPoints();refreshProfileSelect();refreshRoastSelect();drawChart();
+</script>
+</body>
+</html>
