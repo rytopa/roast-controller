@@ -12,6 +12,8 @@ It talks to the roaster over the open **TC4 / Artisan "Matchbox" serial protocol
 - **Live chart** — BT, ET, and target (SV) plotted over time, plus heater-power and fan traces on a secondary % axis so you can see the PID working, with roast-event markers. Loading a profile previews its curve **and its planned RoR** on the chart, and the actual bean RoR is plotted live (0–30 °C/min scale) so you can compare against the plan.
 - **PID setpoint control** — set or ramp a target temperature; the app engages the roaster's PID mode and holds it there.
 - **Profile designer** — build a roast curve **directly on a graph**: drag points to shape it, press empty space to add a point, double-tap to delete, with the implied RoR of each segment shown as you edit. Fine-tune times/temps and optional fan % in the point table, name and save it, then run it: the app ramps the setpoint smoothly along the curve so the bean tracks it without big overshoot.
+- **Between-batch protocol** — one button between roasts: blasts the fan (heater off) to cool the machine to a set temp, then ramps gradually to your charge temp over 1 minute at a low fan speed, holds it for 30 s, and lights up **DROP BEANS** (with a beep/vibration) when it's stable.
+- **Auto-charge** — when the beans go in, the app detects the BT plunge, marks Charge, and starts the selected profile automatically.
 - **Roast session** — Charge / Dry End / First Crack / Drop markers, roast timer, and development-time %.
 - **Data** — save roasts and profiles locally (in the browser), reload past roasts to review, and export any roast to CSV.
 - **Manual controls** — fan, direct heater power, and PID on/off in an advanced section.
