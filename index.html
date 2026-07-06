@@ -24,7 +24,8 @@
   button.blue{background:var(--et);border-color:var(--et);color:#06222e}
   button.green{background:var(--sv);border-color:var(--sv);color:#06280f}
   button.danger{background:var(--danger);border-color:var(--danger)}
-  input,select{font:inherit;background:#0f0d0a;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 9px;width:100%}
+  input,select,textarea{font:inherit;background:#0f0d0a;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 9px;width:100%}
+  textarea{resize:vertical;min-height:52px;font-size:13px;line-height:1.35}
   label.ck{display:flex;gap:9px;align-items:flex-start;font-size:13.5px;color:var(--dim);cursor:pointer}
   input[type=checkbox]{width:20px;height:20px;margin-top:1px;accent-color:var(--bt);flex:none}
   .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -122,8 +123,11 @@
       <button id="profNew">New</button>
       <button id="profDelete" class="danger">Delete</button>
     </div>
-    <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:10px">
+    <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:8px">
       <span class="small">Name</span><input type="text" id="profName" placeholder="e.g. City roast 250g">
+    </div>
+    <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:10px;align-items:start">
+      <span class="small" style="padding-top:9px">Notes</span><textarea id="profNotes" rows="3" placeholder="short write-up: bean, roast level, what the curve is doing… (saved & exported with the profile)"></textarea>
     </div>
     <div class="ptbl"><span class="hd">Time m:ss</span><span class="hd">Target °C</span><span class="hd">Fan % (opt)</span><span></span></div>
     <div id="ptPoints"></div>
@@ -383,16 +387,17 @@ function refreshProfileSelect(sel){const a=loadProfilesStore(),s=$('profSelect')
 $('profSave').addEventListener('click',()=>{
   const pts=getPoints();if(pts.length<2){alert('Add at least 2 points (time + target).');return;}
   const name=$('profName').value.trim()||('Profile '+new Date().toLocaleString());
+  const notes=$('profNotes').value.trim();
   const a=loadProfilesStore(),cur=$('profSelect').value;let id=cur;
-  if(cur){const ex=a.find(p=>p.id===cur);if(ex){ex.name=name;ex.points=pts;}else{id='p'+Date.now();a.push({id,name,points:pts});}}
-  else{id='p'+Date.now();a.push({id,name,points:pts});}
+  if(cur){const ex=a.find(p=>p.id===cur);if(ex){ex.name=name;ex.notes=notes;ex.points=pts;}else{id='p'+Date.now();a.push({id,name,notes,points:pts});}}
+  else{id='p'+Date.now();a.push({id,name,notes,points:pts});}
   saveProfilesStore(a);refreshProfileSelect(id);$('profName').value=name;log('Profile saved: '+name);
 });
 $('profSelect').addEventListener('change',()=>{
   const id=$('profSelect').value;
-  if(!id){editPts=[{t:0,sv:150,fan:50},{t:300,sv:185,fan:''},{t:600,sv:205,fan:''}];$('profName').value='';renderPoints();return;}
+  if(!id){editPts=[{t:0,sv:150,fan:50},{t:300,sv:185,fan:''},{t:600,sv:205,fan:''}];$('profName').value='';$('profNotes').value='';renderPoints();return;}
   const p=loadProfilesStore().find(x=>x.id===id);
-  if(p){$('profName').value=p.name;editPts=p.points.map(q=>({t:q.t,sv:q.sv,fan:q.fan==null?'':q.fan}));renderPoints();}
+  if(p){$('profName').value=p.name;$('profNotes').value=p.notes||'';editPts=p.points.map(q=>({t:q.t,sv:q.sv,fan:q.fan==null?'':q.fan}));renderPoints();}
 });
 $('profNew').addEventListener('click',()=>{$('profSelect').value='';$('profSelect').dispatchEvent(new Event('change'));});
 
@@ -409,7 +414,8 @@ function normalizeProfileJson(obj){
     return{t:Math.round(t),sv:Math.max(0,Math.min(260,Math.round(sv))),fan};
   }).sort((a,b)=>a.t-b.t);
   if(pts.length<2)throw new Error('Need at least 2 points.');
-  return{name:((obj.name||'')+'').trim(),points:pts};
+  const notes=((obj.notes??obj.description??obj.writeup??obj.summary??'')+'').trim().slice(0,4000);
+  return{name:((obj.name||'')+'').trim(),notes,points:pts};
 }
 $('profImport').addEventListener('click',()=>$('profFile').click());
 $('profFile').addEventListener('change',async e=>{
@@ -418,6 +424,7 @@ $('profFile').addEventListener('change',async e=>{
     const p=normalizeProfileJson(JSON.parse(await f.text()));
     $('profSelect').value='';
     $('profName').value=p.name||f.name.replace(/\.json$/i,'');
+    $('profNotes').value=p.notes||'';
     editPts=p.points.map(q=>({t:q.t,sv:q.sv,fan:q.fan==null?'':q.fan}));
     renderPoints();
     log('Imported profile "'+(p.name||f.name)+'" ('+p.points.length+' points) — review, then Save.');
@@ -426,8 +433,9 @@ $('profFile').addEventListener('change',async e=>{
 $('profExport').addEventListener('click',()=>{
   const pts=getPoints();if(pts.length<2){alert('Add at least 2 points (time + target) first.');return;}
   const name=$('profName').value.trim()||'roast-profile';
-  const json=JSON.stringify({format:'roast-profile-v1',name,
-    points:pts.map(p=>Object.assign({time:fmt(p.t),targetC:p.sv},p.fan!=null?{fanPct:p.fan}:{}))},null,2);
+  const notes=$('profNotes').value.trim();
+  const json=JSON.stringify(Object.assign({format:'roast-profile-v1',name},notes?{notes}:{},
+    {points:pts.map(p=>Object.assign({time:fmt(p.t),targetC:p.sv},p.fan!=null?{fanPct:p.fan}:{}))}),null,2);
   const url=URL.createObjectURL(new Blob([json],{type:'application/json'}));
   const a=document.createElement('a');a.href=url;a.download=name.replace(/[^\w.-]+/g,'_')+'.json';document.body.appendChild(a);a.click();
   setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},4000);

@@ -41,6 +41,7 @@ You can have an AI assistant (e.g. Claude) design a roast curve and load it stra
 {
   "format": "roast-profile-v1",
   "name": "Espresso — slow approach, 216 EOR",
+  "notes": "Push FC back, extend development, roast darker. Deltas +25/+23/+21/+18/+15/+11/+8/+5 — a longer, gentler decline than the filter curve, no rising-RoR tricks. Drop at 216 °C EOR.",
   "points": [
     { "time": "0:00", "targetC": 90,  "fanPct": 60 },
     { "time": "1:00", "targetC": 115, "fanPct": 60 },
@@ -58,9 +59,10 @@ You can have an AI assistant (e.g. Claude) design a roast curve and load it stra
 - `time` — minutes:seconds from Charge (also accepts plain seconds, `8'0`, or `8m`).
 - `targetC` — PID target in °C (clamped to 0–260).
 - `fanPct` — optional fan 0–100; omit it to keep the fan under manual control.
-- At least 2 points; they're sorted by time on import. Import fills the designer — review the curve, then **Save profile**.
+- `notes` — optional short write-up of the profile (intent, bean/batch, RoR deltas, drop target). Shown in the designer's Notes box and kept with the saved profile.
+- At least 2 points; they're sorted by time on import. Import fills the designer — review the curve and notes, then **Save profile**.
 
-Example prompt: *"Design a roast profile for [beans / batch size / roast level] as a minute-by-minute table of target bean temperature (°C) and fan %. Output it as a downloadable JSON file in this format: …"* (paste the JSON above as the template).
+Example prompt: *"Design a roast profile for [beans / batch size / roast level] as a minute-by-minute table of target bean temperature (°C) and fan %. Include a short write-up of what the curve is doing in the `notes` field. Output it as a downloadable JSON file in this format: …"* (paste the JSON above as the template).
 
 ## The protocol (for the curious)
 
