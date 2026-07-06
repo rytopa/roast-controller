@@ -9,7 +9,7 @@ It talks to the roaster over the open **TC4 / Artisan "Matchbox" serial protocol
 ## Features
 
 - **Live telemetry** — Bean (BT) and Exhaust (ET) temperature, Rate of Rise (RoR), heater %, fan %, and target setpoint.
-- **Live chart** — BT, ET, and target (SV) plotted over time, plus heater-power and fan traces on a secondary % axis so you can see the PID working, with roast-event markers and the planned profile curve.
+- **Live chart** — BT, ET, and target (SV) plotted over time, plus heater-power and fan traces on a secondary % axis so you can see the PID working, with roast-event markers. Loading a profile previews its curve **and its planned RoR** on the chart, and the actual bean RoR is plotted live (0–30 °C/min scale) so you can compare against the plan.
 - **PID setpoint control** — set or ramp a target temperature; the app engages the roaster's PID mode and holds it there.
 - **Profile designer** — build a roast curve as points (time → target °C, optional fan %), name and save it, then run it: the app ramps the setpoint smoothly along the curve so the bean tracks it without big overshoot.
 - **Roast session** — Charge / Dry End / First Crack / Drop markers, roast timer, and development-time %.
@@ -93,7 +93,7 @@ Profiles and roast logs are stored in your **browser's local storage** on the de
 ## Roadmap
 
 - Cloud sync of profiles and roast logs across devices (optional login).
-- Rate-of-rise plotted on the chart, °F units, and importing reference curves.
+- °F units and importing reference curves.
 
 ## Disclaimer
 
