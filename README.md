@@ -33,6 +33,35 @@ It talks to the roaster over the open **TC4 / Artisan "Matchbox" serial protocol
 
 If the app can't find the read/write channel, use **nRF Connect** to read the roaster's Service UUID and paste it into the advanced connection field.
 
+## AI-generated profiles (JSON import)
+
+You can have an AI assistant (e.g. Claude) design a roast curve and load it straight into the profile designer — use **Import JSON** / **Export JSON** in the Profile designer panel. The file format:
+
+```json
+{
+  "format": "roast-profile-v1",
+  "name": "Espresso — slow approach, 216 EOR",
+  "points": [
+    { "time": "0:00", "targetC": 90,  "fanPct": 60 },
+    { "time": "1:00", "targetC": 115, "fanPct": 60 },
+    { "time": "2:00", "targetC": 138, "fanPct": 57 },
+    { "time": "3:00", "targetC": 159, "fanPct": 53 },
+    { "time": "4:00", "targetC": 177, "fanPct": 49 },
+    { "time": "5:00", "targetC": 192, "fanPct": 45 },
+    { "time": "6:00", "targetC": 203, "fanPct": 42 },
+    { "time": "7:00", "targetC": 211, "fanPct": 40 },
+    { "time": "8:00", "targetC": 216, "fanPct": 39 }
+  ]
+}
+```
+
+- `time` — minutes:seconds from Charge (also accepts plain seconds, `8'0`, or `8m`).
+- `targetC` — PID target in °C (clamped to 0–260).
+- `fanPct` — optional fan 0–100; omit it to keep the fan under manual control.
+- At least 2 points; they're sorted by time on import. Import fills the designer — review the curve, then **Save profile**.
+
+Example prompt: *"Design a roast profile for [beans / batch size / roast level] as a minute-by-minute table of target bean temperature (°C) and fan %. Output it as a downloadable JSON file in this format: …"* (paste the JSON above as the template).
+
 ## The protocol (for the curious)
 
 All roaster comms are plain ASCII lines over BLE. Outbound commands:
