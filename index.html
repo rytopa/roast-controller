@@ -184,7 +184,7 @@
       <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge temp °C</div><input id="bbpCharge" type="number" min="120" max="240" value="180"></div>
       <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge fan %</div><input id="bbpFan" type="number" min="10" max="100" value="20"></div>
     </div>
-    <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="bbpAuto" checked><span><b>Auto-charge</b> — when the beans drop (BT plunges), mark Charge and run the selected profile automatically.</span></label>
+    <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="bbpAuto" checked><span><b>Auto-charge</b> — when the beans drop (BT plunges), mark Charge and start the profile loaded in the designer automatically. <b>No need to press ▶ Run profile</b> — the whole roast runs from this one button.</span></label>
     <button id="bbpStart" class="blue" style="width:100%">🔄 Start between-batch cycle</button>
     <div id="bbpStatus" class="small" style="margin-top:7px">Cools the machine (fan 100%, heater off) to the cool-to temp, then ramps gradually to your charge temp over <b>1 min</b> at the charge fan speed, holds it <b>30 s</b>, and lights up when it's time to drop the beans.</div>
     <div id="bbpLight" class="droplight" style="display:none">⬇ DROP BEANS NOW</div>
@@ -701,6 +701,7 @@ async function startBBP(){
   bbp={phase:'cool',coolTo,chargeT,fanLow,heatStart:null,startSv:null,soakStart:null,readyMax:null,tid:setInterval(bbpTick,1000)};
   $('bbpStart').textContent='■ Cancel cycle';$('bbpStart').classList.remove('blue');$('bbpStart').classList.add('danger');
   log('BBP: cooling to '+coolTo+'°C (fan 100%, heater off), charge '+chargeT+'°C, fan '+fanLow+'%');
+  if($('bbpAuto').checked&&getPoints().length<2)log('⚠️ Auto-charge is on but no valid profile is loaded — load one before the beans go in.');
   bbpTick();
 }
 function stopBBP(reason,keepHeat){
@@ -736,7 +737,9 @@ function bbpTick(){
   }else if(b.phase==='ready'){
     if(!engaging)setSV(b.chargeT);
     b.readyMax=Math.max(b.readyMax,bt);
-    $('bbpStatus').innerHTML='✅ Holding '+b.chargeT+' °C — drop the beans'+($('bbpAuto').checked?' · watching for the drop…':'');
+    const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    const pname=$('profName').value.trim();
+    $('bbpStatus').innerHTML='✅ Holding '+b.chargeT+' °C — drop the beans'+($('bbpAuto').checked?' · will auto-run '+(pname?'“'+esc(pname)+'”':'the loaded profile'):'');
     if($('bbpAuto').checked&&bt<=b.readyMax-BBP_DROP_DELTA){
       log('BBP: bean drop detected (BT '+Math.round(bt)+'° from '+Math.round(b.readyMax)+'°)');
       stopBBP('charge',true);

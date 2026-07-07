@@ -32,7 +32,7 @@ It talks to the roaster over the open **TC4 / Artisan "Matchbox" serial protocol
 2. **Connect roaster** → pick your device.
 3. Tick **Enable control** to unlock the controls.
 4. Start the **fan** (the heater won't fire without airflow).
-5. Either set a **Target °C**, start a **Ramp**, or **Run** a saved **profile**.
+5. Either set a **Target °C**, start a **Ramp**, or **Run** a saved **profile**. For the hands-free flow: load a profile, press **Start between-batch cycle**, and pour the beans in when **DROP BEANS** lights up — with **Auto-charge** on, the profile starts by itself (no need to press Run profile).
 6. Use **Charge / Dry End / First Crack / Drop** to mark the roast; **Save this roast** or **Download CSV** when done.
 
 If the app can't find the read/write channel, use **nRF Connect** to read the roaster's Service UUID and paste it into the advanced connection field.
