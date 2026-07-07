@@ -197,9 +197,11 @@
       <div class="row" style="margin-bottom:6px">
         <button data-raw="IO3,0">Fan 0</button><button data-raw="IO3,30">Fan 30</button>
         <button data-raw="IO3,50">Fan 50</button><button data-raw="IO3,70">Fan 70</button>
+        <button id="fanMinus">−5</button><button id="fanPlus">+5</button>
         <input type="number" id="fanVal" min="0" max="100" value="50" style="width:70px"><button id="btnFan" class="blue">Set fan</button>
       </div>
-      <div class="small" style="margin-bottom:12px">Fan must be running before the heater will fire.</div>
+      <div id="fanOvrNote" class="small" style="display:none;color:var(--warn);margin-bottom:6px">✋ <b>Manual fan override</b> — the profile's fan commands are paused for this roast; the PID temperature curve keeps running. <button id="fanOvrResume" style="padding:4px 9px;font-size:12px;margin-left:6px">Resume profile fan</button></div>
+      <div class="small" style="margin-bottom:12px">Fan must be running before the heater will fire. Adjusting the fan by hand during a profile roast takes over the fan for the rest of the roast.</div>
       <hr>
       <div class="ctl-row">
         <span class="small">Target °C</span>
@@ -368,8 +370,24 @@ async function engagePID(target){
 }
 function clampPct(v){v=parseInt(v,10);return Number.isNaN(v)?0:Math.max(0,Math.min(100,v));}
 
-document.querySelectorAll('[data-raw]').forEach(b=>b.addEventListener('click',()=>send(b.dataset.raw)));
-$('btnFan').addEventListener('click',()=>send('IO3,'+clampPct($('fanVal').value)));
+// Manual fan override: any hand adjustment during a profile roast pauses the
+// profile's fan commands for the rest of the roast (PID curve keeps running).
+let fanOverride=false;
+function curFan(){for(let i=samples.length-1;i>=0;i--){const f=samples[i].fan;if(f!=null&&!Number.isNaN(f))return f;}return clampPct($('fanVal').value);}
+function manualFan(v){v=clampPct(v);$('fanVal').value=v;send('IO3,'+v);markFanOverride();}
+function markFanOverride(){if(profile&&!fanOverride){fanOverride=true;$('fanOvrNote').style.display='';
+  log('✋ Manual fan override — profile fan paused (PID target still follows the curve)');}}
+function clearFanOverride(){fanOverride=false;$('fanOvrNote').style.display='none';}
+$('fanOvrResume').addEventListener('click',()=>{clearFanOverride();if(profile)profile.lastFan=null;log('Profile fan control resumed');});
+$('fanMinus').addEventListener('click',()=>manualFan(curFan()-5));
+$('fanPlus').addEventListener('click',()=>manualFan(curFan()+5));
+
+document.querySelectorAll('[data-raw]').forEach(b=>b.addEventListener('click',()=>{
+  const raw=b.dataset.raw;
+  if(raw.startsWith('IO3,'))manualFan(raw.slice(4));
+  else send(raw);
+}));
+$('btnFan').addEventListener('click',()=>manualFan($('fanVal').value));
 $('btnSv').addEventListener('click',async()=>{stopRamp();stopProfile();const v=+$('svVal').value;if(pidEngaged)setSV(v);else await engagePID(v);});
 $('btnOt1').addEventListener('click',()=>send('OT1,'+clampPct($('ot1Val').value)));
 $('emergency').addEventListener('click',async()=>{stopRamp();stopProfile();stopBBP('emergency',true);await send('PID,OFF ');pidEngaged=false;setPidPill();setTimeout(()=>send('OT1,0'),300);});
@@ -583,24 +601,24 @@ async function startProfile(){
   const pts=getPoints();if(pts.length<2){alert('Add at least 2 points.');return;}
   if(!writeChar){alert('Connect the roaster first.');return;}
   if(!$('enableControl').checked){alert('Tick "Enable control" in the Control panel first.');return;}
-  stopRamp();
+  stopRamp();clearFanOverride();
   const af=uiAutoFan(),endSv=Math.max(175,pts[pts.length-1].sv);
   const fan0=af?af.start:(pts[0].fan!=null?Math.round(pts[0].fan):40); send('IO3,'+fan0); await delay(300);
   if(!pidEngaged)await engagePID(pts[0].sv); else setSV(pts[0].sv);
-  const startT=nowT(); let lastFan=fan0;
-  profile={points:pts,startT,autoFan:af,tid:setInterval(()=>{
+  const startT=nowT();
+  profile={points:pts,startT,autoFan:af,lastFan:fan0,tid:setInterval(()=>{
     const e=nowT()-startT,p=interpAt(pts,e);
     if(p){setSV(p.sv);
       let fv=null;
       if(af){const s=samples[samples.length-1];if(s&&s.bt!=null&&!Number.isNaN(s.bt))fv=autoFanAt(s.bt,af.start,endSv);}
       else if(p.fan!=null)fv=Math.round(p.fan);
-      if(fv!=null&&fv!==lastFan){send('IO3,'+fv);lastFan=fv;}}
+      if(!fanOverride&&fv!=null&&fv!==profile.lastFan){send('IO3,'+fv);profile.lastFan=fv;}}
     if(e>=pts[pts.length-1].t)stopProfile();
   },2000)};
   $('profRun').textContent='■ Stop profile';$('profRun').classList.remove('green');$('profRun').classList.add('danger');
   log('Running profile ('+pts.length+' points, ends '+fmt(pts[pts.length-1].t)+')');
 }
-function stopProfile(){if(profile){clearInterval(profile.tid);profile=null;}const b=$('profRun');if(b){b.textContent='▶ Run profile';b.classList.add('green');b.classList.remove('danger');}}
+function stopProfile(){if(profile){clearInterval(profile.tid);profile=null;}clearFanOverride();const b=$('profRun');if(b){b.textContent='▶ Run profile';b.classList.add('green');b.classList.remove('danger');}}
 
 // ---------- Between-batch protocol ----------
 let bbp=null;
