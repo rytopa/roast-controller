@@ -951,7 +951,13 @@ function renderStatsCard(st,wIn,wOut){
 // ---------- Roast timer + events ----------
 $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;events.dry=events.fc=events.drop=null;
   liveCross.de=liveCross.fc=null;alarms.temp=alarms.crash=alarms.flick=false;alarms.minRor=null;bgIdx=0;
-  $('statsCard').style.display='none';$('alarmBanner').style.display='none';updateLiveBar();renderEvents();log('CHARGE');});
+  if(connectMs){                                   // drop pre-charge telemetry and make Charge the chart's zero point
+    const base=(chargeMs-connectMs)/1000;
+    const keep=samples.filter(s=>s.t>=base).map(s=>Object.assign({},s,{t:+((s.t-base).toFixed(1))}));
+    samples.length=0;Array.prototype.push.apply(samples,keep);
+    connectMs=chargeMs;
+    $('rowCount').textContent=samples.length+' samples';}
+  $('statsCard').style.display='none';$('alarmBanner').style.display='none';updateLiveBar();renderEvents();drawChart();log('CHARGE');});
 $('evDry').addEventListener('click',()=>{if(chargeMs){events.dry=(Date.now()-chargeMs)/1000;renderEvents();}});
 $('evFc').addEventListener('click',()=>{if(chargeMs){events.fc=(Date.now()-chargeMs)/1000;alarms.minRor=null;renderEvents();}});
 $('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-chargeMs)/1000;renderEvents();
