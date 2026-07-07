@@ -36,6 +36,7 @@ A single JSON object, delivered as a **downloadable `.json` file** (not just a c
 | `points[].time` | yes | Time from **Charge** (beans in) as `"m:ss"`. Plain seconds are also accepted. |
 | `points[].targetC` | yes | Target **bean temperature** in °C at that time. Valid range 0–260. |
 | `points[].fanPct` | optional | Fan/airflow 0–100 at that time. Omit the key entirely on every point to leave the fan under the operator's manual control — but if you set it on any point, set sensible values throughout. |
+| `autoFan` | optional | `{ "startPct": 60 }` — instead of per-point fan values, let the app schedule the fan from the **measured bean temperature**: hold `startPct` early, ease down only slightly until the bean reaches **160 °C**, then drop faster to a floor **30 % below** `startPct` (60 → 42) at the profile's final temperature. When present, per-point `fanPct` values are ignored during the run. Prefer this unless the user asks for explicit fan control. |
 
 ## How the app runs your curve (design accordingly)
 
