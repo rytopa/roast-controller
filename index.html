@@ -118,10 +118,16 @@
       <div class="tile"><div class="v" id="tHeat">—</div><div class="u">Heater %</div></div>
       <div class="tile"><div class="v" id="tFan">—</div><div class="u">Fan %</div></div>
     </div>
+    <div id="liveBar" style="display:none;height:26px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin-top:8px;font-size:11px;font-weight:700"></div>
     <div class="row" style="justify-content:space-between;margin-top:8px">
-      <div class="small">Roast time <b id="tTimer" style="color:var(--text);font-size:15px">0:00</b> <span id="pidPill" class="pill off" style="margin-left:6px">PID off</span></div>
-      <div class="small" id="tDev"></div>
+      <div class="small">Roast time <b id="tTimer" style="color:var(--text);font-size:15px">0:00</b> <span id="pidPill" class="pill off" style="margin-left:6px">PID off</span> <span id="bgDelta" style="margin-left:6px"></span></div>
+      <div class="small"><span id="etaInfo"></span> <span id="tDev"></span></div>
     </div>
+    <div class="row" style="margin-top:8px;gap:6px;align-items:center">
+      <label class="ck" style="margin:0"><input type="checkbox" id="alarmRor" checked><span>RoR crash / flick warnings</span></label>
+      <span class="small">· Alert at BT</span><input id="alarmTemp" type="number" min="0" max="260" placeholder="e.g. 195" style="width:84px"><span class="small">°C</span>
+    </div>
+    <div id="alarmBanner" class="banner err" style="display:none;margin:8px 0 0"></div>
   </div>
 
   <div class="panel">
@@ -206,6 +212,7 @@
       <div style="flex:1;min-width:86px"><div class="small" style="margin-bottom:3px">Roasted g</div><input id="wOut" type="number" min="0" inputmode="decimal"></div>
     </div>
     <div class="small" id="wLoss" style="margin-top:6px"></div>
+    <div id="statsCard" class="small" style="display:none;margin-top:10px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 11px"></div>
   </div>
 
   <div class="panel">
@@ -256,6 +263,12 @@
       <select id="roastSelect" style="flex:1;min-width:120px"><option value="">— saved roasts —</option></select>
       <button id="btnLoadRoast">Load</button><button id="btnDelRoast" class="danger">Del</button>
     </div>
+    <div class="row" style="margin-top:6px;align-items:center">
+      <button id="btnBgRoast" class="blue">Overlay as background</button>
+      <span class="small" id="bgName"></span>
+      <button id="btnBgClear" style="display:none">✕ clear BG</button>
+    </div>
+    <div class="small" style="margin-top:6px">Background overlays a past roast (ghost curves, aligned at Charge) on the live chart so you can roast to match it — the Live panel shows your BT delta against it.</div>
     <div class="small" style="margin-top:6px">Saved roasts live in this browser. Load one to review its chart; Download CSV exports whatever's on the chart now.</div>
     <details><summary>Raw fields &amp; log (for verifying the ET channel)</summary>
       <div id="allFields" class="tiles" style="grid-template-columns:repeat(6,1fr);margin:8px 0"></div>
@@ -274,6 +287,9 @@ let connectMs=null,chargeMs=null,curSV=null,ramp=null,profile=null,pidEngaged=fa
 const samples=[];          // {t,bt,et,heat,fan,sv,raw}
 const btHist=[];           // {ms,bt} for RoR
 const events={charge:null,dry:null,fc:null,drop:null};
+const liveCross={de:null,fc:null};                 // BT crossings of the DE/FC temps this roast
+const alarms={temp:false,crash:false,flick:false,minRor:null};
+let bg=null,bgIdx=0;                               // background roast overlay
 
 function setState(t,on){const s=$('state');s.textContent=t;s.className='pill '+(on?'on':'off');}
 function log(m){const el=$('log');const ts=connectMs?((Date.now()-connectMs)/1000).toFixed(0)+'s ':'';el.textContent+=ts+m+'\n';el.scrollTop=el.scrollHeight;}
@@ -350,6 +366,7 @@ function processLine(line){
     let ror='—'; const past=btHist.find(s=>ms-s.ms>=15000);
     if(past){const dt=(ms-past.ms)/1000; if(dt>0)ror=Math.round((bt-past.bt)/dt*60);}
     $('tRor').textContent=ror;
+    liveTrack(bt,typeof ror==='number'?ror:null);
   }
   $('tSv').textContent=curSV==null?'—':curSV;
   samples.push({t:nowT(),bt,et,heat,fan,sv:curSV,raw:clean});
@@ -757,16 +774,114 @@ function bbpTick(){
   }
 }
 
+// ---------- Live tracking: phases, alarms, background delta ----------
+function liveTrack(bt,ror){
+  if(!chargeMs||bt==null)return;
+  const e=(Date.now()-chargeMs)/1000;
+  const deT=+$('phDE').value||160,fcT=Math.max(deT,+$('phFC').value||200);
+  if(liveCross.de==null&&bt>=deT)liveCross.de=e;
+  if(liveCross.fc==null&&bt>=fcT)liveCross.fc=e;
+  updateLiveBar();
+  if(bg){const b=bgBtAt(e);
+    $('bgDelta').innerHTML=b!=null?'· vs BG <b style="color:var(--text)">'+((bt-b)>=0?'+':'')+(bt-b).toFixed(1)+'°</b>':'';}
+  if(events.drop==null&&ror!=null&&ror>0.5&&bt<fcT)$('etaInfo').textContent='FC in ~'+fmt((fcT-bt)/ror*60)+' ·';
+  else $('etaInfo').textContent='';
+  checkAlarms(bt,ror,e);
+}
+function checkAlarms(bt,ror,e){
+  if(events.drop!=null)return;
+  const at=+$('alarmTemp').value;
+  if(at>0&&bt>=at&&!alarms.temp){alarms.temp=true;fireAlarm('🔔 BT reached '+at+' °C');}
+  if(!$('alarmRor').checked||ror==null)return;
+  const de=events.dry!=null?events.dry:liveCross.de,fc=events.fc!=null?events.fc:liveCross.fc;
+  if(fc!=null){
+    alarms.minRor=alarms.minRor==null?ror:Math.min(alarms.minRor,ror);
+    if(!alarms.flick&&ror>=alarms.minRor+3){alarms.flick=true;fireAlarm('⚠️ RoR flick — rate rising after FC ('+ror+' °C/min)');}
+  }else if(de!=null&&e>de+20&&!alarms.crash&&ror<3){alarms.crash=true;fireAlarm('⚠️ RoR crash — '+ror+' °C/min mid-roast');}
+}
+function fireAlarm(msg){
+  const b=$('alarmBanner');b.textContent=msg;b.style.display='block';
+  log(msg);beepReady();
+  clearTimeout(fireAlarm.tid);fireAlarm.tid=setTimeout(()=>{b.style.display='none';},10000);
+}
+function segHTML(label,secs,total,col,txt){
+  if(secs<1)return'';
+  const pct=Math.round(secs/Math.max(1,total)*100);
+  return '<div style="flex:'+(secs/Math.max(1,total))+' 1 0;background:'+col+';color:'+txt+';display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;min-width:0">'+label+' '+pct+'% · '+fmt(secs)+'</div>';
+}
+function updateLiveBar(){
+  const el=$('liveBar');
+  if(!chargeMs){el.style.display='none';return;}
+  const now=events.drop!=null?events.drop:(Date.now()-chargeMs)/1000;
+  if(now<5){el.style.display='none';return;}
+  const de=events.dry!=null?events.dry:liveCross.de,fc=events.fc!=null?events.fc:liveCross.fc;
+  const dry=de!=null?Math.min(de,now):now;
+  const mai=de!=null?((fc!=null?Math.min(fc,now):now)-de):0;
+  const dev=fc!=null?now-fc:0;
+  el.style.display='flex';
+  el.innerHTML=segHTML('Dry',dry,now,'#d9b04c','#3a2c07')+segHTML('Mail',mai,now,'#d97f36','#33190a')+segHTML('Dev',dev,now,'#c4523a','#fff');
+}
+
+// ---------- Background roast overlay ----------
+function bgBaseOf(rec){return rec.chargeT!=null?rec.chargeT:((rec.events&&rec.events.drop!=null&&rec.samples&&rec.samples.length)?Math.max(0,rec.samples[rec.samples.length-1].t-rec.events.drop):0);}
+function bgBtAt(e){                                // e = seconds since our charge
+  if(!bg||!bg.samples.length)return null;
+  const t=bg.base+e,ss=bg.samples;
+  if(bgIdx>=ss.length)bgIdx=ss.length-1;
+  while(bgIdx>0&&ss[bgIdx].t>t)bgIdx--;
+  while(bgIdx<ss.length-1&&ss[bgIdx+1].t<=t)bgIdx++;
+  const s=ss[bgIdx];
+  return(s.bt!=null&&Math.abs(s.t-t)<=6)?s.bt:null;
+}
+$('btnBgRoast').addEventListener('click',()=>{
+  const id=$('roastSelect').value;if(!id){alert('Pick a saved roast in the list first.');return;}
+  const r=loadLogs().find(x=>x.id===id);if(!r)return;
+  bg={name:r.name,samples:r.samples,events:r.events||{},base:bgBaseOf(r)};bgIdx=0;
+  $('bgName').textContent='BG: '+r.name;$('btnBgClear').style.display='';
+  drawChart();log('Background overlay: '+r.name);
+});
+$('btnBgClear').addEventListener('click',()=>{bg=null;$('bgName').textContent='';$('btnBgClear').style.display='none';$('bgDelta').innerHTML='';drawChart();});
+
+// ---------- Post-roast stats ----------
+function roastStats(){
+  if(!chargeMs||events.drop==null)return null;
+  const base=connectMs?(chargeMs-connectMs)/1000:0,total=events.drop;
+  const de=events.dry!=null?events.dry:liveCross.de,fc=events.fc!=null?events.fc:liveCross.fc;
+  let dropBt=null,maxBt=null,bd=1e9;
+  for(const s of samples){if(s.bt==null||Number.isNaN(s.bt))continue;
+    if(maxBt==null||s.bt>maxBt)maxBt=s.bt;
+    const d=Math.abs(s.t-(base+total));if(d<bd){bd=d;dropBt=s.bt;}}
+  return{total,de:de!=null&&de<total?de:null,fc:fc!=null&&fc<total?fc:null,dropBt,maxBt};
+}
+function renderStatsCard(st,wIn,wOut){
+  const el=$('statsCard');if(!st){el.style.display='none';return;}
+  const pct=s=>Math.round(s/Math.max(1,st.total)*100)+'%';
+  const rows=[['Total',fmt(st.total)],
+    ['Dry',st.de!=null?fmt(st.de)+' ('+pct(st.de)+')':'—'],
+    ['Maillard',(st.de!=null&&st.fc!=null)?fmt(st.fc-st.de)+' ('+pct(st.fc-st.de)+')':'—'],
+    ['Development',st.fc!=null?fmt(st.total-st.fc)+' ('+pct(st.total-st.fc)+')':'—'],
+    ['Drop BT',st.dropBt!=null?Math.round(st.dropBt)+' °C':'—'],
+    ['Max BT',st.maxBt!=null?Math.round(st.maxBt)+' °C':'—']];
+  if(wIn>0&&wOut>0&&wOut<=wIn)rows.push(['Weight loss',((1-wOut/wIn)*100).toFixed(1)+'%']);
+  el.innerHTML='<b style="color:var(--text)">Roast summary</b><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:3px 14px;margin-top:5px">'
+    +rows.map(r=>'<div class="kv"><span>'+r[0]+'</span><b>'+r[1]+'</b></div>').join('')+'</div>';
+  el.style.display='block';
+}
+
 // ---------- Roast timer + events ----------
-$('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;events.dry=events.fc=events.drop=null;renderEvents();log('CHARGE');});
+$('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;events.dry=events.fc=events.drop=null;
+  liveCross.de=liveCross.fc=null;alarms.temp=alarms.crash=alarms.flick=false;alarms.minRor=null;bgIdx=0;
+  $('statsCard').style.display='none';$('alarmBanner').style.display='none';updateLiveBar();renderEvents();log('CHARGE');});
 $('evDry').addEventListener('click',()=>{if(chargeMs){events.dry=(Date.now()-chargeMs)/1000;renderEvents();}});
-$('evFc').addEventListener('click',()=>{if(chargeMs){events.fc=(Date.now()-chargeMs)/1000;renderEvents();}});
-$('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-chargeMs)/1000;renderEvents();autoSaveRoast();}});
+$('evFc').addEventListener('click',()=>{if(chargeMs){events.fc=(Date.now()-chargeMs)/1000;alarms.minRor=null;renderEvents();}});
+$('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-chargeMs)/1000;renderEvents();autoSaveRoast();
+  renderStatsCard(roastStats(),+$('wIn').value,+$('wOut').value);updateLiveBar();}});
 function updateTimer(){$('tTimer').textContent=chargeMs?fmt((Date.now()-chargeMs)/1000):'0:00';}
 function updateLoss(){
   const a=+$('wIn').value,b=+$('wOut').value;
   $('wLoss').innerHTML=(a>0&&b>0&&b<=a)?'Weight loss: <b style="color:var(--text)">'+((1-b/a)*100).toFixed(1)+'%</b> ('+a+' g → '+b+' g)':'';
   syncAutoSaved();
+  if(chargeMs&&events.drop!=null)renderStatsCard(roastStats(),a,b);
 }
 $('wIn').addEventListener('input',updateLoss);$('wOut').addEventListener('input',updateLoss);
 function renderEvents(){
@@ -805,6 +920,10 @@ function drawChart(){
   const planPts=profile?profile.points:getPoints();
   const planStart=profile?profile.startT:(chargeMs&&connectMs?(chargeMs-connectMs)/1000:0);
   if(planPts.length>=2)tMax=Math.max(tMax,planStart+planPts[planPts.length-1].t);
+  if(chargeMs&&events.drop==null&&samples.length)tMax=Math.max(tMax,samples[samples.length-1].t+70);
+  let bgShift=0;
+  if(bg&&bg.samples.length){bgShift=((chargeMs&&connectMs)?(chargeMs-connectMs)/1000:0)-bg.base;
+    tMax=Math.max(tMax,bg.samples[bg.samples.length-1].t+bgShift);}
   const X=t=>pL+t/tMax*pw, Y=v=>pT+(1-v/yMax)*ph, Y2=v=>pT+(1-v/100)*ph, Yr=v=>pT+(1-v/30)*ph;
   const P=pal();
   ctx.strokeStyle=P.grid;ctx.fillStyle=P.label;ctx.lineWidth=1;ctx.font='10px system-ui';
@@ -815,6 +934,16 @@ function drawChart(){
     for(const ecl of [['charge',P.ev.charge,'C'],['dry',P.ev.dry,'DE'],['fc',P.ev.fc,'FC'],['drop',P.ev.drop,'DR']]){
       if(events[ecl[0]]!=null){const x=X(base+events[ecl[0]]);ctx.strokeStyle=ecl[1];ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(x,pT);ctx.lineTo(x,H-pB);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=ecl[1];ctx.fillText(ecl[2],x+2,pT+10);}
     }}
+  if(bg&&bg.samples.length){                       // background roast: ghost curves + event ticks
+    ctx.save();ctx.globalAlpha=.32;
+    const bline=(key,col)=>{ctx.strokeStyle=col;ctx.lineWidth=2;ctx.beginPath();let st=false;
+      for(const s of bg.samples){const v=s[key];if(v==null||Number.isNaN(v))continue;
+        const x=X(s.t+bgShift),y=Y(v);if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}ctx.stroke();};
+    bline('et',P.et);bline('bt',P.bt);
+    for(const kc of [['dry',P.ev.dry],['fc',P.ev.fc],['drop',P.ev.drop]]){const ev=bg.events[kc[0]];
+      if(ev!=null){const x=X(bg.base+ev+bgShift);ctx.strokeStyle=kc[1];ctx.setLineDash([2,6]);ctx.beginPath();ctx.moveTo(x,pT);ctx.lineTo(x,H-pB);ctx.stroke();ctx.setLineDash([]);}}
+    ctx.restore();
+  }
   if(planPts.length>=2){
     ctx.strokeStyle=P.plan;ctx.setLineDash([2,4]);ctx.lineWidth=1.5;ctx.beginPath();
     planPts.forEach((p,i)=>{const x=X(planStart+p.t),y=Y(p.sv);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.stroke();
@@ -845,9 +974,19 @@ function drawChart(){
      const x=X(s.t),y=Yr(r);if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}
    ctx.stroke();}
   line('et',P.et);line('sv',P.sv,[5,4]);line('bt',P.bt);
+  if(connectMs&&chargeMs&&events.drop==null){        // BT projection: dotted 60s look-ahead at current RoR
+    const bp2=samples.filter(s=>s.bt!=null&&!Number.isNaN(s.bt));
+    if(bp2.length>3){const lastS=bp2[bp2.length-1];
+      let j0=bp2.length-1;while(j0>0&&lastS.t-bp2[j0-1].t<=30)j0--;
+      const p0=bp2[j0],dt=lastS.t-p0.t;
+      if(dt>=10){const r=(lastS.bt-p0.bt)/dt*60;
+        ctx.strokeStyle=P.bt;ctx.setLineDash([2,5]);ctx.lineWidth=1.5;ctx.beginPath();
+        ctx.moveTo(X(lastS.t),Y(lastS.bt));
+        ctx.lineTo(X(Math.min(tMax,lastS.t+60)),Y(Math.max(0,Math.min(260,lastS.bt+r*Math.min(60,tMax-lastS.t)/60))));
+        ctx.stroke();ctx.setLineDash([]);}}}
 }
 window.addEventListener('resize',()=>{drawChart();drawProfEditor();});
-setInterval(()=>{if(connectMs)updateTimer();},1000);
+setInterval(()=>{if(connectMs){updateTimer();updateLiveBar();}},1000);
 
 // ---------- Data: CSV + saved roasts ----------
 function evAt(t){for(const kl of [['charge','CHARGE'],['dry','DRY_END'],['fc','FIRST_CRACK'],['drop','DROP']]){if(events[kl[0]]!=null&&chargeMs&&connectMs){const et=(chargeMs-connectMs)/1000+events[kl[0]];if(Math.abs(t-et)<1)return kl[1];}}return'';}
@@ -878,6 +1017,7 @@ function refreshRoastSelect(){const a=loadLogs(),s=$('roastSelect');s.innerHTML=
     s.appendChild(o);});}
 function buildRoastRec(name){
   return{id:'r'+Date.now(),name,date:new Date().toISOString(),
+    chargeT:(chargeMs&&connectMs)?+(((chargeMs-connectMs)/1000).toFixed(1)):null,stats:roastStats(),
     bean:$('beanInfo').value.trim(),weightIn:+$('wIn').value||null,weightOut:+$('wOut').value||null,
     samples:samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv})),
     events:Object.assign({},events)};
@@ -905,6 +1045,7 @@ $('btnSaveRoast').addEventListener('click',()=>{
   if(ex){                                                   // rename/refresh the auto-saved record instead of duplicating
     ex.name=name||defName;ex.bean=bean;ex.weightIn=+$('wIn').value||null;ex.weightOut=+$('wOut').value||null;
     ex.samples=samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv}));ex.events=Object.assign({},events);
+    ex.stats=roastStats()||ex.stats;
     if(saveLogs(a)){refreshRoastSelect();log('Roast updated: '+ex.name);}
   }else{
     const rec=buildRoastRec(name||defName);a.push(rec);
@@ -917,6 +1058,7 @@ $('btnLoadRoast').addEventListener('click',()=>{
   samples.length=0;r.samples.forEach(s=>samples.push(Object.assign({raw:''},s)));
   Object.assign(events,{charge:null,dry:null,fc:null,drop:null},r.events||{});
   $('beanInfo').value=r.bean||'';$('wIn').value=r.weightIn||'';$('wOut').value=r.weightOut||'';updateLoss();
+  if(r.stats)renderStatsCard(r.stats,r.weightIn,r.weightOut);else $('statsCard').style.display='none';
   $('rowCount').textContent=samples.length+' samples · '+r.name;renderEvents();drawChart();log('Loaded roast: '+r.name);
 });
 $('btnDelRoast').addEventListener('click',()=>{const id=$('roastSelect').value;if(!id)return;if(!confirm('Delete this saved roast?'))return;saveLogs(loadLogs().filter(r=>r.id!==id));refreshRoastSelect();});
