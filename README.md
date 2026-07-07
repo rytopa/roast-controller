@@ -17,6 +17,7 @@ It talks to the roaster over the open **TC4 / Artisan "Matchbox" serial protocol
 - **Roast session** — Charge / Dry End / First Crack / Drop markers, roast timer, and development-time %.
 - **Data** — save roasts and profiles locally (in the browser), reload past roasts to review, and export any roast to CSV.
 - **Manual controls** — fan, direct heater power, and PID on/off in an advanced section.
+- **Day / night mode** — ☀️/🌙 toggle in the header; charts re-render with a matching palette and the choice is remembered.
 
 ## Requirements
 
