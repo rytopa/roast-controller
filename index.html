@@ -126,6 +126,7 @@
     <div class="row" style="margin-top:8px;gap:6px;align-items:center">
       <label class="ck" style="margin:0"><input type="checkbox" id="alarmRor" checked><span>RoR crash / flick warnings</span></label>
       <span class="small">· Alert at BT</span><input id="alarmTemp" type="number" min="0" max="260" placeholder="e.g. 195" style="width:84px"><span class="small">°C</span>
+      <span class="small">· RoR window</span><input id="rorWin" type="number" min="5" max="60" value="15" style="width:64px"><span class="small">s</span>
     </div>
     <div id="alarmBanner" class="banner err" style="display:none;margin:8px 0 0"></div>
   </div>
@@ -297,6 +298,7 @@ function log(m){const el=$('log');const ts=connectMs?((Date.now()-connectMs)/100
 function nowT(){return connectMs?(Date.now()-connectMs)/1000:0;}
 function fmt(s){s=Math.max(0,Math.floor(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
 if(!navigator.bluetooth){$('supportBanner').style.display='block';$('btnConnect').disabled=true;}
+function rorWinS(){return Math.max(5,Math.min(60,+document.getElementById('rorWin').value||15));}
 
 $('enableControl').addEventListener('change',e=>{const on=e.target.checked&&writeChar;$('controls').style.opacity=on?'1':'.4';$('controls').style.pointerEvents=on?'auto':'none';});
 
@@ -364,8 +366,9 @@ function processLine(line){
     bt=f.bt;et=f.et;heat=Math.round(f.heat);fan=Math.round(f.fan);
     $('tBt').textContent=Math.round(bt);$('tEt').textContent=Math.round(et);$('tHeat').textContent=heat;$('tFan').textContent=fan;
     const ms=Date.now(); btHist.push({ms,bt}); while(btHist.length&&ms-btHist[0].ms>60000)btHist.shift();
-    let ror='—'; const past=btHist.find(s=>ms-s.ms>=15000);
-    if(past){const dt=(ms-past.ms)/1000; if(dt>0)ror=Math.round((bt-past.bt)/dt*60);}
+    let ror='—';const win=rorWinS()*1000;let past=null;
+    for(let k=btHist.length-1;k>=0;k--){if(ms-btHist[k].ms>=win){past=btHist[k];break;}}
+    if(past){const dt=(ms-past.ms)/1000; if(dt>0)ror=+((bt-past.bt)/dt*60).toFixed(1);}
     $('tRor').textContent=ror;
     liveTrack(bt,typeof ror==='number'?ror:null);
   }
@@ -510,6 +513,8 @@ $('phDE').addEventListener('change',()=>{renderPhaseBar();savePhaseTemps();});
 $('phFC').addEventListener('change',()=>{renderPhaseBar();savePhaseTemps();});
 function savePhaseTemps(){try{localStorage.setItem('rc_phases',JSON.stringify({de:+$('phDE').value||160,fc:+$('phFC').value||200}));}catch(e){}}
 try{const pt=JSON.parse(localStorage.getItem('rc_phases')||'null');if(pt){$('phDE').value=pt.de;$('phFC').value=pt.fc;}}catch(e){}
+$('rorWin').addEventListener('change',()=>{drawChart();try{localStorage.setItem('rc_rorwin',rorWinS());}catch(e){}});
+try{const rw=+localStorage.getItem('rc_rorwin');if(rw)$('rorWin').value=Math.max(5,Math.min(60,rw));}catch(e){}
 
 // ---------- Graph-driven profile editor ----------
 const pcv=$('profCanvas');let pcGeom=null,pcDrag=null;
@@ -1005,11 +1010,12 @@ function drawChart(){
   const line=(key,col,dash,Yf,wid)=>{ctx.strokeStyle=col;ctx.lineWidth=wid||2;ctx.setLineDash(dash||[]);ctx.beginPath();let started=false;
     for(const s of samples){const v=s[key];if(v==null||Number.isNaN(v)){continue;}const x=X(s.t),y=(Yf||Y)(v);if(!started){ctx.moveTo(x,y);started=true;}else ctx.lineTo(x,y);}ctx.stroke();ctx.setLineDash([]);};
   line('fan',P.fan,[2,3],Y2,1.4);line('heat',P.heat,null,Y2,1.4);
-  {const bp=samples.filter(s=>s.bt!=null&&!Number.isNaN(s.bt));   // actual BT RoR over a ~30 s window
+  {const bp=samples.filter(s=>s.bt!=null&&!Number.isNaN(s.bt));   // actual BT RoR over the configurable window
+   const wn=rorWinS();
    ctx.strokeStyle=P.ror;ctx.lineWidth=1.4;ctx.beginPath();let st=false,j=0;
    for(let i=0;i<bp.length;i++){const s=bp[i];
-     while(j<i&&s.t-bp[j].t>30)j++;
-     const p0=bp[j];if(s.t-p0.t<10)continue;
+     while(j<i&&s.t-bp[j].t>wn)j++;
+     const p0=bp[j];if(s.t-p0.t<Math.max(4,wn*0.5))continue;
      const r=Math.max(0,Math.min(30,(s.bt-p0.bt)/(s.t-p0.t)*60));
      const x=X(s.t),y=Yr(r);if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}
    ctx.stroke();}
