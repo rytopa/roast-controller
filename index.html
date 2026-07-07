@@ -158,8 +158,11 @@
     <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:10px;align-items:start">
       <span class="small" style="padding-top:9px">Notes</span><textarea id="profNotes" rows="3" placeholder="short write-up: bean, roast level, what the curve is doing… (saved & exported with the profile)"></textarea>
     </div>
+    <div class="row" style="justify-content:flex-end;margin-bottom:6px">
+      <button id="pcLock" style="padding:5px 11px;font-size:12.5px">🔒 Graph locked — tap to edit</button>
+    </div>
     <canvas id="profCanvas" style="height:200px;touch-action:none;margin-bottom:6px"></canvas>
-    <div class="small" style="margin-bottom:8px">✏️ <b>Drag points</b> to shape the curve · <b>press empty space</b> to add a point · <b>double-tap a point</b> to delete. Dashed pink = the RoR each segment implies (0–30 °C/min) · dashed grey = fan % (right scale; auto-fan curve or the table's fan values). Fine-tune times/temps and set fan % in the table.</div>
+    <div class="small" style="margin-bottom:8px">✏️ Unlock the graph, then <b>drag points</b> to shape the curve · <b>press empty space</b> to add a point · <b>double-tap a point</b> to delete. Dashed pink = the RoR each segment implies (0–30 °C/min) · dashed grey = fan % (right scale; auto-fan curve or the table's fan values). Fine-tune times/temps and set fan % in the table.</div>
     <div class="row" style="gap:6px;align-items:center;margin-bottom:6px">
       <span class="small"><b>Phases</b> — DE at</span><input id="phDE" type="number" min="100" max="200" value="160" style="width:64px"><span class="small">°C · FC at</span><input id="phFC" type="number" min="150" max="240" value="200" style="width:64px"><span class="small">°C</span>
     </div>
@@ -528,6 +531,17 @@ try{const rw=+localStorage.getItem('rc_rorwin');if(rw)$('rorWin').value=Math.max
 
 // ---------- Graph-driven profile editor ----------
 const pcv=$('profCanvas');let pcGeom=null,pcDrag=null;
+let pcLocked=true;                                 // locked by default: an accidental swipe must not bend the curve
+try{pcLocked=(localStorage.getItem('rc_pclock')??'1')==='1';}catch(e){}
+function applyPcLock(){
+  $('pcLock').textContent=pcLocked?'🔒 Graph locked — tap to edit':'🔓 Editing on — tap to lock';
+  $('pcLock').classList.toggle('green',!pcLocked);
+  pcv.style.touchAction=pcLocked?'auto':'none';    // locked: swipes scroll the page as normal
+  pcv.style.cursor=pcLocked?'default':'crosshair';
+  pcv.style.opacity=pcLocked?'.85':'1';
+}
+$('pcLock').addEventListener('click',()=>{pcLocked=!pcLocked;try{localStorage.setItem('rc_pclock',pcLocked?'1':'0');}catch(e){}applyPcLock();});
+applyPcLock();
 function drawProfEditor(){
   const ctx=pcv.getContext('2d'),dpr=window.devicePixelRatio||1;
   const W=pcv.clientWidth,H=pcv.clientHeight;
@@ -584,7 +598,7 @@ function pcHit(x,y){const g=pcGeom;let best=null,bd=16;
   editPts.forEach((p,i)=>{const px=g.pL+(+p.t||0)/g.tMax*g.pw,py=g.pT+(1-(+p.sv||0)/260)*g.ph;
     const d=Math.hypot(px-x,py-y);if(d<bd){bd=d;best=i;}});return best;}
 pcv.addEventListener('pointerdown',ev=>{
-  if(!pcGeom)return;ev.preventDefault();pcv.setPointerCapture(ev.pointerId);
+  if(pcLocked||!pcGeom)return;ev.preventDefault();pcv.setPointerCapture(ev.pointerId);
   const{x,y}=pcXY(ev);let i=pcHit(x,y);
   if(i==null){const d=pcToData(x,y);
     let at=editPts.findIndex(p=>(+p.t||0)>d.t);if(at<0)at=editPts.length;
@@ -603,7 +617,7 @@ pcv.addEventListener('pointermove',ev=>{
 const pcEnd=()=>{if(!pcDrag)return;pcDrag=null;renderPoints();};
 pcv.addEventListener('pointerup',pcEnd);pcv.addEventListener('pointercancel',pcEnd);
 pcv.addEventListener('dblclick',ev=>{
-  if(!pcGeom)return;const{x,y}=pcXY(ev),i=pcHit(x,y);
+  if(pcLocked||!pcGeom)return;const{x,y}=pcXY(ev),i=pcHit(x,y);
   if(i!=null&&editPts.length>2){editPts.splice(i,1);pcDrag=null;renderPoints();}
 });
 function getPoints(){
