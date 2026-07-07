@@ -206,7 +206,7 @@
       <button id="evFc">First Crack</button>
       <button id="evDrop" class="danger">⏹ Drop</button>
     </div>
-    <div class="small" style="margin-top:8px" id="evTimes">Press <b>Charge</b> when beans go in to start the timer.</div>
+    <div class="small" style="margin-top:8px" id="evTimes">Press <b>Charge</b> when beans go in to start the timer. <b>Drop</b> also turns the heater off and sets the fan to 100% for cooling. When a running profile reaches its last point, the heater switches off automatically.</div>
     <hr>
     <div class="row">
       <div style="flex:2.2;min-width:170px"><div class="small" style="margin-bottom:3px">Bean / batch details</div><input id="beanInfo" type="text" placeholder="e.g. Timor Hybrid washed, crop 2025"></div>
@@ -386,14 +386,24 @@ function renderFields(nums){
 }
 
 // ---------- Commands ----------
-async function send(cmd){
-  if(!writeChar){log('⚠️ no write channel');return;}
-  try{const d=new TextEncoder().encode(cmd+'\n');
-    if(writeChar.properties.write&&writeChar.writeValueWithResponse)await writeChar.writeValueWithResponse(d);
-    else if(writeChar.writeValueWithoutResponse)await writeChar.writeValueWithoutResponse(d);
-    else await writeChar.writeValue(d);
-    log('TX '+cmd);
-  }catch(err){log('❌ TX '+err.message);}
+// All writes go through a queue: Web Bluetooth rejects overlapping GATT
+// operations, and a rejected write silently loses the command (this cost a
+// roast its fan setting). Queued = strictly one write in flight at a time.
+let txChain=Promise.resolve();
+function send(cmd){
+  if(!writeChar){log('⚠️ no write channel');return Promise.resolve();}
+  const run=async()=>{
+    if(!writeChar)return;
+    try{const d=new TextEncoder().encode(cmd+'\n');
+      if(writeChar.properties.write&&writeChar.writeValueWithResponse)await writeChar.writeValueWithResponse(d);
+      else if(writeChar.writeValueWithoutResponse)await writeChar.writeValueWithoutResponse(d);
+      else await writeChar.writeValue(d);
+      log('TX '+cmd);
+    }catch(err){log('❌ TX '+cmd+' — '+err.message);}
+  };
+  const p=txChain.then(run);
+  txChain=p;
+  return p;
 }
 function setSV(v){v=Math.max(0,Math.min(260,Math.round(v)));curSV=v;$('tSv').textContent=v;send('PID,SV,'+Math.abs(v)+' ');}
 function setPidPill(){const p=$('pidPill');if(p){p.textContent='PID '+(pidEngaged?'ON':'off');p.className='pill '+(pidEngaged?'on':'off');}}
@@ -733,19 +743,30 @@ async function startProfile(){
   const fan0=af?af.start:(pts[0].fan!=null?Math.round(pts[0].fan):40); send('IO3,'+fan0); await delay(300);
   if(!pidEngaged)await engagePID(pts[0].sv); else setSV(pts[0].sv);
   const startT=nowT();
-  profile={points:pts,startT,autoFan:af,lastFan:fan0,tid:setInterval(()=>{
+  profile={points:pts,startT,autoFan:af,lastFan:null,fanSentAt:null,tid:setInterval(()=>{   // lastFan null: first tick re-sends the fan even if the start command was lost
     const e=nowT()-startT,p=interpAt(pts,e);
     if(p){setSV(p.sv);
       let fv=null;
       if(af){const s=samples[samples.length-1];if(s&&s.bt!=null&&!Number.isNaN(s.bt))fv=autoFanAt(s.bt,af,endSv);}
       else if(p.fan!=null)fv=Math.round(p.fan);
-      if(!fanOverride&&fv!=null&&fv!==profile.lastFan){send('IO3,'+fv);profile.lastFan=fv;}}
-    if(e>=pts[pts.length-1].t)stopProfile();
+      if(!fanOverride&&fv!=null){
+        if(fv!==profile.lastFan){send('IO3,'+fv);profile.lastFan=fv;profile.fanSentAt=e;}
+        else{const s=samples[samples.length-1];                    // verify against telemetry: re-send if the roaster disagrees
+          if(s&&s.fan!=null&&!Number.isNaN(s.fan)&&Math.abs(s.fan-fv)>2&&(profile.fanSentAt==null||e-profile.fanSentAt>=10)){
+            send('IO3,'+fv);profile.fanSentAt=e;log('↻ re-sent fan '+fv+'% (roaster reports '+Math.round(s.fan)+'%)');}}}}
+    if(e>=pts[pts.length-1].t)finishProfile();
   },2000)};
   $('profRun').textContent='■ Stop profile';$('profRun').classList.remove('green');$('profRun').classList.add('danger');
   log('Running profile ('+pts.length+' points, ends '+fmt(pts[pts.length-1].t)+')');
 }
 function stopProfile(){if(profile){clearInterval(profile.tid);profile=null;}clearFanOverride();const b=$('profRun');if(b){b.textContent='▶ Run profile';b.classList.add('green');b.classList.remove('danger');}}
+function finishProfile(){                          // natural end of the curve: stop heating, don't hold the last setpoint
+  stopProfile();
+  send('PID,OFF ');pidEngaged=false;setPidPill();
+  setTimeout(()=>send('OT1,0'),250);
+  fireAlarm('✅ Profile complete — heater OFF. Drop the beans / start cooling.');
+  log('Profile complete — heater off');
+}
 
 // ---------- Between-batch protocol ----------
 let bbp=null;
@@ -919,7 +940,13 @@ $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;
   $('statsCard').style.display='none';$('alarmBanner').style.display='none';updateLiveBar();renderEvents();log('CHARGE');});
 $('evDry').addEventListener('click',()=>{if(chargeMs){events.dry=(Date.now()-chargeMs)/1000;renderEvents();}});
 $('evFc').addEventListener('click',()=>{if(chargeMs){events.fc=(Date.now()-chargeMs)/1000;alarms.minRor=null;renderEvents();}});
-$('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-chargeMs)/1000;renderEvents();autoSaveRoast();
+$('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-chargeMs)/1000;renderEvents();
+  if(writeChar&&$('enableControl').checked){                       // end of roast: heater off, fan to 100% for cooling
+    stopRamp();stopProfile();
+    send('PID,OFF ');pidEngaged=false;setPidPill();
+    setTimeout(()=>send('OT1,0'),250);setTimeout(()=>send('IO3,100'),500);
+    log('DROP — heater off, fan 100% for cooling');}
+  autoSaveRoast();
   renderStatsCard(roastStats(),+$('wIn').value,+$('wOut').value);updateLiveBar();}});
 function updateTimer(){$('tTimer').textContent=chargeMs?fmt((Date.now()-chargeMs)/1000):'0:00';}
 function updateLoss(){
