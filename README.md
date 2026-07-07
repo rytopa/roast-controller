@@ -17,6 +17,7 @@ It talks to the roaster over the open **TC4 / Artisan "Matchbox" serial protocol
 - **Roast session** — Charge / Dry End / First Crack / Drop markers, roast timer, and development-time %.
 - **Data** — save roasts and profiles locally (in the browser), reload past roasts to review, and export any roast to CSV.
 - **Manual controls** — fan, direct heater power, and PID on/off in an advanced section.
+- **Fan override during a roast** — adjust the fan by hand at any time (quick buttons, ±5 nudges, or a set value); doing so pauses the profile's fan commands for the rest of the roast while the PID temperature curve keeps running, with a one-tap "Resume profile fan" to hand it back.
 - **Day / night mode** — ☀️/🌙 toggle in the header; charts re-render with a matching palette and the choice is remembered.
 
 ## Requirements
