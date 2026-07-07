@@ -184,7 +184,7 @@
       <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge temp °C</div><input id="bbpCharge" type="number" min="120" max="240" value="180"></div>
       <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge fan %</div><input id="bbpFan" type="number" min="10" max="100" value="20"></div>
     </div>
-    <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="bbpAuto" checked><span><b>Auto-charge</b> — when the beans drop (BT plunges), mark Charge and run the selected profile automatically.</span></label>
+    <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="bbpAuto" checked><span><b>Auto-charge</b> — when the beans drop (BT plunges), mark Charge and start the profile loaded in the designer automatically. <b>No need to press ▶ Run profile</b> — the whole roast runs from this one button.</span></label>
     <button id="bbpStart" class="blue" style="width:100%">🔄 Start between-batch cycle</button>
     <div id="bbpStatus" class="small" style="margin-top:7px">Cools the machine (fan 100%, heater off) to the cool-to temp, then ramps gradually to your charge temp over <b>1 min</b> at the charge fan speed, holds it <b>30 s</b>, and lights up when it's time to drop the beans.</div>
     <div id="bbpLight" class="droplight" style="display:none">⬇ DROP BEANS NOW</div>
@@ -199,6 +199,13 @@
       <button id="evDrop" class="danger">⏹ Drop</button>
     </div>
     <div class="small" style="margin-top:8px" id="evTimes">Press <b>Charge</b> when beans go in to start the timer.</div>
+    <hr>
+    <div class="row">
+      <div style="flex:2.2;min-width:170px"><div class="small" style="margin-bottom:3px">Bean / batch details</div><input id="beanInfo" type="text" placeholder="e.g. Timor Hybrid washed, crop 2025"></div>
+      <div style="flex:1;min-width:86px"><div class="small" style="margin-bottom:3px">Green g</div><input id="wIn" type="number" min="0" inputmode="decimal"></div>
+      <div style="flex:1;min-width:86px"><div class="small" style="margin-bottom:3px">Roasted g</div><input id="wOut" type="number" min="0" inputmode="decimal"></div>
+    </div>
+    <div class="small" id="wLoss" style="margin-top:6px"></div>
   </div>
 
   <div class="panel">
@@ -701,6 +708,7 @@ async function startBBP(){
   bbp={phase:'cool',coolTo,chargeT,fanLow,heatStart:null,startSv:null,soakStart:null,readyMax:null,tid:setInterval(bbpTick,1000)};
   $('bbpStart').textContent='■ Cancel cycle';$('bbpStart').classList.remove('blue');$('bbpStart').classList.add('danger');
   log('BBP: cooling to '+coolTo+'°C (fan 100%, heater off), charge '+chargeT+'°C, fan '+fanLow+'%');
+  if($('bbpAuto').checked&&getPoints().length<2)log('⚠️ Auto-charge is on but no valid profile is loaded — load one before the beans go in.');
   bbpTick();
 }
 function stopBBP(reason,keepHeat){
@@ -736,7 +744,9 @@ function bbpTick(){
   }else if(b.phase==='ready'){
     if(!engaging)setSV(b.chargeT);
     b.readyMax=Math.max(b.readyMax,bt);
-    $('bbpStatus').innerHTML='✅ Holding '+b.chargeT+' °C — drop the beans'+($('bbpAuto').checked?' · watching for the drop…':'');
+    const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    const pname=$('profName').value.trim();
+    $('bbpStatus').innerHTML='✅ Holding '+b.chargeT+' °C — drop the beans'+($('bbpAuto').checked?' · will auto-run '+(pname?'“'+esc(pname)+'”':'the loaded profile'):'');
     if($('bbpAuto').checked&&bt<=b.readyMax-BBP_DROP_DELTA){
       log('BBP: bean drop detected (BT '+Math.round(bt)+'° from '+Math.round(b.readyMax)+'°)');
       stopBBP('charge',true);
@@ -751,8 +761,14 @@ function bbpTick(){
 $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;events.dry=events.fc=events.drop=null;renderEvents();log('CHARGE');});
 $('evDry').addEventListener('click',()=>{if(chargeMs){events.dry=(Date.now()-chargeMs)/1000;renderEvents();}});
 $('evFc').addEventListener('click',()=>{if(chargeMs){events.fc=(Date.now()-chargeMs)/1000;renderEvents();}});
-$('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-chargeMs)/1000;renderEvents();}});
+$('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-chargeMs)/1000;renderEvents();autoSaveRoast();}});
 function updateTimer(){$('tTimer').textContent=chargeMs?fmt((Date.now()-chargeMs)/1000):'0:00';}
+function updateLoss(){
+  const a=+$('wIn').value,b=+$('wOut').value;
+  $('wLoss').innerHTML=(a>0&&b>0&&b<=a)?'Weight loss: <b style="color:var(--text)">'+((1-b/a)*100).toFixed(1)+'%</b> ('+a+' g → '+b+' g)':'';
+  syncAutoSaved();
+}
+$('wIn').addEventListener('input',updateLoss);$('wOut').addEventListener('input',updateLoss);
 function renderEvents(){
   const parts=[];for(const kl of [['dry','Dry End'],['fc','First Crack'],['drop','Drop']])if(events[kl[0]]!=null)parts.push(kl[1]+' '+fmt(events[kl[0]]));
   $('evTimes').innerHTML=parts.length?parts.join(' · '):'Timer running…';
@@ -837,7 +853,13 @@ setInterval(()=>{if(connectMs)updateTimer();},1000);
 function evAt(t){for(const kl of [['charge','CHARGE'],['dry','DRY_END'],['fc','FIRST_CRACK'],['drop','DROP']]){if(events[kl[0]]!=null&&chargeMs&&connectMs){const et=(chargeMs-connectMs)/1000+events[kl[0]];if(Math.abs(t-et)<1)return kl[1];}}return'';}
 $('btnCsv').addEventListener('click',()=>{
   const num=(v,d)=>(v==null||Number.isNaN(v))?'':v.toFixed(d);
-  const csv='time_s,bean_bt,exhaust_et,heater_pct,fan_pct,target_sv,event,raw\n'+
+  let meta='';
+  const bean=$('beanInfo').value.trim(),wi=+$('wIn').value,wo=+$('wOut').value;
+  if(bean)meta+='# bean,"'+bean.replace(/"/g,'""')+'"\n';
+  if(wi>0)meta+='# green_g,'+wi+'\n';
+  if(wo>0)meta+='# roasted_g,'+wo+'\n';
+  if(wi>0&&wo>0&&wo<=wi)meta+='# weight_loss_pct,'+((1-wo/wi)*100).toFixed(1)+'\n';
+  const csv=meta+'time_s,bean_bt,exhaust_et,heater_pct,fan_pct,target_sv,event,raw\n'+
     samples.map(s=>s.t.toFixed(1)+','+num(s.bt,1)+','+num(s.et,1)+','+(s.heat==null?'':s.heat)+','+(s.fan==null?'':s.fan)+','+(s.sv==null?'':s.sv)+','+evAt(s.t)+',"'+((s.raw||'').replace(/"/g,'""'))+'"').join('\n');
   const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
   const a=document.createElement('a');a.href=url;a.download='roast.csv';document.body.appendChild(a);a.click();
@@ -849,19 +871,52 @@ $('btnClear').addEventListener('click',()=>{samples.length=0;btHist.length=0;$('
 const LOG_KEY='rc_logs_v1';
 function loadLogs(){try{return JSON.parse(localStorage.getItem(LOG_KEY)||'[]');}catch(e){return[];}}
 function saveLogs(a){try{localStorage.setItem(LOG_KEY,JSON.stringify(a));return true;}catch(e){alert('Storage full — export & delete old roasts to free space.');return false;}}
-function refreshRoastSelect(){const a=loadLogs(),s=$('roastSelect');s.innerHTML='<option value="">— saved roasts ('+a.length+') —</option>';a.slice().reverse().forEach(r=>{const o=document.createElement('option');o.value=r.id;o.textContent=r.name;s.appendChild(o);});}
+function refreshRoastSelect(){const a=loadLogs(),s=$('roastSelect');s.innerHTML='<option value="">— saved roasts ('+a.length+') —</option>';
+  a.slice().reverse().forEach(r=>{const o=document.createElement('option');o.value=r.id;
+    const d=r.date?new Date(r.date):null;
+    o.textContent=(d?d.toLocaleDateString(undefined,{month:'short',day:'numeric'})+' '+d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})+' · ':'')+r.name;
+    s.appendChild(o);});}
+function buildRoastRec(name){
+  return{id:'r'+Date.now(),name,date:new Date().toISOString(),
+    bean:$('beanInfo').value.trim(),weightIn:+$('wIn').value||null,weightOut:+$('wOut').value||null,
+    samples:samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv})),
+    events:Object.assign({},events)};
+}
+let autoSaved={charge:null,id:null};
+function autoSaveRoast(){                                   // every roast lands in the log at Drop
+  if(!samples.length||autoSaved.charge===chargeMs)return;
+  const rec=buildRoastRec($('beanInfo').value.trim()||'Roast');
+  const a=loadLogs();a.push(rec);
+  if(saveLogs(a)){autoSaved={charge:chargeMs,id:rec.id};refreshRoastSelect();log('💾 Roast auto-saved to the log: '+rec.name);}
+}
+function syncAutoSaved(){                                   // weights/bean typed after Drop update the saved record
+  if(!autoSaved.id||autoSaved.charge!==chargeMs)return;
+  const a=loadLogs(),r=a.find(x=>x.id===autoSaved.id);if(!r)return;
+  r.bean=$('beanInfo').value.trim();r.weightIn=+$('wIn').value||null;r.weightOut=+$('wOut').value||null;
+  saveLogs(a);
+}
+$('beanInfo').addEventListener('input',syncAutoSaved);
 $('btnSaveRoast').addEventListener('click',()=>{
   if(!samples.length){alert('No roast data on the chart yet.');return;}
-  const name=prompt('Name this roast:','Roast '+new Date().toLocaleString());if(name==null)return;
-  const rec={id:'r'+Date.now(),name:name||('Roast '+new Date().toLocaleString()),date:new Date().toISOString(),
-    samples:samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv})),events:Object.assign({},events)};
-  const a=loadLogs();a.push(rec);if(saveLogs(a)){refreshRoastSelect();log('Roast saved: '+rec.name);}
+  const bean=$('beanInfo').value.trim(),defName=bean||'Roast';
+  const name=prompt('Name this roast:',defName);if(name==null)return;
+  const a=loadLogs();
+  const ex=(autoSaved.id&&autoSaved.charge===chargeMs)?a.find(x=>x.id===autoSaved.id):null;
+  if(ex){                                                   // rename/refresh the auto-saved record instead of duplicating
+    ex.name=name||defName;ex.bean=bean;ex.weightIn=+$('wIn').value||null;ex.weightOut=+$('wOut').value||null;
+    ex.samples=samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv}));ex.events=Object.assign({},events);
+    if(saveLogs(a)){refreshRoastSelect();log('Roast updated: '+ex.name);}
+  }else{
+    const rec=buildRoastRec(name||defName);a.push(rec);
+    if(saveLogs(a)){autoSaved={charge:chargeMs,id:rec.id};refreshRoastSelect();log('Roast saved: '+rec.name);}
+  }
 });
 $('btnLoadRoast').addEventListener('click',()=>{
   const id=$('roastSelect').value;if(!id)return;const r=loadLogs().find(x=>x.id===id);if(!r)return;
   if(device&&device.gatt&&device.gatt.connected&&!confirm('Load a saved roast into the chart (replaces the current view)?'))return;
   samples.length=0;r.samples.forEach(s=>samples.push(Object.assign({raw:''},s)));
   Object.assign(events,{charge:null,dry:null,fc:null,drop:null},r.events||{});
+  $('beanInfo').value=r.bean||'';$('wIn').value=r.weightIn||'';$('wOut').value=r.weightOut||'';updateLoss();
   $('rowCount').textContent=samples.length+' samples · '+r.name;renderEvents();drawChart();log('Loaded roast: '+r.name);
 });
 $('btnDelRoast').addEventListener('click',()=>{const id=$('roastSelect').value;if(!id)return;if(!confirm('Delete this saved roast?'))return;saveLogs(loadLogs().filter(r=>r.id!==id));refreshRoastSelect();});
