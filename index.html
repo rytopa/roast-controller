@@ -961,7 +961,18 @@ $('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-c
     setTimeout(()=>send('OT1,0'),250);
     log('DROP — heater off (fan unchanged)');}
   autoSaveRoast();
-  renderStatsCard(roastStats(),+$('wIn').value,+$('wOut').value);updateLiveBar();}});
+  renderStatsCard(roastStats(),+$('wIn').value,+$('wOut').value);
+  resetRoastView();}});
+function resetRoastView(){                         // fresh chart for the next batch (the roast was just auto-saved)
+  samples.length=0;btHist.length=0;rxBuffer='';
+  Object.assign(events,{charge:null,dry:null,fc:null,drop:null});
+  chargeMs=null;if(connectMs)connectMs=Date.now(); // rebase the time axis
+  liveCross.de=liveCross.fc=null;alarms.temp=alarms.crash=alarms.flick=false;alarms.minRor=null;bgIdx=0;
+  curSV=null;$('tSv').textContent='—';
+  $('rowCount').textContent='0 samples';
+  $('evTimes').innerHTML='Roast saved &amp; chart reset — press <b>Charge</b> for the next batch (or Load the saved roast to review it).';
+  updateTimer();updateLiveBar();drawChart();
+}
 function updateTimer(){$('tTimer').textContent=chargeMs?fmt((Date.now()-chargeMs)/1000):'0:00';}
 function updateLoss(){
   const a=+$('wIn').value,b=+$('wOut').value;
