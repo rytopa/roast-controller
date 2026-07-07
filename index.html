@@ -126,6 +126,7 @@
     <div class="row" style="margin-top:8px;gap:6px;align-items:center">
       <label class="ck" style="margin:0"><input type="checkbox" id="alarmRor" checked><span>RoR crash / flick warnings</span></label>
       <span class="small">· Alert at BT</span><input id="alarmTemp" type="number" min="0" max="260" placeholder="e.g. 195" style="width:84px"><span class="small">°C</span>
+      <span class="small">· RoR window</span><input id="rorWin" type="number" min="5" max="60" value="15" style="width:64px"><span class="small">s</span>
     </div>
     <div id="alarmBanner" class="banner err" style="display:none;margin:8px 0 0"></div>
   </div>
@@ -157,8 +158,11 @@
     <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:10px;align-items:start">
       <span class="small" style="padding-top:9px">Notes</span><textarea id="profNotes" rows="3" placeholder="short write-up: bean, roast level, what the curve is doing… (saved & exported with the profile)"></textarea>
     </div>
+    <div class="row" style="justify-content:flex-end;margin-bottom:6px">
+      <button id="pcLock" style="padding:5px 11px;font-size:12.5px">🔒 Graph locked — tap to edit</button>
+    </div>
     <canvas id="profCanvas" style="height:200px;touch-action:none;margin-bottom:6px"></canvas>
-    <div class="small" style="margin-bottom:8px">✏️ <b>Drag points</b> to shape the curve · <b>press empty space</b> to add a point · <b>double-tap a point</b> to delete. Dashed pink = the RoR each segment implies (0–30 °C/min) · dashed grey = fan % (right scale; auto-fan curve or the table's fan values). Fine-tune times/temps and set fan % in the table.</div>
+    <div class="small" style="margin-bottom:8px">✏️ Unlock the graph, then <b>drag points</b> to shape the curve · <b>press empty space</b> to add a point · <b>double-tap a point</b> to delete. Dashed pink = the RoR each segment implies (0–30 °C/min) · dashed grey = fan % (right scale; auto-fan curve or the table's fan values). Fine-tune times/temps and set fan % in the table.</div>
     <div class="row" style="gap:6px;align-items:center;margin-bottom:6px">
       <span class="small"><b>Phases</b> — DE at</span><input id="phDE" type="number" min="100" max="200" value="160" style="width:64px"><span class="small">°C · FC at</span><input id="phFC" type="number" min="150" max="240" value="200" style="width:64px"><span class="small">°C</span>
     </div>
@@ -205,7 +209,7 @@
       <button id="evFc">First Crack</button>
       <button id="evDrop" class="danger">⏹ Drop</button>
     </div>
-    <div class="small" style="margin-top:8px" id="evTimes">Press <b>Charge</b> when beans go in to start the timer.</div>
+    <div class="small" style="margin-top:8px" id="evTimes">Press <b>Charge</b> when beans go in to start the timer. <b>Drop</b> also turns the heater off (the fan keeps its current speed). When a running profile reaches its last point, the heater switches off automatically.</div>
     <hr>
     <div class="row">
       <div style="flex:2.2;min-width:170px"><div class="small" style="margin-bottom:3px">Bean / batch details</div><input id="beanInfo" type="text" placeholder="e.g. Timor Hybrid washed, crop 2025"></div>
@@ -297,6 +301,7 @@ function log(m){const el=$('log');const ts=connectMs?((Date.now()-connectMs)/100
 function nowT(){return connectMs?(Date.now()-connectMs)/1000:0;}
 function fmt(s){s=Math.max(0,Math.floor(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
 if(!navigator.bluetooth){$('supportBanner').style.display='block';$('btnConnect').disabled=true;}
+function rorWinS(){return Math.max(5,Math.min(60,+document.getElementById('rorWin').value||15));}
 
 $('enableControl').addEventListener('change',e=>{const on=e.target.checked&&writeChar;$('controls').style.opacity=on?'1':'.4';$('controls').style.pointerEvents=on?'auto':'none';});
 
@@ -364,8 +369,9 @@ function processLine(line){
     bt=f.bt;et=f.et;heat=Math.round(f.heat);fan=Math.round(f.fan);
     $('tBt').textContent=Math.round(bt);$('tEt').textContent=Math.round(et);$('tHeat').textContent=heat;$('tFan').textContent=fan;
     const ms=Date.now(); btHist.push({ms,bt}); while(btHist.length&&ms-btHist[0].ms>60000)btHist.shift();
-    let ror='—'; const past=btHist.find(s=>ms-s.ms>=15000);
-    if(past){const dt=(ms-past.ms)/1000; if(dt>0)ror=Math.round((bt-past.bt)/dt*60);}
+    let ror='—';const win=rorWinS()*1000;let past=null;
+    for(let k=btHist.length-1;k>=0;k--){if(ms-btHist[k].ms>=win){past=btHist[k];break;}}
+    if(past){const dt=(ms-past.ms)/1000; if(dt>0)ror=+((bt-past.bt)/dt*60).toFixed(1);}
     $('tRor').textContent=ror;
     liveTrack(bt,typeof ror==='number'?ror:null);
   }
@@ -383,14 +389,24 @@ function renderFields(nums){
 }
 
 // ---------- Commands ----------
-async function send(cmd){
-  if(!writeChar){log('⚠️ no write channel');return;}
-  try{const d=new TextEncoder().encode(cmd+'\n');
-    if(writeChar.properties.write&&writeChar.writeValueWithResponse)await writeChar.writeValueWithResponse(d);
-    else if(writeChar.writeValueWithoutResponse)await writeChar.writeValueWithoutResponse(d);
-    else await writeChar.writeValue(d);
-    log('TX '+cmd);
-  }catch(err){log('❌ TX '+err.message);}
+// All writes go through a queue: Web Bluetooth rejects overlapping GATT
+// operations, and a rejected write silently loses the command (this cost a
+// roast its fan setting). Queued = strictly one write in flight at a time.
+let txChain=Promise.resolve();
+function send(cmd){
+  if(!writeChar){log('⚠️ no write channel');return Promise.resolve();}
+  const run=async()=>{
+    if(!writeChar)return;
+    try{const d=new TextEncoder().encode(cmd+'\n');
+      if(writeChar.properties.write&&writeChar.writeValueWithResponse)await writeChar.writeValueWithResponse(d);
+      else if(writeChar.writeValueWithoutResponse)await writeChar.writeValueWithoutResponse(d);
+      else await writeChar.writeValue(d);
+      log('TX '+cmd);
+    }catch(err){log('❌ TX '+cmd+' — '+err.message);}
+  };
+  const p=txChain.then(run);
+  txChain=p;
+  return p;
 }
 function setSV(v){v=Math.max(0,Math.min(260,Math.round(v)));curSV=v;$('tSv').textContent=v;send('PID,SV,'+Math.abs(v)+' ');}
 function setPidPill(){const p=$('pidPill');if(p){p.textContent='PID '+(pidEngaged?'ON':'off');p.className='pill '+(pidEngaged?'on':'off');}}
@@ -510,9 +526,22 @@ $('phDE').addEventListener('change',()=>{renderPhaseBar();savePhaseTemps();});
 $('phFC').addEventListener('change',()=>{renderPhaseBar();savePhaseTemps();});
 function savePhaseTemps(){try{localStorage.setItem('rc_phases',JSON.stringify({de:+$('phDE').value||160,fc:+$('phFC').value||200}));}catch(e){}}
 try{const pt=JSON.parse(localStorage.getItem('rc_phases')||'null');if(pt){$('phDE').value=pt.de;$('phFC').value=pt.fc;}}catch(e){}
+$('rorWin').addEventListener('change',()=>{drawChart();try{localStorage.setItem('rc_rorwin',rorWinS());}catch(e){}});
+try{const rw=+localStorage.getItem('rc_rorwin');if(rw)$('rorWin').value=Math.max(5,Math.min(60,rw));}catch(e){}
 
 // ---------- Graph-driven profile editor ----------
 const pcv=$('profCanvas');let pcGeom=null,pcDrag=null;
+let pcLocked=true;                                 // locked by default: an accidental swipe must not bend the curve
+try{pcLocked=(localStorage.getItem('rc_pclock')??'1')==='1';}catch(e){}
+function applyPcLock(){
+  $('pcLock').textContent=pcLocked?'🔒 Graph locked — tap to edit':'🔓 Editing on — tap to lock';
+  $('pcLock').classList.toggle('green',!pcLocked);
+  pcv.style.touchAction=pcLocked?'auto':'none';    // locked: swipes scroll the page as normal
+  pcv.style.cursor=pcLocked?'default':'crosshair';
+  pcv.style.opacity=pcLocked?'.85':'1';
+}
+$('pcLock').addEventListener('click',()=>{pcLocked=!pcLocked;try{localStorage.setItem('rc_pclock',pcLocked?'1':'0');}catch(e){}applyPcLock();});
+applyPcLock();
 function drawProfEditor(){
   const ctx=pcv.getContext('2d'),dpr=window.devicePixelRatio||1;
   const W=pcv.clientWidth,H=pcv.clientHeight;
@@ -569,7 +598,7 @@ function pcHit(x,y){const g=pcGeom;let best=null,bd=16;
   editPts.forEach((p,i)=>{const px=g.pL+(+p.t||0)/g.tMax*g.pw,py=g.pT+(1-(+p.sv||0)/260)*g.ph;
     const d=Math.hypot(px-x,py-y);if(d<bd){bd=d;best=i;}});return best;}
 pcv.addEventListener('pointerdown',ev=>{
-  if(!pcGeom)return;ev.preventDefault();pcv.setPointerCapture(ev.pointerId);
+  if(pcLocked||!pcGeom)return;ev.preventDefault();pcv.setPointerCapture(ev.pointerId);
   const{x,y}=pcXY(ev);let i=pcHit(x,y);
   if(i==null){const d=pcToData(x,y);
     let at=editPts.findIndex(p=>(+p.t||0)>d.t);if(at<0)at=editPts.length;
@@ -588,7 +617,7 @@ pcv.addEventListener('pointermove',ev=>{
 const pcEnd=()=>{if(!pcDrag)return;pcDrag=null;renderPoints();};
 pcv.addEventListener('pointerup',pcEnd);pcv.addEventListener('pointercancel',pcEnd);
 pcv.addEventListener('dblclick',ev=>{
-  if(!pcGeom)return;const{x,y}=pcXY(ev),i=pcHit(x,y);
+  if(pcLocked||!pcGeom)return;const{x,y}=pcXY(ev),i=pcHit(x,y);
   if(i!=null&&editPts.length>2){editPts.splice(i,1);pcDrag=null;renderPoints();}
 });
 function getPoints(){
@@ -728,19 +757,30 @@ async function startProfile(){
   const fan0=af?af.start:(pts[0].fan!=null?Math.round(pts[0].fan):40); send('IO3,'+fan0); await delay(300);
   if(!pidEngaged)await engagePID(pts[0].sv); else setSV(pts[0].sv);
   const startT=nowT();
-  profile={points:pts,startT,autoFan:af,lastFan:fan0,tid:setInterval(()=>{
+  profile={points:pts,startT,autoFan:af,lastFan:null,fanSentAt:null,tid:setInterval(()=>{   // lastFan null: first tick re-sends the fan even if the start command was lost
     const e=nowT()-startT,p=interpAt(pts,e);
     if(p){setSV(p.sv);
       let fv=null;
       if(af){const s=samples[samples.length-1];if(s&&s.bt!=null&&!Number.isNaN(s.bt))fv=autoFanAt(s.bt,af,endSv);}
       else if(p.fan!=null)fv=Math.round(p.fan);
-      if(!fanOverride&&fv!=null&&fv!==profile.lastFan){send('IO3,'+fv);profile.lastFan=fv;}}
-    if(e>=pts[pts.length-1].t)stopProfile();
+      if(!fanOverride&&fv!=null){
+        if(fv!==profile.lastFan){send('IO3,'+fv);profile.lastFan=fv;profile.fanSentAt=e;}
+        else{const s=samples[samples.length-1];                    // verify against telemetry: re-send if the roaster disagrees
+          if(s&&s.fan!=null&&!Number.isNaN(s.fan)&&Math.abs(s.fan-fv)>2&&(profile.fanSentAt==null||e-profile.fanSentAt>=10)){
+            send('IO3,'+fv);profile.fanSentAt=e;log('↻ re-sent fan '+fv+'% (roaster reports '+Math.round(s.fan)+'%)');}}}}
+    if(e>=pts[pts.length-1].t)finishProfile();
   },2000)};
   $('profRun').textContent='■ Stop profile';$('profRun').classList.remove('green');$('profRun').classList.add('danger');
   log('Running profile ('+pts.length+' points, ends '+fmt(pts[pts.length-1].t)+')');
 }
 function stopProfile(){if(profile){clearInterval(profile.tid);profile=null;}clearFanOverride();const b=$('profRun');if(b){b.textContent='▶ Run profile';b.classList.add('green');b.classList.remove('danger');}}
+function finishProfile(){                          // natural end of the curve: stop heating, don't hold the last setpoint
+  stopProfile();
+  send('PID,OFF ');pidEngaged=false;setPidPill();
+  setTimeout(()=>send('OT1,0'),250);
+  fireAlarm('✅ Profile complete — heater OFF. Drop the beans / start cooling.');
+  log('Profile complete — heater off');
+}
 
 // ---------- Between-batch protocol ----------
 let bbp=null;
@@ -914,7 +954,13 @@ $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;
   $('statsCard').style.display='none';$('alarmBanner').style.display='none';updateLiveBar();renderEvents();log('CHARGE');});
 $('evDry').addEventListener('click',()=>{if(chargeMs){events.dry=(Date.now()-chargeMs)/1000;renderEvents();}});
 $('evFc').addEventListener('click',()=>{if(chargeMs){events.fc=(Date.now()-chargeMs)/1000;alarms.minRor=null;renderEvents();}});
-$('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-chargeMs)/1000;renderEvents();autoSaveRoast();
+$('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-chargeMs)/1000;renderEvents();
+  if(writeChar&&$('enableControl').checked){                       // end of roast: heater off; fan left as-is (a blast would eject the beans)
+    stopRamp();stopProfile();
+    send('PID,OFF ');pidEngaged=false;setPidPill();
+    setTimeout(()=>send('OT1,0'),250);
+    log('DROP — heater off (fan unchanged)');}
+  autoSaveRoast();
   renderStatsCard(roastStats(),+$('wIn').value,+$('wOut').value);updateLiveBar();}});
 function updateTimer(){$('tTimer').textContent=chargeMs?fmt((Date.now()-chargeMs)/1000):'0:00';}
 function updateLoss(){
@@ -1005,11 +1051,12 @@ function drawChart(){
   const line=(key,col,dash,Yf,wid)=>{ctx.strokeStyle=col;ctx.lineWidth=wid||2;ctx.setLineDash(dash||[]);ctx.beginPath();let started=false;
     for(const s of samples){const v=s[key];if(v==null||Number.isNaN(v)){continue;}const x=X(s.t),y=(Yf||Y)(v);if(!started){ctx.moveTo(x,y);started=true;}else ctx.lineTo(x,y);}ctx.stroke();ctx.setLineDash([]);};
   line('fan',P.fan,[2,3],Y2,1.4);line('heat',P.heat,null,Y2,1.4);
-  {const bp=samples.filter(s=>s.bt!=null&&!Number.isNaN(s.bt));   // actual BT RoR over a ~30 s window
+  {const bp=samples.filter(s=>s.bt!=null&&!Number.isNaN(s.bt));   // actual BT RoR over the configurable window
+   const wn=rorWinS();
    ctx.strokeStyle=P.ror;ctx.lineWidth=1.4;ctx.beginPath();let st=false,j=0;
    for(let i=0;i<bp.length;i++){const s=bp[i];
-     while(j<i&&s.t-bp[j].t>30)j++;
-     const p0=bp[j];if(s.t-p0.t<10)continue;
+     while(j<i&&s.t-bp[j].t>wn)j++;
+     const p0=bp[j];if(s.t-p0.t<Math.max(4,wn*0.5))continue;
      const r=Math.max(0,Math.min(30,(s.bt-p0.bt)/(s.t-p0.t)*60));
      const x=X(s.t),y=Yr(r);if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}
    ctx.stroke();}
