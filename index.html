@@ -162,7 +162,8 @@
     <div class="row" style="gap:6px;align-items:center;margin-bottom:6px">
       <span class="small"><b>Phases</b> — DE at</span><input id="phDE" type="number" min="100" max="200" value="160" style="width:64px"><span class="small">°C · FC at</span><input id="phFC" type="number" min="150" max="240" value="200" style="width:64px"><span class="small">°C</span>
     </div>
-    <div id="phaseBar" style="display:flex;height:30px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin-bottom:12px;font-size:11.5px;font-weight:700"></div>
+    <div id="phaseBar" style="display:flex;height:30px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin-bottom:6px;font-size:11.5px;font-weight:700"></div>
+    <div class="small" id="rorInfo" style="margin-bottom:12px"></div>
     <div class="ptbl"><span class="hd">Time m:ss</span><span class="hd">Target °C</span><span class="hd">Fan % (opt)</span><span></span></div>
     <div id="ptPoints"></div>
     <div class="row" style="margin:8px 0 6px;align-items:center">
@@ -477,9 +478,21 @@ function crossTime(pts,temp){
     if(a.sv<temp&&b.sv>=temp)return a.t+(b.t-a.t)*(temp-a.sv)/((b.sv-a.sv)||1);}
   return null;
 }
+function planRorInfo(){                              // planned RoR approaching FC and over the final minute
+  const pts=getPoints();if(pts.length<2)return null;
+  const t1=pts[pts.length-1].t;
+  const svAt=e=>interpAt(pts,e).sv;
+  const slope=(a,b)=>{a=Math.max(pts[0].t,a);b=Math.min(t1,b);return b-a>=10?(svAt(b)-svAt(a))/(b-a)*60:null;};
+  const fcT=Math.max(+$('phDE').value||160,+$('phFC').value||200);
+  const tFC=crossTime(pts,fcT);
+  return{tFC,t1,intoFc:tFC!=null?slope(tFC-60,tFC):null,end:slope(t1-60,t1)};
+}
 function renderPhaseBar(){
   const box=$('phaseBar'),pts=getPoints();
-  if(pts.length<2){box.style.display='none';return;}
+  if(pts.length<2){box.style.display='none';$('rorInfo').textContent='';return;}
+  const ri=planRorInfo();
+  $('rorInfo').innerHTML=ri?('Planned RoR — into FC: <b style="color:var(--text)">'+(ri.intoFc!=null?ri.intoFc.toFixed(1):'—')
+    +'</b> °C/min · ending: <b style="color:var(--text)">'+(ri.end!=null?ri.end.toFixed(1):'—')+'</b> °C/min'):'';
   box.style.display='flex';
   const de=+$('phDE').value||160,fc=Math.max((+$('phDE').value||160),+$('phFC').value||200);
   const t0=pts[0].t,t1=pts[pts.length-1].t,total=Math.max(1,t1-t0);
@@ -534,7 +547,11 @@ function drawProfEditor(){
       const lo=Math.max(t0,e-30),hi=Math.min(t1,e+30),dt=hi-lo;
       const r=dt>0?Math.max(0,Math.min(30,(interpAt(pts,hi).sv-interpAt(pts,lo).sv)/dt*60)):0;
       const x=X(e),y=Yr(r);if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}
-    ctx.stroke();ctx.setLineDash([]);}
+    ctx.stroke();ctx.setLineDash([]);
+    const ri=planRorInfo();                        // annotate RoR into FC and at the end
+    if(ri){ctx.fillStyle=P.planRor;ctx.font='600 11px system-ui';
+      if(ri.intoFc!=null&&ri.tFC!=null)ctx.fillText(ri.intoFc.toFixed(1),Math.min(X(ri.tFC),W-pR-26)+3,Yr(Math.max(0,Math.min(30,ri.intoFc)))-5);
+      if(ri.end!=null)ctx.fillText(ri.end.toFixed(1)+' →',Math.min(X(ri.t1),W-pR-34)+3,Yr(Math.max(0,Math.min(30,ri.end)))-5);}}
   ctx.strokeStyle=P.sv;ctx.lineWidth=2;ctx.beginPath();
   pts.forEach((p,i)=>{const x=X(p.t),y=Y(p.sv);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.stroke();
   pts.forEach(p=>{const x=X(p.t),y=Y(p.sv),sel=pcDrag&&pcDrag.i===p.i;
