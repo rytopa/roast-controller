@@ -206,7 +206,7 @@
       <button id="evFc">First Crack</button>
       <button id="evDrop" class="danger">⏹ Drop</button>
     </div>
-    <div class="small" style="margin-top:8px" id="evTimes">Press <b>Charge</b> when beans go in to start the timer. <b>Drop</b> also turns the heater off and sets the fan to 100% for cooling. When a running profile reaches its last point, the heater switches off automatically.</div>
+    <div class="small" style="margin-top:8px" id="evTimes">Press <b>Charge</b> when beans go in to start the timer. <b>Drop</b> also turns the heater off (the fan keeps its current speed). When a running profile reaches its last point, the heater switches off automatically.</div>
     <hr>
     <div class="row">
       <div style="flex:2.2;min-width:170px"><div class="small" style="margin-bottom:3px">Bean / batch details</div><input id="beanInfo" type="text" placeholder="e.g. Timor Hybrid washed, crop 2025"></div>
@@ -941,11 +941,11 @@ $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;
 $('evDry').addEventListener('click',()=>{if(chargeMs){events.dry=(Date.now()-chargeMs)/1000;renderEvents();}});
 $('evFc').addEventListener('click',()=>{if(chargeMs){events.fc=(Date.now()-chargeMs)/1000;alarms.minRor=null;renderEvents();}});
 $('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-chargeMs)/1000;renderEvents();
-  if(writeChar&&$('enableControl').checked){                       // end of roast: heater off, fan to 100% for cooling
+  if(writeChar&&$('enableControl').checked){                       // end of roast: heater off; fan left as-is (a blast would eject the beans)
     stopRamp();stopProfile();
     send('PID,OFF ');pidEngaged=false;setPidPill();
-    setTimeout(()=>send('OT1,0'),250);setTimeout(()=>send('IO3,100'),500);
-    log('DROP — heater off, fan 100% for cooling');}
+    setTimeout(()=>send('OT1,0'),250);
+    log('DROP — heater off (fan unchanged)');}
   autoSaveRoast();
   renderStatsCard(roastStats(),+$('wIn').value,+$('wOut').value);updateLiveBar();}});
 function updateTimer(){$('tTimer').textContent=chargeMs?fmt((Date.now()-chargeMs)/1000):'0:00';}
