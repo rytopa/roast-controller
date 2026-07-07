@@ -63,7 +63,7 @@ You can have an AI assistant (e.g. Claude) design a roast curve and load it stra
 - `time` — minutes:seconds from Charge (also accepts plain seconds, `8'0`, or `8m`).
 - `targetC` — PID target in °C (clamped to 0–260).
 - `fanPct` — optional fan 0–100; omit it to keep the fan under manual control.
-- `autoFan` — optional `{ "startPct": 60 }`: bean-temp-driven fan schedule (hold the start speed early, ease down gently until BT 160 °C, then drop faster to a floor 30 % below the start). Overrides per-point `fanPct` while running.
+- `autoFan` — optional `{ "startPct": 60, "dropPct": 30, "mode": "knee" }`: bean-temp-driven fan schedule declining from the start speed to a floor `dropPct` below it, shaped by `mode` (`knee` gentle-then-faster around 160 °C · `hold` flat then straight down · `linear` even decline · `steps` at the DE/FC temps). Overrides per-point `fanPct` while running.
 - `notes` — optional short write-up of the profile (intent, bean/batch, RoR deltas, drop target). Shown in the designer's Notes box and kept with the saved profile.
 - At least 2 points; they're sorted by time on import. Import fills the designer — review the curve and notes, then **Save profile**.
 
