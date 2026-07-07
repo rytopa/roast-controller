@@ -158,7 +158,7 @@
       <span class="small" style="padding-top:9px">Notes</span><textarea id="profNotes" rows="3" placeholder="short write-up: bean, roast level, what the curve is doing… (saved & exported with the profile)"></textarea>
     </div>
     <canvas id="profCanvas" style="height:200px;touch-action:none;margin-bottom:6px"></canvas>
-    <div class="small" style="margin-bottom:8px">✏️ <b>Drag points</b> to shape the curve · <b>press empty space</b> to add a point · <b>double-tap a point</b> to delete. Dashed pink = the RoR each segment implies (0–30 °C/min). Fine-tune times/temps and set fan % in the table.</div>
+    <div class="small" style="margin-bottom:8px">✏️ <b>Drag points</b> to shape the curve · <b>press empty space</b> to add a point · <b>double-tap a point</b> to delete. Dashed pink = the RoR each segment implies (0–30 °C/min) · dashed grey = fan % (right scale; auto-fan curve or the table's fan values). Fine-tune times/temps and set fan % in the table.</div>
     <div class="row" style="gap:6px;align-items:center;margin-bottom:6px">
       <span class="small"><b>Phases</b> — DE at</span><input id="phDE" type="number" min="100" max="200" value="160" style="width:64px"><span class="small">°C · FC at</span><input id="phFC" type="number" min="150" max="240" value="200" style="width:64px"><span class="small">°C</span>
     </div>
@@ -505,15 +505,29 @@ function drawProfEditor(){
   const W=pcv.clientWidth,H=pcv.clientHeight;
   if(pcv.width!==Math.round(W*dpr)){pcv.width=W*dpr;pcv.height=H*dpr;}
   ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
-  const pL=32,pR=8,pT=10,pB=16,pw=W-pL-pR,ph=H-pT-pB;
+  const pL=32,pR=30,pT=10,pB=16,pw=W-pL-pR,ph=H-pT-pB;
   const pts=editPts.map((p,i)=>({i,t:+p.t||0,sv:+p.sv||0})).sort((a,b)=>a.t-b.t);
   const tMax=Math.max(600,(pts.length?pts[pts.length-1].t:0)+60);
-  const X=t=>pL+t/tMax*pw,Y=v=>pT+(1-v/260)*ph,Yr=v=>pT+(1-v/30)*ph;
+  const X=t=>pL+t/tMax*pw,Y=v=>pT+(1-v/260)*ph,Yr=v=>pT+(1-v/30)*ph,Y2=v=>pT+(1-v/100)*ph;
   pcGeom={pL,pT,pw,ph,tMax};
   const P=pal();
   ctx.strokeStyle=P.grid;ctx.fillStyle=P.label;ctx.lineWidth=1;ctx.font='10px system-ui';
   for(let v=0;v<=260;v+=50){const y=Y(v);ctx.beginPath();ctx.moveTo(pL,y);ctx.lineTo(W-pR,y);ctx.stroke();ctx.fillText(v,3,y+3);}
+  for(let v=0;v<=100;v+=25){ctx.fillText(v+'%',W-pR+3,Y2(v)+3);}
   for(let s=0;s<=tMax;s+=60){const x=X(s);ctx.beginPath();ctx.moveTo(x,pT);ctx.lineTo(x,H-pB);ctx.stroke();ctx.fillText((s/60)+'m',x-4,H-4);}
+  {const gp=getPoints(),paf=uiAutoFan();                             // fan overlay: auto-fan curve or per-point values
+   if(gp.length>=2){ctx.setLineDash([2,4]);ctx.strokeStyle=P.planFan;ctx.lineWidth=1.4;
+     if(paf){const endSv=Math.max(175,gp[gp.length-1].sv);ctx.beginPath();let st=false;
+       for(let e=gp[0].t;e<=gp[gp.length-1].t;e+=10){const q=interpAt(gp,e);
+         const x=X(e),y=Y2(autoFanAt(q.sv,paf,endSv));if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}
+       ctx.stroke();}
+     else{const fp=gp.filter(p=>p.fan!=null);
+       if(fp.length){ctx.beginPath();let st=false;
+         for(const p of fp){const x=X(p.t),y=Y2(p.fan);if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}
+         ctx.stroke();
+         ctx.setLineDash([]);ctx.fillStyle=P.fan;
+         fp.forEach(p=>{ctx.beginPath();ctx.arc(X(p.t),Y2(p.fan),3,0,7);ctx.fill();});}}
+     ctx.setLineDash([]);}}
   if(pts.length>=2){ctx.strokeStyle=P.planRor;ctx.setLineDash([3,3]);ctx.lineWidth=1.4;ctx.beginPath();   // implied RoR: smooth 60s-window slope curve
     const t0=pts[0].t,t1=pts[pts.length-1].t;let st=false;
     for(let e=t0;e<=t1;e+=5){
@@ -673,10 +687,11 @@ function uiAutoFan(){return $('fanAuto').checked?{
   start:Math.max(10,Math.min(100,parseInt($('fanStart').value,10)||60)),
   end:Math.max(5,Math.min(100,parseInt($('fanEnd').value,10)||42)),
   mode:FAN_MODES.includes($('fanMode').value)?$('fanMode').value:'knee'}:null;}
-$('fanAuto').addEventListener('change',drawChart);
-$('fanStart').addEventListener('change',drawChart);
-$('fanEnd').addEventListener('change',drawChart);
-$('fanMode').addEventListener('change',drawChart);
+const redrawFan=()=>{drawChart();drawProfEditor();};
+$('fanAuto').addEventListener('change',redrawFan);
+$('fanStart').addEventListener('change',redrawFan);
+$('fanEnd').addEventListener('change',redrawFan);
+$('fanMode').addEventListener('change',redrawFan);
 
 function interpAt(pts,e){
   if(!pts.length)return null;
