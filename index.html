@@ -201,6 +201,9 @@
         <option value="40">Smooth: heavy (40 s)</option>
       </select>
     </div>
+    <div class="row" style="margin-bottom:8px;align-items:center">
+      <span class="small"><b>Drop at BT</b></span><input id="etEndBt" type="number" min="150" max="250" style="width:80px"><span class="small">°C — the run ends (heater off) when the bean temp reaches this, not on the reference's clock.</span>
+    </div>
     <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="etArm"><span><b>Arm for auto-charge</b> — the bean-drop detection starts this ET-track run instead of the normal profile, and the reference shows as the chart background.</span></label>
     <button id="etRunBtn" class="green" style="width:100%">▶ Start ET-track run</button>
     <div class="small" id="etStatus" style="margin-top:7px">Replays a captured roast by its <b>exhaust temp</b>: pick a saved roast, and the app follows its ET curve — feedforward from the reference's recorded heater % plus PID trim on the ET error — while replaying its fan. <b>Smooth</b> cleans the captured line before it becomes the target.</div>
@@ -835,7 +838,12 @@ function buildEtRef(){
   const base=bgBaseOf(rec);
   let endT=null;for(let i=sm.length-1;i>=0;i--){if(sm[i].et!=null&&!Number.isNaN(sm[i].et)){endT=sm[i].t;break;}}
   if(endT==null||endT-base<30)return null;
-  return{name:rec.name,samples:sm,events:rec.events||{},base,endE:endT-base,_i:0};
+  const ev=rec.events||{};                                            // ending BT = BT at the reference's drop (or last valid BT)
+  let endBt=null;
+  const dropT=ev.drop!=null?base+ev.drop:null;
+  if(dropT!=null){let bd=1e9;for(const q of rec.samples){if(q.bt==null||Number.isNaN(q.bt))continue;const d=Math.abs(q.t-dropT);if(d<bd){bd=d;endBt=q.bt;}}if(bd>10)endBt=null;}
+  if(endBt==null)for(let i=rec.samples.length-1;i>=0;i--){const b=rec.samples[i].bt;if(b!=null&&!Number.isNaN(b)){endBt=b;break;}}
+  return{name:rec.name,samples:sm,events:ev,base,endE:endT-base,endBt:endBt!=null?Math.round(endBt):null,_i:0};
 }
 function refAt(ref,e,key){                             // interpolate the reference at e seconds after its charge
   const t=ref.base+e,ss=ref.samples;
@@ -854,15 +862,16 @@ function applyEtRef(){
   if(etRef){
     bg={name:etRef.name+' (ET ref)',samples:etRef.samples,events:etRef.events,base:etRef.base};bgIdx=0;
     $('bgName').textContent='BG: '+etRef.name+' (ET ref)';$('btnBgClear').style.display='';
+    if(etRef.endBt!=null)$('etEndBt').value=etRef.endBt;              // prefill the drop-at-BT from the reference
   }
   drawChart();saveEtPrefs();
 }
-function saveEtPrefs(){try{localStorage.setItem('rc_etrun',JSON.stringify({id:$('etSel').value,sm:$('etSmooth').value,
+function saveEtPrefs(){try{localStorage.setItem('rc_etrun',JSON.stringify({id:$('etSel').value,sm:$('etSmooth').value,endBt:$('etEndBt').value,
   kp:$('etKp').value,ki:$('etKi').value,kd:$('etKd').value,slew:$('etSlew').value,max:$('etMax').value}));}catch(e){}}
 $('etSel').addEventListener('change',()=>{if(!etRun)applyEtRef();});
 $('etSmooth').addEventListener('change',()=>{if(!etRun)applyEtRef();});
 $('etArm').addEventListener('change',()=>{if($('etArm').checked&&!etRef&&!etRun)applyEtRef();});
-['etKp','etKi','etKd','etSlew','etMax'].forEach(id=>$(id).addEventListener('change',saveEtPrefs));
+['etKp','etKi','etKd','etSlew','etMax','etEndBt'].forEach(id=>$(id).addEventListener('change',saveEtPrefs));
 
 $('etRunBtn').addEventListener('click',()=>{etRun?stopEtRun('stopped by user'):startEtRun();});
 async function startEtRun(){
@@ -879,7 +888,8 @@ async function startEtRun(){
   etRun={startT:nowT(),integ:0,lastOut:out0,lastFan:fan0,tid:setInterval(etTick,2000)};
   $('etSel').disabled=$('etSmooth').disabled=true;
   $('etRunBtn').textContent='■ Stop ET-track';$('etRunBtn').classList.remove('green');$('etRunBtn').classList.add('danger');
-  log('ET-track started: '+etRef.name+' (ends '+fmt(etRef.endE)+', fan '+fan0+'%, heater '+out0+'%)');
+  const dropBt0=Math.max(120,Math.min(250,+$('etEndBt').value||etRef.endBt||210));
+  log('ET-track started: '+etRef.name+' (drop at BT '+dropBt0+'°, ref length '+fmt(etRef.endE)+', fan '+fan0+'%, heater '+out0+'%)');
 }
 function stopEtRun(reason,keepHeat){
   if(!etRun)return;clearInterval(etRun.tid);etRun=null;
@@ -890,15 +900,14 @@ function stopEtRun(reason,keepHeat){
   $('etStatus').textContent='ET-track stopped ('+reason+')'+(keepHeat?'.':' — heater off.');
   log('ET-track stopped: '+reason);
 }
-function finishEtRun(){
+function finishEtRun(msg){
   stopEtRun('complete',true);
   send('OT1,0');
-  fireAlarm('✅ ET profile complete — heater OFF. Drop the beans.');
+  fireAlarm(msg||'✅ ET profile complete — heater OFF. Drop the beans.');
 }
 function etTick(){
   if(!etRun||!etRef)return;
   const e=nowT()-etRun.startT;
-  if(e>=etRef.endE){finishEtRun();return;}
   const kp=+$('etKp').value||2,ki=+$('etKi').value||0.06,kd=+$('etKd').value||15;
   const slew=Math.max(2,Math.min(50,+$('etSlew').value||15)),etMax=+$('etMax').value||240;
   const s=samples[samples.length-1];
@@ -912,6 +921,10 @@ function etTick(){
     if(etRun.lastOut!==0){send('OT1,0');etRun.lastOut=0;fireAlarm('⚠️ Temperature ceiling reached — heater cut');}
     return;
   }
+  const dropBt=Math.max(120,Math.min(250,+$('etEndBt').value||etRef.endBt||210));
+  if(bt!=null&&bt>=dropBt){finishEtRun('🎯 Drop temp reached (BT '+Math.round(bt)+'°) — heater OFF. Drop the beans.');return;}
+  if(e>=etRef.endE+120){finishEtRun('⏱ BT didn\'t reach '+dropBt+'° within 2 min of the reference end — heater OFF.');return;}
+  const overrun=e>=etRef.endE;                                      // past the reference clock: hold final ET, wait for BT
   const target=refAt(etRef,e,'et');
   if(target==null){finishEtRun();return;}
   const err=target-s.et;
@@ -932,8 +945,10 @@ function etTick(){
   if(out!==etRun.lastOut){send('OT1,'+out);etRun.lastOut=out;}
   if(!fanOverride){const fv=Math.round(refAt(etRef,e,'fan')??NaN);  // replay the reference fan
     if(Number.isFinite(fv)&&fv!==etRun.lastFan){send('IO3,'+fv);etRun.lastFan=fv;}}
-  $('etStatus').innerHTML='🎯 target ET '+Math.round(target)+'° · actual <b style="color:var(--text)">'+Math.round(s.et)+'°</b> · err '
-    +(err>=0?'+':'')+err.toFixed(1)+'° · heater <b style="color:var(--text)">'+out+'%</b> · '+fmt(e)+' / '+fmt(etRef.endE);
+  const dropTxt=' · → drop @ '+dropBt+'°'+(bt!=null?' (BT '+Math.round(bt)+'°)':'');
+  $('etStatus').innerHTML=(overrun?'⏳ holding final ET — waiting for BT '+dropBt+'°':'🎯 target ET '+Math.round(target)+'°')
+    +' · actual <b style="color:var(--text)">'+Math.round(s.et)+'°</b> · err '
+    +(err>=0?'+':'')+err.toFixed(1)+'° · heater <b style="color:var(--text)">'+out+'%</b>'+dropTxt;
 }
 
 // ---------- Between-batch protocol ----------
@@ -1449,7 +1464,8 @@ renderPoints();refreshProfileSelect();refreshRoastSelect();
 try{const ep=JSON.parse(localStorage.getItem('rc_etrun')||'null');
   if(ep){$('etSmooth').value=ep.sm??'20';$('etKp').value=ep.kp??2;$('etKi').value=ep.ki??0.06;
     $('etKd').value=ep.kd??15;$('etSlew').value=ep.slew??15;$('etMax').value=ep.max??240;
-    if(ep.id)$('etSel').value=ep.id;}}catch(e){}
+    if(ep.endBt)$('etEndBt').value=ep.endBt;
+    if(ep.id){$('etSel').value=ep.id;if($('etSel').value===ep.id)applyEtRef();}}}catch(e){}
 drawChart();
 </script>
 </body>
