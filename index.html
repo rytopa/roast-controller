@@ -54,6 +54,7 @@
   .pill.on{background:#12331c;color:var(--ok);border:1px solid #1d5a30}
   .pill.off{background:#2c1512;color:var(--danger);border:1px solid #5a2a22}
   canvas{width:100%;height:260px;background:var(--canvas);border:1px solid var(--line);border-radius:10px;display:block}
+  #chart{height:400px;touch-action:pan-y}
   .legend{display:flex;gap:14px;font-size:12px;color:var(--dim);margin-top:8px;flex-wrap:wrap}
   .legend i{display:inline-block;width:11px;height:3px;border-radius:2px;vertical-align:middle;margin-right:5px}
   .ctl-row{display:grid;grid-template-columns:70px 1fr auto;gap:8px;align-items:center;margin-bottom:8px}
@@ -141,7 +142,7 @@
       <span><i style="background:var(--ror)"></i>RoR <span class="small">(0–30 °C/min)</span></span>
       <span><i style="background:var(--heat)"></i>Heater % <span class="small">(right)</span></span>
       <span><i style="background:var(--fan)"></i>Fan % <span class="small">(right)</span></span>
-      <span class="small">grid = 1 min / 50°C · right axis = % · markers = roast events · dashed = profile plan &amp; planned RoR</span>
+      <span class="small">hover / drag to inspect values · top pane: temps (left axis) + RoR 0–30 °C/min (right axis) · bottom pane: heater &amp; fan % · bar = phases · dashed = plan · faded = background roast</span>
     </div>
   </div>
 
@@ -1153,10 +1154,12 @@ function renderEvents(){
 const PALETTES={
   night:{grid:'#352c22',label:'#93846c',text:'#f2ebe1',bt:'#f5a04c',et:'#66c1eb',sv:'#74dd86',ror:'#f381b0',heat:'#ff7059',fan:'#aebfd0',
     plan:'rgba(116,221,134,.8)',planRor:'rgba(243,129,176,.8)',planFan:'rgba(174,191,208,.8)',
-    ev:{charge:'#a99a7f',dry:'#e2b95e',fc:'#ff7059',drop:'#66c1eb'},ptSel:'#c0ffcd',ptStroke:'#0c0a08'},
+    ev:{charge:'#a99a7f',dry:'#e2b95e',fc:'#ff7059',drop:'#66c1eb'},ptSel:'#c0ffcd',ptStroke:'#0c0a08',
+    cross:'#b8ab93',badgeBg:'rgba(10,8,6,.85)',badgeText:'#f2ebe1'},
   day:{grid:'#e3d8c3',label:'#8a7a62',text:'#2b2115',bt:'#c96f1e',et:'#177fb4',sv:'#1e9e44',ror:'#c73577',heat:'#d43a20',fan:'#5a758f',
     plan:'rgba(30,158,68,.75)',planRor:'rgba(199,53,119,.75)',planFan:'rgba(90,117,143,.75)',
-    ev:{charge:'#8a7a5f',dry:'#b5861e',fc:'#d43a20',drop:'#177fb4'},ptSel:'#0f7a33',ptStroke:'#ffffff'}
+    ev:{charge:'#8a7a5f',dry:'#b5861e',fc:'#d43a20',drop:'#177fb4'},ptSel:'#0f7a33',ptStroke:'#ffffff',
+    cross:'#7a6c54',badgeBg:'rgba(255,255,253,.92)',badgeText:'#2b2115'}
 };
 let themeDay=false;
 function pal(){return themeDay?PALETTES.day:PALETTES.night;}
@@ -1173,7 +1176,14 @@ function drawChart(){
   const c=$('chart'),ctx=c.getContext('2d'),dpr=window.devicePixelRatio||1;
   const W=c.clientWidth,H=c.clientHeight; if(c.width!==Math.round(W*dpr)){c.width=W*dpr;c.height=H*dpr;}
   ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
-  const pL=32,pR=30,pT=8,pB=16,pw=W-pL-pR,ph=H-pT-pB;
+  const P=pal();
+  // ---- layout: temps pane / time axis / controls pane / phase strip ----
+  const pL=34,pR=30,axisH=15,stripH=20,gap=7,topY=6;
+  const availH=H-topY-axisH-gap-stripH-6;
+  const tpH=Math.round(availH*0.68),cpH=availH-tpH-gap;
+  const tpY=topY,cpY=tpY+tpH+axisH+gap,stripY=cpY+cpH+4;
+  const pw=W-pL-pR;
+  // ---- time domain ----
   const yMax=260;let tMax=Math.max(300,samples.length?samples[samples.length-1].t:0);
   const planPts=profile?profile.points:getPoints();
   const planStart=profile?profile.startT:(chargeMs&&connectMs?(chargeMs-connectMs)/1000:0);
@@ -1182,37 +1192,49 @@ function drawChart(){
   let bgShift=0;
   if(bg&&bg.samples.length){bgShift=((chargeMs&&connectMs)?(chargeMs-connectMs)/1000:0)-bg.base;
     tMax=Math.max(tMax,bg.samples[bg.samples.length-1].t+bgShift);}
-  const X=t=>pL+t/tMax*pw, Y=v=>pT+(1-v/yMax)*ph, Y2=v=>pT+(1-v/100)*ph, Yr=v=>pT+(1-v/30)*ph;
-  const P=pal();
-  ctx.strokeStyle=P.grid;ctx.fillStyle=P.label;ctx.lineWidth=1;ctx.font='10px system-ui';
-  for(let v=0;v<=yMax;v+=50){const y=Y(v);ctx.beginPath();ctx.moveTo(pL,y);ctx.lineTo(W-pR,y);ctx.stroke();ctx.fillText(v,3,y+3);}
-  for(let v=0;v<=100;v+=25){ctx.fillText(v+'%',W-pR+3,Y2(v)+3);}
-  for(let s=0;s<=tMax;s+=60){const x=X(s);ctx.beginPath();ctx.moveTo(x,pT);ctx.lineTo(x,H-pB);ctx.stroke();ctx.fillText((s/60)+'m',x-4,H-4);}
-  if(chargeMs&&connectMs){const base=(chargeMs-connectMs)/1000;
-    for(const ecl of [['charge',P.ev.charge,'C'],['dry',P.ev.dry,'DE'],['fc',P.ev.fc,'FC'],['drop',P.ev.drop,'DR']]){
-      if(events[ecl[0]]!=null){const x=X(base+events[ecl[0]]);ctx.strokeStyle=ecl[1];ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(x,pT);ctx.lineTo(x,H-pB);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=ecl[1];ctx.fillText(ecl[2],x+2,pT+10);}
-    }}
-  if(bg&&bg.samples.length){                       // background roast: ghost curves + event ticks
+  const X=t=>pL+t/tMax*pw;
+  const Y=v=>tpY+(1-v/yMax)*tpH;                     // temps pane
+  const Yr=v=>tpY+(1-v/30)*tpH;                      // RoR axis (temps pane, right)
+  const Y2=v=>cpY+(1-v/100)*cpH;                     // controls pane
+  // ---- grid ----
+  ctx.lineWidth=1;ctx.font='10px system-ui';
+  for(let v=0;v<=yMax;v+=25){const y=Y(v);                          // temps: minor 25deg, labels every 50
+    ctx.strokeStyle=P.grid;ctx.globalAlpha=(v%50)?0.45:1;ctx.beginPath();ctx.moveTo(pL,y);ctx.lineTo(W-pR,y);ctx.stroke();ctx.globalAlpha=1;
+    if(v%50===0){ctx.fillStyle=P.label;ctx.fillText(v,3,y+3);}}
+  for(let v=0;v<=30;v+=10){ctx.fillStyle=P.label;ctx.fillText(v,W-pR+5,Yr(v)+3);}   // RoR right axis
+  for(let v=0;v<=100;v+=25){const y=Y2(v);                          // controls pane
+    ctx.strokeStyle=P.grid;ctx.globalAlpha=(v%50)?0.45:1;ctx.beginPath();ctx.moveTo(pL,y);ctx.lineTo(W-pR,y);ctx.stroke();ctx.globalAlpha=1;
+    if(v%50===0){ctx.fillStyle=P.label;ctx.fillText(v+'%',3,y+3);}}
+  const tStep=tMax<=480?15:(tMax<=960?30:60);
+  const tLabel=tMax<=960?60:120;
+  for(let s2=0;s2<=tMax;s2+=tStep){const x=X(s2);
+    ctx.strokeStyle=P.grid;ctx.globalAlpha=(s2%tLabel)?0.4:1;
+    ctx.beginPath();ctx.moveTo(x,tpY);ctx.lineTo(x,tpY+tpH);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(x,cpY);ctx.lineTo(x,cpY+cpH);ctx.stroke();ctx.globalAlpha=1;
+    if(s2%tLabel===0){ctx.fillStyle=P.label;ctx.fillText(fmt(s2),x-10,tpY+tpH+11);}}
+  // ---- background roast: ghost curves + event ticks (temps pane) ----
+  if(bg&&bg.samples.length){
     ctx.save();ctx.globalAlpha=.32;
-    const bline=(key,col)=>{ctx.strokeStyle=col;ctx.lineWidth=2;ctx.beginPath();let st=false;
+    const bline=(key,col,Yf)=>{ctx.strokeStyle=col;ctx.lineWidth=2;ctx.beginPath();let st=false;
       for(const s of bg.samples){const v=s[key];if(v==null||Number.isNaN(v))continue;
-        const x=X(s.t+bgShift),y=Y(v);if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}ctx.stroke();};
-    bline('et',P.et);bline('bt',P.bt);
+        const x=X(s.t+bgShift),y=Yf(v);if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}ctx.stroke();};
+    bline('et',P.et,Y);bline('bt',P.bt,Y);
     for(const kc of [['dry',P.ev.dry],['fc',P.ev.fc],['drop',P.ev.drop]]){const ev=bg.events[kc[0]];
-      if(ev!=null){const x=X(bg.base+ev+bgShift);ctx.strokeStyle=kc[1];ctx.setLineDash([2,6]);ctx.beginPath();ctx.moveTo(x,pT);ctx.lineTo(x,H-pB);ctx.stroke();ctx.setLineDash([]);}}
+      if(ev!=null){const x=X(bg.base+ev+bgShift);ctx.strokeStyle=kc[1];ctx.setLineDash([2,6]);ctx.beginPath();ctx.moveTo(x,tpY);ctx.lineTo(x,tpY+tpH);ctx.stroke();ctx.setLineDash([]);}}
     ctx.restore();
   }
+  // ---- plan: SV curve (temps), planned RoR (RoR axis), planned auto-fan (controls) ----
   if(planPts.length>=2){
     ctx.strokeStyle=P.plan;ctx.setLineDash([2,4]);ctx.lineWidth=1.5;ctx.beginPath();
     planPts.forEach((p,i)=>{const x=X(planStart+p.t),y=Y(p.sv);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.stroke();
-    ctx.strokeStyle=P.planRor;ctx.beginPath();                       // planned RoR: smooth 60s-window slope curve,
-    {const t0=planPts[1].t,t1=planPts[planPts.length-1].t;let st=false;  // from the 2nd point (charge segment isn't meaningful RoR)
+    ctx.strokeStyle=P.planRor;ctx.beginPath();                       // planned RoR from the 2nd point
+    {const t0=planPts[1].t,t1=planPts[planPts.length-1].t;let st=false;
      for(let e=t0;e<=t1;e+=5){
        const lo=Math.max(t0,e-30),hi=Math.min(t1,e+30),dt=hi-lo;
        const r=dt>0?Math.max(0,Math.min(30,(interpAt(planPts,hi).sv-interpAt(planPts,lo).sv)/dt*60)):0;
        const x=X(planStart+e),y=Yr(r);if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}}
     ctx.stroke();
-    const paf=profile?profile.autoFan:uiAutoFan();                   // planned auto-fan (SV as BT proxy)
+    const paf=profile?profile.autoFan:uiAutoFan();
     if(paf){const endSv=Math.max(175,planPts[planPts.length-1].sv);
       ctx.strokeStyle=P.planFan;ctx.beginPath();let st=false;
       for(let e=planPts[0].t;e<=planPts[planPts.length-1].t;e+=10){const q=interpAt(planPts,e);
@@ -1220,20 +1242,23 @@ function drawChart(){
       ctx.stroke();}
     ctx.setLineDash([]);
   }
+  // ---- live curves ----
   const line=(key,col,dash,Yf,wid)=>{ctx.strokeStyle=col;ctx.lineWidth=wid||2;ctx.setLineDash(dash||[]);ctx.beginPath();let started=false;
     for(const s of samples){const v=s[key];if(v==null||Number.isNaN(v)){continue;}const x=X(s.t),y=(Yf||Y)(v);if(!started){ctx.moveTo(x,y);started=true;}else ctx.lineTo(x,y);}ctx.stroke();ctx.setLineDash([]);};
-  line('fan',P.fan,[2,3],Y2,1.4);line('heat',P.heat,null,Y2,1.4);
-  {const bp=samples.filter(s=>s.bt!=null&&!Number.isNaN(s.bt));   // actual BT RoR over the configurable window
+  line('fan',P.fan,null,Y2,1.6);line('heat',P.heat,null,Y2,1.6);
+  const rorPts=[];                                                   // actual RoR (kept for hover lookup)
+  {const bp=samples.filter(s=>s.bt!=null&&!Number.isNaN(s.bt));
    const wn=rorWinS();
    ctx.strokeStyle=P.ror;ctx.lineWidth=1.4;ctx.beginPath();let st=false,j=0;
    for(let i=0;i<bp.length;i++){const s=bp[i];
      while(j<i&&s.t-bp[j].t>wn)j++;
      const p0=bp[j];if(s.t-p0.t<Math.max(4,wn*0.5))continue;
-     const r=Math.max(0,Math.min(30,(s.bt-p0.bt)/(s.t-p0.t)*60));
-     const x=X(s.t),y=Yr(r);if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}
+     const r=(s.bt-p0.bt)/(s.t-p0.t)*60;rorPts.push({t:s.t,r});
+     const rc=Math.max(0,Math.min(30,r));
+     const x=X(s.t),y=Yr(rc);if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}
    ctx.stroke();}
   line('et',P.et);line('sv',P.sv,[5,4]);line('bt',P.bt);
-  if(connectMs&&chargeMs&&events.drop==null){        // BT projection: dotted 60s look-ahead at current RoR
+  if(connectMs&&chargeMs&&events.drop==null){                        // BT projection
     const bp2=samples.filter(s=>s.bt!=null&&!Number.isNaN(s.bt));
     if(bp2.length>3){const lastS=bp2[bp2.length-1];
       let j0=bp2.length-1;while(j0>0&&lastS.t-bp2[j0-1].t<=30)j0--;
@@ -1243,7 +1268,98 @@ function drawChart(){
         ctx.moveTo(X(lastS.t),Y(lastS.bt));
         ctx.lineTo(X(Math.min(tMax,lastS.t+60)),Y(Math.max(0,Math.min(260,lastS.bt+r*Math.min(60,tMax-lastS.t)/60))));
         ctx.stroke();ctx.setLineDash([]);}}}
+  // ---- event markers: full-height lines with temp labels ----
+  const btAtT=t=>{let best=null,bd=1e9;for(const s of samples){if(s.bt==null||Number.isNaN(s.bt))continue;const d=Math.abs(s.t-t);if(d<bd){bd=d;best=s.bt;}}return bd<6?best:null;};
+  if(chargeMs&&connectMs){const base=(chargeMs-connectMs)/1000;
+    ctx.font='600 10px system-ui';
+    for(const ecl of [['charge',P.ev.charge,'C'],['dry',P.ev.dry,'DE'],['fc',P.ev.fc,'FC'],['drop',P.ev.drop,'DR']]){
+      if(events[ecl[0]]!=null){const x=X(base+events[ecl[0]]);
+        ctx.strokeStyle=ecl[1];ctx.setLineDash([3,3]);
+        ctx.beginPath();ctx.moveTo(x,tpY);ctx.lineTo(x,cpY+cpH);ctx.stroke();ctx.setLineDash([]);
+        const b=btAtT(base+events[ecl[0]]);
+        ctx.fillStyle=ecl[1];ctx.fillText(ecl[2]+(b!=null?' '+Math.round(b)+'\u00b0':''),Math.min(x+3,W-pR-38),tpY+10);}}
+    ctx.font='10px system-ui';}
+  // ---- phase strip ----
+  {ctx.fillStyle=P.grid;ctx.globalAlpha=.5;ctx.fillRect(pL,stripY,pw,stripH);ctx.globalAlpha=1;
+   let spans=null;
+   if(chargeMs&&connectMs){
+     const base=(chargeMs-connectMs)/1000;
+     const now=events.drop!=null?events.drop:(Date.now()-chargeMs)/1000;
+     if(now>=5){const de=events.dry!=null?events.dry:liveCross.de,fc=events.fc!=null?events.fc:liveCross.fc;
+       spans={base,t0:0,de:de!=null?Math.min(de,now):null,fc:fc!=null?Math.min(fc,now):null,t1:now};}
+   }else if(planPts.length>=2){
+     const deT=+$('phDE').value||160,fcT=Math.max(+$('phDE').value||160,+$('phFC').value||200);
+     spans={base:planStart,t0:planPts[0].t,de:crossTime(planPts,deT),fc:crossTime(planPts,fcT),t1:planPts[planPts.length-1].t};
+   }
+   if(spans){
+     const segs=[];
+     const dEnd=spans.de!=null?spans.de:spans.t1;
+     segs.push(['#d9b04c','#3a2c07',spans.t0,dEnd]);
+     if(spans.de!=null)segs.push(['#d97f36','#33190a',spans.de,spans.fc!=null?spans.fc:spans.t1]);
+     if(spans.fc!=null)segs.push(['#c4523a','#fff',spans.fc,spans.t1]);
+     const total=Math.max(1,spans.t1-spans.t0);
+     ctx.font='600 10.5px system-ui';
+     for(const[col,txt,a,b] of segs){
+       if(b-a<1)continue;
+       const x0=X(spans.base+a),x1=X(spans.base+b);
+       ctx.fillStyle=col;ctx.fillRect(x0,stripY,x1-x0,stripH);
+       const label=fmt(b-a)+' ('+Math.round((b-a)/total*100)+'%)';
+       if(x1-x0>52){ctx.fillStyle=txt;ctx.fillText(label,x0+4,stripY+14);}}
+     ctx.font='10px system-ui';}}
+  // ---- hover crosshair ----
+  if(chartHover!=null&&chartHover>=pL&&chartHover<=W-pR){
+    const hx=chartHover,ht=(hx-pL)/pw*tMax;
+    ctx.strokeStyle=P.cross;ctx.setLineDash([2,3]);ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(hx,tpY);ctx.lineTo(hx,cpY+cpH);ctx.stroke();ctx.setLineDash([]);
+    // nearest sample
+    let s=null,bd=1e9;
+    for(const q of samples){const d=Math.abs(q.t-ht);if(d<bd){bd=d;s=q;}}
+    if(bd>8)s=null;
+    let rr=null;{let b2=1e9;for(const q of rorPts){const d=Math.abs(q.t-ht);if(d<b2){b2=d;rr=q.r;}}if(b2>8)rr=null;}
+    const bgv=(bg&&bg.samples.length)?(()=>{let v=null,b3=1e9;for(const q of bg.samples){if(q.bt==null)continue;const d=Math.abs(q.t+bgShift-ht);if(d<b3){b3=d;v=q.bt;}}return b3<8?v:null;})():null;
+    const rows1=[],rows2=[];
+    if(s){
+      if(s.bt!=null&&!Number.isNaN(s.bt))rows1.push([P.bt,'BT '+s.bt.toFixed(1)+'\u00b0']);
+      if(s.et!=null&&!Number.isNaN(s.et))rows1.push([P.et,'ET '+s.et.toFixed(1)+'\u00b0']);
+      if(rr!=null)rows1.push([P.ror,'RoR '+rr.toFixed(1)]);
+      if(s.sv!=null)rows1.push([P.sv,'SV '+Math.round(s.sv)+'\u00b0']);
+      if(s.heat!=null)rows2.push([P.heat,'Heater '+s.heat+'%']);
+      if(s.fan!=null)rows2.push([P.fan,'Fan '+s.fan+'%']);
+    }else if(planPts.length>=2&&ht>=planStart){
+      const q=interpAt(planPts,ht-planStart);
+      if(q)rows1.push([P.sv,'Plan '+Math.round(q.sv)+'\u00b0']);
+    }
+    if(bgv!=null)rows1.push([P.bt,'BG BT '+bgv.toFixed(1)+'\u00b0']);
+    ctx.font='600 11px system-ui';
+    const drawRows=(rows,y0)=>{
+      let y=y0;
+      for(const[col,txt] of rows){
+        const w=ctx.measureText(txt).width+18;
+        const bx=(hx+8+w>W-pR)?hx-8-w:hx+8;
+        ctx.fillStyle=P.badgeBg;ctx.beginPath();
+        ctx.roundRect?ctx.roundRect(bx,y,w,16,4):ctx.rect(bx,y,w,16);ctx.fill();
+        ctx.fillStyle=col;ctx.beginPath();ctx.arc(bx+8,y+8,3,0,7);ctx.fill();
+        ctx.fillStyle=P.badgeText;ctx.fillText(txt,bx+14,y+12);
+        y+=19;}
+    };
+    drawRows(rows1,tpY+16);
+    drawRows(rows2,cpY+3);
+    const tl='Time: '+fmt(Math.max(0,ht));
+    const tw=ctx.measureText(tl).width+12;
+    const tx=Math.min(Math.max(hx-tw/2,pL),W-pR-tw);
+    ctx.fillStyle=P.badgeBg;ctx.beginPath();
+    ctx.roundRect?ctx.roundRect(tx,tpY+tpH+2,tw,13,3):ctx.rect(tx,tpY+tpH+2,tw,13);ctx.fill();
+    ctx.fillStyle=P.badgeText;ctx.fillText(tl,tx+6,tpY+tpH+12);
+    ctx.font='10px system-ui';
+  }
 }
+let chartHover=null,chartRaf=false;
+function requestChartDraw(){if(chartRaf)return;chartRaf=true;requestAnimationFrame(()=>{chartRaf=false;drawChart();});}
+{const cc=$('chart');
+ const setH=ev=>{const r=cc.getBoundingClientRect();chartHover=ev.clientX-r.left;requestChartDraw();};
+ cc.addEventListener('pointermove',setH);
+ cc.addEventListener('pointerdown',setH);
+ cc.addEventListener('pointerleave',()=>{chartHover=null;requestChartDraw();});}
 window.addEventListener('resize',()=>{drawChart();drawProfEditor();});
 setInterval(()=>{if(connectMs){updateTimer();updateLiveBar();}},1000);
 
