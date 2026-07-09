@@ -850,7 +850,8 @@ function finishProfile(){                          // natural end of the curve: 
   stopProfile();
   send('PID,OFF ');pidEngaged=false;setPidPill();
   setTimeout(()=>send('OT1,0'),250);
-  fireAlarm('✅ Profile complete — heater OFF. Drop the beans / start cooling.');
+  autoSaveRoast();                                 // profile ran to completion -> save it (updated again on Drop)
+  fireAlarm('✅ Profile complete — heater OFF & roast saved. Drop the beans / start cooling.');
   log('Profile complete — heater off');
 }
 
@@ -943,7 +944,8 @@ function stopEtRun(reason,keepHeat){
 function finishEtRun(msg){
   stopEtRun('complete',true);
   send('OT1,0');
-  fireAlarm(msg||'✅ ET profile complete — heater OFF. Drop the beans.');
+  autoSaveRoast();                                 // ET-track ran to completion -> save it too
+  fireAlarm(msg||'✅ ET profile complete — heater OFF & roast saved. Drop the beans.');
 }
 function etTick(){
   if(!etRun||!etRef)return;
@@ -1500,32 +1502,42 @@ function buildRoastRec(name){
     events:Object.assign({},events)};
 }
 let autoSaved={charge:null,id:null};
-function autoSaveRoast(){                                   // every roast lands in the log at Drop
-  if(!samples.length||autoSaved.charge===chargeMs)return;
-  const rec=buildRoastRec($('beanInfo').value.trim()||'Roast');
-  const a=loadLogs();a.push(rec);
+function autoSaveRoast(){                                   // roast lands in the log at profile completion or Drop
+  if(!samples.length)return;
+  const a=loadLogs();
+  if(autoSaved.charge===chargeMs&&autoSaved.id){           // already saved this roast -> refresh it with the latest data
+    const r=a.find(x=>x.id===autoSaved.id);
+    if(r){r.samples=samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv}));
+      r.events=Object.assign({},events);r.stats=roastStats()||r.stats;r.mtime=Date.now();
+      if(r.autoName)r.name=$('beanInfo').value.trim()||'Unknown';
+      saveLogs(a);}
+    return;
+  }
+  const rec=buildRoastRec($('beanInfo').value.trim()||'Unknown');rec.autoName=true;
+  a.push(rec);
   if(saveLogs(a)){autoSaved={charge:chargeMs,id:rec.id};refreshRoastSelect();log('💾 Roast auto-saved to the log: '+rec.name);}
 }
-function syncAutoSaved(){                                   // weights/bean typed after Drop update the saved record
+function syncAutoSaved(){                                   // weights/bean typed after saving update the record
   if(!autoSaved.id||autoSaved.charge!==chargeMs)return;
   const a=loadLogs(),r=a.find(x=>x.id===autoSaved.id);if(!r)return;
   r.bean=$('beanInfo').value.trim();r.weightIn=+$('wIn').value||null;r.weightOut=+$('wOut').value||null;r.mtime=Date.now();
-  saveLogs(a);
+  if(r.autoName)r.name=r.bean||'Unknown';                  // keep the auto-name in step with the bean field
+  saveLogs(a);refreshRoastSelect();
 }
 $('beanInfo').addEventListener('input',syncAutoSaved);
 $('btnSaveRoast').addEventListener('click',()=>{
   if(!samples.length){alert('No roast data on the chart yet.');return;}
-  const bean=$('beanInfo').value.trim(),defName=bean||'Roast';
+  const bean=$('beanInfo').value.trim(),defName=bean||'Unknown';
   const name=prompt('Name this roast:',defName);if(name==null)return;
   const a=loadLogs();
   const ex=(autoSaved.id&&autoSaved.charge===chargeMs)?a.find(x=>x.id===autoSaved.id):null;
   if(ex){                                                   // rename/refresh the auto-saved record instead of duplicating
-    ex.name=name||defName;ex.bean=bean;ex.weightIn=+$('wIn').value||null;ex.weightOut=+$('wOut').value||null;ex.mtime=Date.now();
+    ex.name=name||defName;ex.autoName=false;ex.bean=bean;ex.weightIn=+$('wIn').value||null;ex.weightOut=+$('wOut').value||null;ex.mtime=Date.now();
     ex.samples=samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv}));ex.events=Object.assign({},events);
     ex.stats=roastStats()||ex.stats;
     if(saveLogs(a)){refreshRoastSelect();log('Roast updated: '+ex.name);}
   }else{
-    const rec=buildRoastRec(name||defName);a.push(rec);
+    const rec=buildRoastRec(name||defName);rec.autoName=false;a.push(rec);
     if(saveLogs(a)){autoSaved={charge:chargeMs,id:rec.id};refreshRoastSelect();log('Roast saved: '+rec.name);}
   }
 });
