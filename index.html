@@ -155,6 +155,7 @@
         <label class="ck" style="margin:0"><input type="checkbox" id="alarmRor" checked><span>RoR crash / flick warnings</span></label>
         <span class="small">· Alert at BT</span><input id="alarmTemp" type="number" min="0" max="260" placeholder="e.g. 195" style="width:84px"><span class="small">°C</span>
         <span class="small">· RoR window</span><input id="rorWin" type="number" min="5" max="60" value="15" style="width:64px"><span class="small">s</span>
+        <span class="small">· RoR smooth</span><select id="rorSmooth" style="width:auto"><option value="0">off</option><option value="10" selected>light</option><option value="20">medium</option><option value="40">heavy</option></select>
       </div>
       <div id="alarmBanner" class="banner err" style="display:none;margin:8px 0 0"></div>
     </div>
@@ -369,6 +370,7 @@ function nowT(){return connectMs?(Date.now()-connectMs)/1000:0;}
 function fmt(s){s=Math.max(0,Math.floor(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
 if(!navigator.bluetooth){$('supportBanner').style.display='block';$('btnConnect').disabled=true;}
 function rorWinS(){return Math.max(5,Math.min(60,+document.getElementById('rorWin').value||15));}
+function rorSmoothS(){return Math.max(0,Math.min(60,+document.getElementById('rorSmooth').value||0));}
 
 $('enableControl').addEventListener('change',e=>{const on=e.target.checked&&writeChar;$('controls').style.opacity=on?'1':'.4';$('controls').style.pointerEvents=on?'auto':'none';});
 
@@ -595,6 +597,8 @@ function savePhaseTemps(){try{localStorage.setItem('rc_phases',JSON.stringify({d
 try{const pt=JSON.parse(localStorage.getItem('rc_phases')||'null');if(pt){$('phDE').value=pt.de;$('phFC').value=pt.fc;}}catch(e){}
 $('rorWin').addEventListener('change',()=>{drawChart();try{localStorage.setItem('rc_rorwin',rorWinS());}catch(e){}});
 try{const rw=+localStorage.getItem('rc_rorwin');if(rw)$('rorWin').value=Math.max(5,Math.min(60,rw));}catch(e){}
+$('rorSmooth').addEventListener('change',()=>{drawChart();try{localStorage.setItem('rc_rorsmooth',$('rorSmooth').value);}catch(e){}});
+try{const rs=localStorage.getItem('rc_rorsmooth');if(rs!=null)$('rorSmooth').value=rs;}catch(e){}
 
 // ---------- Graph-driven profile editor ----------
 const pcv=$('profCanvas');let pcGeom=null,pcDrag=null;
@@ -846,7 +850,8 @@ function finishProfile(){                          // natural end of the curve: 
   stopProfile();
   send('PID,OFF ');pidEngaged=false;setPidPill();
   setTimeout(()=>send('OT1,0'),250);
-  fireAlarm('✅ Profile complete — heater OFF. Drop the beans / start cooling.');
+  autoSaveRoast();                                 // profile ran to completion -> save it (updated again on Drop)
+  fireAlarm('✅ Profile complete — heater OFF & roast saved. Drop the beans / start cooling.');
   log('Profile complete — heater off');
 }
 
@@ -939,7 +944,8 @@ function stopEtRun(reason,keepHeat){
 function finishEtRun(msg){
   stopEtRun('complete',true);
   send('OT1,0');
-  fireAlarm(msg||'✅ ET profile complete — heater OFF. Drop the beans.');
+  autoSaveRoast();                                 // ET-track ran to completion -> save it too
+  fireAlarm(msg||'✅ ET profile complete — heater OFF & roast saved. Drop the beans.');
 }
 function etTick(){
   if(!etRun||!etRef)return;
@@ -1331,16 +1337,21 @@ function drawChart(){
      const lbl=hw>0?(wh>=1000?(wh/1000).toFixed(2)+' kWh':Math.round(wh)+' Wh')
        :Math.round(cumMax)+' %·min';
      ctx.fillStyle=P.cum;ctx.font='600 10px system-ui';ctx.fillText('Σ '+lbl,pL+3,cpY+10);ctx.font='10px system-ui';}}
-  const rorPts=[];                                                   // actual RoR (kept for hover lookup)
+  let rorPts=[];                                                    // actual RoR (kept for hover lookup)
   {const bp=samples.filter(s=>s.bt!=null&&!Number.isNaN(s.bt));
-   const wn=rorWinS();
-   ctx.strokeStyle=P.ror;ctx.lineWidth=1.4;ctx.beginPath();let st=false,j=0;
+   const wn=rorWinS();let j=0;
    for(let i=0;i<bp.length;i++){const s=bp[i];
      while(j<i&&s.t-bp[j].t>wn)j++;
      const p0=bp[j];if(s.t-p0.t<Math.max(4,wn*0.5))continue;
-     const r=(s.bt-p0.bt)/(s.t-p0.t)*60;rorPts.push({t:s.t,r});
-     const rc=Math.max(0,Math.min(30,r));
-     const x=X(s.t),y=Yr(rc);if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}
+     rorPts.push({t:s.t,r:(s.bt-p0.bt)/(s.t-p0.t)*60});}
+   const rs=rorSmoothS();                                          // centred moving average over ±rs/2 seconds
+   if(rs>0&&rorPts.length>1)rorPts=rorPts.map((p,i)=>{let sum=0,n=0;
+     for(let k=i;k>=0&&p.t-rorPts[k].t<=rs/2;k--){sum+=rorPts[k].r;n++;}
+     for(let k=i+1;k<rorPts.length&&rorPts[k].t-p.t<=rs/2;k++){sum+=rorPts[k].r;n++;}
+     return{t:p.t,r:sum/n};});
+   ctx.strokeStyle=P.ror;ctx.lineWidth=1.4;ctx.beginPath();let st=false;
+   for(const p of rorPts){const rc=Math.max(0,Math.min(30,p.r));
+     const x=X(p.t),y=Yr(rc);if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}
    ctx.stroke();}
   line('et',P.et);line('sv',P.sv,[5,4]);line('bt',P.bt);
   if(connectMs&&chargeMs&&events.drop==null){                        // BT projection
@@ -1491,32 +1502,42 @@ function buildRoastRec(name){
     events:Object.assign({},events)};
 }
 let autoSaved={charge:null,id:null};
-function autoSaveRoast(){                                   // every roast lands in the log at Drop
-  if(!samples.length||autoSaved.charge===chargeMs)return;
-  const rec=buildRoastRec($('beanInfo').value.trim()||'Roast');
-  const a=loadLogs();a.push(rec);
+function autoSaveRoast(){                                   // roast lands in the log at profile completion or Drop
+  if(!samples.length)return;
+  const a=loadLogs();
+  if(autoSaved.charge===chargeMs&&autoSaved.id){           // already saved this roast -> refresh it with the latest data
+    const r=a.find(x=>x.id===autoSaved.id);
+    if(r){r.samples=samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv}));
+      r.events=Object.assign({},events);r.stats=roastStats()||r.stats;r.mtime=Date.now();
+      if(r.autoName)r.name=$('beanInfo').value.trim()||'Unknown';
+      saveLogs(a);}
+    return;
+  }
+  const rec=buildRoastRec($('beanInfo').value.trim()||'Unknown');rec.autoName=true;
+  a.push(rec);
   if(saveLogs(a)){autoSaved={charge:chargeMs,id:rec.id};refreshRoastSelect();log('💾 Roast auto-saved to the log: '+rec.name);}
 }
-function syncAutoSaved(){                                   // weights/bean typed after Drop update the saved record
+function syncAutoSaved(){                                   // weights/bean typed after saving update the record
   if(!autoSaved.id||autoSaved.charge!==chargeMs)return;
   const a=loadLogs(),r=a.find(x=>x.id===autoSaved.id);if(!r)return;
   r.bean=$('beanInfo').value.trim();r.weightIn=+$('wIn').value||null;r.weightOut=+$('wOut').value||null;r.mtime=Date.now();
-  saveLogs(a);
+  if(r.autoName)r.name=r.bean||'Unknown';                  // keep the auto-name in step with the bean field
+  saveLogs(a);refreshRoastSelect();
 }
 $('beanInfo').addEventListener('input',syncAutoSaved);
 $('btnSaveRoast').addEventListener('click',()=>{
   if(!samples.length){alert('No roast data on the chart yet.');return;}
-  const bean=$('beanInfo').value.trim(),defName=bean||'Roast';
+  const bean=$('beanInfo').value.trim(),defName=bean||'Unknown';
   const name=prompt('Name this roast:',defName);if(name==null)return;
   const a=loadLogs();
   const ex=(autoSaved.id&&autoSaved.charge===chargeMs)?a.find(x=>x.id===autoSaved.id):null;
   if(ex){                                                   // rename/refresh the auto-saved record instead of duplicating
-    ex.name=name||defName;ex.bean=bean;ex.weightIn=+$('wIn').value||null;ex.weightOut=+$('wOut').value||null;ex.mtime=Date.now();
+    ex.name=name||defName;ex.autoName=false;ex.bean=bean;ex.weightIn=+$('wIn').value||null;ex.weightOut=+$('wOut').value||null;ex.mtime=Date.now();
     ex.samples=samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv}));ex.events=Object.assign({},events);
     ex.stats=roastStats()||ex.stats;
     if(saveLogs(a)){refreshRoastSelect();log('Roast updated: '+ex.name);}
   }else{
-    const rec=buildRoastRec(name||defName);a.push(rec);
+    const rec=buildRoastRec(name||defName);rec.autoName=false;a.push(rec);
     if(saveLogs(a)){autoSaved={charge:chargeMs,id:rec.id};refreshRoastSelect();log('Roast saved: '+rec.name);}
   }
 });

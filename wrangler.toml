@@ -1,0 +1,12 @@
+# Cloudflare Worker config for the roast-controller cloud-sync backend.
+# Used by the Git-connected Cloudflare build (npx wrangler deploy).
+name = "roast-sync"
+main = "sync-worker.js"
+compatibility_date = "2025-01-01"
+
+# Binds the KV namespace to env.SYNC inside the Worker.
+# Replace <YOUR_KV_NAMESPACE_ID> with your namespace's ID:
+#   Cloudflare dashboard -> Storage & Databases -> KV -> roast-sync -> copy the ID.
+[[kv_namespaces]]
+binding = "SYNC"
+id = "<YOUR_KV_NAMESPACE_ID>"
