@@ -262,6 +262,9 @@
       <div style="flex:1;min-width:86px"><div class="small" style="margin-bottom:3px">Roasted g</div><input id="wOut" type="number" min="0" inputmode="decimal"></div>
     </div>
     <div class="small" id="wLoss" style="margin-top:6px"></div>
+    <div class="row" style="margin-top:6px;align-items:center">
+      <span class="small">Heater rating</span><input id="heaterW" type="number" min="0" placeholder="e.g. 1500" style="width:96px"><span class="small">W — optional, for the kWh estimate in the roast summary.</span>
+    </div>
     <div id="statsCard" class="small" style="display:none;margin-top:10px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 11px"></div>
   </div>
 
@@ -1126,6 +1129,15 @@ $('btnBgRoast').addEventListener('click',()=>{
 $('btnBgClear').addEventListener('click',()=>{bg=null;$('bgName').textContent='';$('btnBgClear').style.display='none';$('bgDelta').innerHTML='';drawChart();});
 
 // ---------- Post-roast stats ----------
+function heatLoadOver(samps,t0,t1){                 // integrate heater % over [t0,t1] -> {load %·min, avg %, fanAvg %}
+  let area=0,fanArea=0,dur=0;
+  for(let i=0;i<samps.length-1;i++){const a=samps[i],b=samps[i+1];
+    if(a.t<t0||a.t>=t1)continue;
+    const dt=Math.min(b.t,t1)-a.t;if(dt<=0)continue;
+    if(a.heat!=null&&!Number.isNaN(a.heat)){area+=a.heat*dt;dur+=dt;}
+    if(a.fan!=null&&!Number.isNaN(a.fan))fanArea+=a.fan*dt;}
+  return{load:+(area/60).toFixed(1),avg:dur>0?Math.round(area/dur):null,fanAvg:dur>0?Math.round(fanArea/dur):null};
+}
 function roastStats(){
   if(!chargeMs||events.drop==null)return null;
   const base=connectMs?(chargeMs-connectMs)/1000:0,total=events.drop;
@@ -1134,10 +1146,13 @@ function roastStats(){
   for(const s of samples){if(s.bt==null||Number.isNaN(s.bt))continue;
     if(maxBt==null||s.bt>maxBt)maxBt=s.bt;
     const d=Math.abs(s.t-(base+total));if(d<bd){bd=d;dropBt=s.bt;}}
-  return{total,de:de!=null&&de<total?de:null,fc:fc!=null&&fc<total?fc:null,dropBt,maxBt};
+  const p=heatLoadOver(samples,base,base+total);
+  return{total,de:de!=null&&de<total?de:null,fc:fc!=null&&fc<total?fc:null,dropBt,maxBt,
+    heatLoad:p.load,avgHeat:p.avg,avgFan:p.fanAvg};
 }
+let shownStats=null,shownW=[null,null];
 function renderStatsCard(st,wIn,wOut){
-  const el=$('statsCard');if(!st){el.style.display='none';return;}
+  const el=$('statsCard');shownStats=st;shownW=[wIn,wOut];if(!st){el.style.display='none';return;}
   const pct=s=>Math.round(s/Math.max(1,st.total)*100)+'%';
   const rows=[['Total',fmt(st.total)],
     ['Dry',st.de!=null?fmt(st.de)+' ('+pct(st.de)+')':'—'],
@@ -1145,11 +1160,20 @@ function renderStatsCard(st,wIn,wOut){
     ['Development',st.fc!=null?fmt(st.total-st.fc)+' ('+pct(st.total-st.fc)+')':'—'],
     ['Drop BT',st.dropBt!=null?Math.round(st.dropBt)+' °C':'—'],
     ['Max BT',st.maxBt!=null?Math.round(st.maxBt)+' °C':'—']];
+  if(st.avgHeat!=null)rows.push(['Avg heater',st.avgHeat+'%']);
+  if(st.heatLoad!=null)rows.push(['Heat load',st.heatLoad+' %·min']);
+  const w=+$('heaterW').value;
+  if(w>0&&st.avgHeat!=null){const wh=w*(st.avgHeat/100)*(st.total/3600);
+    rows.push(['Energy',wh>=1000?(wh/1000).toFixed(2)+' kWh':Math.round(wh)+' Wh']);}
   if(wIn>0&&wOut>0&&wOut<=wIn)rows.push(['Weight loss',((1-wOut/wIn)*100).toFixed(1)+'%']);
   el.innerHTML='<b style="color:var(--text)">Roast summary</b><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:3px 14px;margin-top:5px">'
     +rows.map(r=>'<div class="kv"><span>'+r[0]+'</span><b>'+r[1]+'</b></div>').join('')+'</div>';
   el.style.display='block';
 }
+$('heaterW').addEventListener('change',()=>{
+  try{localStorage.setItem('rc_heaterW',$('heaterW').value);}catch(e){}
+  if(shownStats)renderStatsCard(shownStats,shownW[0],shownW[1]);   // re-render live or loaded card with new kWh
+});
 
 // ---------- Roast timer + events ----------
 $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;events.dry=events.fc=events.drop=null;
@@ -1420,6 +1444,10 @@ $('btnCsv').addEventListener('click',()=>{
   if(wi>0)meta+='# green_g,'+wi+'\n';
   if(wo>0)meta+='# roasted_g,'+wo+'\n';
   if(wi>0&&wo>0&&wo<=wi)meta+='# weight_loss_pct,'+((1-wo/wi)*100).toFixed(1)+'\n';
+  {const p=heatLoadOver(samples,samples.length?samples[0].t:0,samples.length?samples[samples.length-1].t:0);
+   if(p.avg!=null)meta+='# avg_heater_pct,'+p.avg+'\n# heat_load_pct_min,'+p.load+'\n';
+   const hw=+$('heaterW').value;if(hw>0&&p.avg!=null){const total=samples.length?samples[samples.length-1].t-samples[0].t:0;
+     meta+='# energy_wh,'+Math.round(hw*(p.avg/100)*(total/3600))+'\n';}}
   const csv=meta+'time_s,bean_bt,exhaust_et,heater_pct,fan_pct,target_sv,event,raw\n'+
     samples.map(s=>s.t.toFixed(1)+','+num(s.bt,1)+','+num(s.et,1)+','+(s.heat==null?'':s.heat)+','+(s.fan==null?'':s.fan)+','+(s.sv==null?'':s.sv)+','+evAt(s.t)+',"'+((s.raw||'').replace(/"/g,'""'))+'"').join('\n');
   const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
@@ -1484,7 +1512,11 @@ $('btnLoadRoast').addEventListener('click',()=>{
   samples.length=0;r.samples.forEach(s=>samples.push(Object.assign({raw:''},s)));
   Object.assign(events,{charge:null,dry:null,fc:null,drop:null},r.events||{});
   $('beanInfo').value=r.bean||'';$('wIn').value=r.weightIn||'';$('wOut').value=r.weightOut||'';updateLoss();
-  if(r.stats)renderStatsCard(r.stats,r.weightIn,r.weightOut);else $('statsCard').style.display='none';
+  if(r.stats){if(r.stats.avgHeat==null&&r.samples&&r.samples.length){       // backfill power for roasts saved before this feature
+      const b=bgBaseOf(r),end=r.events&&r.events.drop!=null?b+r.events.drop:1e12;
+      const p=heatLoadOver(r.samples,b,end);r.stats.heatLoad=p.load;r.stats.avgHeat=p.avg;r.stats.avgFan=p.fanAvg;}
+    renderStatsCard(r.stats,r.weightIn,r.weightOut);}
+  else $('statsCard').style.display='none';
   $('rowCount').textContent=samples.length+' samples · '+r.name;renderEvents();drawChart();log('Loaded roast: '+r.name);
 });
 $('btnDelRoast').addEventListener('click',()=>{const id=$('roastSelect').value;if(!id)return;if(!confirm('Delete this saved roast?'))return;cloudTomb(id);saveLogs(loadLogs().filter(r=>r.id!==id));refreshRoastSelect();});
@@ -1573,6 +1605,7 @@ try{const sc=JSON.parse(localStorage.getItem('rc_sync')||'null');
   if(sc&&sc.url&&sc.code){cloud.url=sc.url;cloud.code=sc.code;
     $('syncUrl').value=sc.url;$('syncCode').value=sc.code;
     $('syncNow').disabled=false;$('syncConnect').textContent='Disconnect';$('syncConnect').classList.remove('green');}}catch(e){}
+try{const hw=localStorage.getItem('rc_heaterW');if(hw)$('heaterW').value=hw;}catch(e){}
 let savedTheme='night';try{savedTheme=localStorage.getItem('rc_theme')||'night';}catch(e){}
 applyTheme(savedTheme==='day');
 renderPoints();refreshProfileSelect();refreshRoastSelect();
