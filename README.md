@@ -97,12 +97,28 @@ It's a single static `index.html` — host it anywhere that serves HTTPS:
 
 ## Data & privacy
 
-Profiles and roast logs are stored in your **browser's local storage** on the device you use — nothing leaves your machine. Storage is per-site, so saves live with the hosted URL.
+Profiles and roast logs are stored in your **browser's local storage** on the device you use — nothing leaves your machine unless you enable **Cloud sync** (below). Storage is per-site, so saves live with the hosted URL.
+
+## Cloud sync (optional)
+
+Sync your **profiles and roast logs across devices** (iPad, phone, computer) through a free **Cloudflare Worker + KV** store that you own — no accounts, no third-party service holding your data. Devices that share a **sync code** see the same data; changes merge automatically (newer edit wins per record, deletions propagate).
+
+**One-time Worker setup (no CLI needed):**
+
+1. Sign in at **dash.cloudflare.com** → **Workers & Pages** → **Create** → **Create Worker** → give it a name → **Deploy**.
+2. **Edit code**, paste the contents of [`sync-worker.js`](sync-worker.js), **Deploy**.
+3. **Storage & Databases → KV** → **Create a namespace** (e.g. `roast-sync`).
+4. Back in the Worker → **Settings → Bindings → Add → KV namespace**: variable name **`SYNC`**, pick the namespace → **Deploy**.
+5. Copy the Worker's URL (e.g. `https://roast-sync.you.workers.dev`).
+
+**In the app (each device):** open **Cloud sync**, paste the Worker URL, click **Generate** for a sync code (or paste an existing one to join), then **Connect**. Enter the *same* code on your other devices. Profiles and roasts then sync automatically (a debounced push on change, a pull every 45 s and when the tab regains focus).
+
+> ⚠️ The sync code is both the address and the password — **anyone with it can read and write your data**, so keep it private. Data travels over HTTPS to your own Worker.
 
 ## Roadmap
 
-- Cloud sync of profiles and roast logs across devices (optional login).
 - °F units and importing reference curves.
+- Optional login / named devices for cloud sync.
 
 ## Disclaimer
 
