@@ -97,12 +97,22 @@ It's a single static `index.html` — host it anywhere that serves HTTPS:
 
 ## Data & privacy
 
-Profiles and roast logs are stored in your **browser's local storage** on the device you use — nothing leaves your machine. Storage is per-site, so saves live with the hosted URL.
+Profiles and roast logs are stored in your **browser's local storage** on the device you use — nothing leaves your machine unless you enable **Cloud sync** (below). Storage is per-site, so saves live with the hosted URL.
+
+## Cloud sync (optional)
+
+Sync your **profiles and roast logs across devices** (iPad, phone, computer) through a free **Cloudflare Worker + KV** store that you own — no accounts, no third-party service holding your data. Devices that share a private **sync code** see the same data; changes merge automatically (newer edit wins per record, deletions propagate).
+
+**Setup, in short:** create a free Cloudflare Worker from [`sync-worker.js`](sync-worker.js) with a KV namespace bound as `SYNC`, then in the app's **Cloud sync** panel paste the Worker URL, **Generate** a code, **Connect**, and enter the same code on your other devices. Syncing is then automatic (debounced push on change, pull every 45 s and on tab focus).
+
+📖 **Full click-by-click walkthrough, verification, and troubleshooting → [CLOUD_SYNC.md](CLOUD_SYNC.md).**
+
+> ⚠️ The sync code is both the address and the password — **anyone with it can read and write your data**, so keep it private. Data travels over HTTPS to your own Worker.
 
 ## Roadmap
 
-- Cloud sync of profiles and roast logs across devices (optional login).
 - °F units and importing reference curves.
+- Optional login / named devices for cloud sync.
 
 ## Disclaimer
 

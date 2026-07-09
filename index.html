@@ -325,6 +325,24 @@
       <div id="log"></div>
     </details>
   </div>
+
+  <div class="panel">
+    <h2>Cloud sync</h2>
+    <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:8px">
+      <span class="small">Worker URL</span><input type="text" id="syncUrl" placeholder="https://roast-sync.you.workers.dev">
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <input type="text" id="syncCode" placeholder="sync code" style="flex:1;min-width:150px">
+      <button id="syncGen">Generate</button>
+      <button id="syncConnect" class="green">Connect</button>
+    </div>
+    <div class="row" style="margin-bottom:6px">
+      <button id="syncNow" class="blue" disabled>Sync now</button>
+      <span class="small" id="syncStatus">Not connected.</span>
+    </div>
+    <div class="small">Syncs your <b>profiles &amp; roast logs</b> across devices. Enter the same code on another device to share them — anyone with the code can read/write, so keep it private. Needs a free Cloudflare Worker (see README).</div>
+  </div>
+
   <div class="small" style="text-align:center;margin:4px 0 20px">Device must advertise as <b>MATCHBOX</b>/<b>MBOX</b>. Frame decode: <b>ET</b>=field 0, <b>BT</b>=field 1, heater=field 2, fan=field 3 (4-field form).</div>
 
 <script>
@@ -674,16 +692,17 @@ $('profAddRow').addEventListener('click',()=>{const last=editPts[editPts.length-
 
 const PROF_KEY='rc_profiles_v1';
 function loadProfilesStore(){try{return JSON.parse(localStorage.getItem(PROF_KEY)||'[]');}catch(e){return[];}}
-function saveProfilesStore(a){try{localStorage.setItem(PROF_KEY,JSON.stringify(a));}catch(e){alert('Browser storage full.');}}
+function saveProfilesStore(a){try{localStorage.setItem(PROF_KEY,JSON.stringify(a));}catch(e){alert('Browser storage full.');}cloudSchedulePush();}
 function refreshProfileSelect(sel){const a=loadProfilesStore(),s=$('profSelect');s.innerHTML='<option value="">— New profile —</option>';
   a.forEach(p=>{const o=document.createElement('option');o.value=p.id;o.textContent=p.name;s.appendChild(o);});if(sel)s.value=sel;}
 $('profSave').addEventListener('click',()=>{
   const pts=getPoints();if(pts.length<2){alert('Add at least 2 points (time + target).');return;}
   const name=$('profName').value.trim()||('Profile '+new Date().toLocaleString());
   const notes=$('profNotes').value.trim(),autoFan=uiAutoFan();
+  const now=Date.now();
   const a=loadProfilesStore(),cur=$('profSelect').value;let id=cur;
-  if(cur){const ex=a.find(p=>p.id===cur);if(ex){ex.name=name;ex.notes=notes;ex.points=pts;ex.autoFan=autoFan;}else{id='p'+Date.now();a.push({id,name,notes,autoFan,points:pts});}}
-  else{id='p'+Date.now();a.push({id,name,notes,autoFan,points:pts});}
+  if(cur){const ex=a.find(p=>p.id===cur);if(ex){ex.name=name;ex.notes=notes;ex.points=pts;ex.autoFan=autoFan;ex.mtime=now;}else{id='p'+now;a.push({id,name,notes,autoFan,points:pts,mtime:now});}}
+  else{id='p'+now;a.push({id,name,notes,autoFan,points:pts,mtime:now});}
   saveProfilesStore(a);refreshProfileSelect(id);$('profName').value=name;log('Profile saved: '+name);
 });
 $('profSelect').addEventListener('change',()=>{
@@ -752,7 +771,7 @@ $('profExport').addEventListener('click',()=>{
   log('Profile exported: '+name);
 });
 $('profDelete').addEventListener('click',()=>{const id=$('profSelect').value;if(!id)return;if(!confirm('Delete this saved profile?'))return;
-  saveProfilesStore(loadProfilesStore().filter(p=>p.id!==id));refreshProfileSelect();$('profSelect').dispatchEvent(new Event('change'));});
+  cloudTomb(id);saveProfilesStore(loadProfilesStore().filter(p=>p.id!==id));refreshProfileSelect();$('profSelect').dispatchEvent(new Event('change'));});
 
 // Auto fan: follows measured bean temp from cfg.start down to cfg.end fan %,
 // applied in the selected shape (cfg.mode). Legacy cfg.drop (percent below
@@ -1412,7 +1431,7 @@ $('btnClear').addEventListener('click',()=>{samples.length=0;btHist.length=0;$('
 
 const LOG_KEY='rc_logs_v1';
 function loadLogs(){try{return JSON.parse(localStorage.getItem(LOG_KEY)||'[]');}catch(e){return[];}}
-function saveLogs(a){try{localStorage.setItem(LOG_KEY,JSON.stringify(a));return true;}catch(e){alert('Storage full — export & delete old roasts to free space.');return false;}}
+function saveLogs(a){let ok=true;try{localStorage.setItem(LOG_KEY,JSON.stringify(a));}catch(e){alert('Storage full — export & delete old roasts to free space.');ok=false;}cloudSchedulePush();return ok;}
 function refreshRoastSelect(){const a=loadLogs();
   const fill=(s,first)=>{const cur=s.value;s.innerHTML='<option value="">'+first+'</option>';
     a.slice().reverse().forEach(r=>{const o=document.createElement('option');o.value=r.id;
@@ -1423,7 +1442,7 @@ function refreshRoastSelect(){const a=loadLogs();
   fill($('roastSelect'),'— saved roasts ('+a.length+') —');
   fill($('etSel'),'— pick a reference roast —');}
 function buildRoastRec(name){
-  return{id:'r'+Date.now(),name,date:new Date().toISOString(),
+  return{id:'r'+Date.now(),name,date:new Date().toISOString(),mtime:Date.now(),
     chargeT:(chargeMs&&connectMs)?+(((chargeMs-connectMs)/1000).toFixed(1)):null,stats:roastStats(),
     bean:$('beanInfo').value.trim(),weightIn:+$('wIn').value||null,weightOut:+$('wOut').value||null,
     samples:samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv})),
@@ -1439,7 +1458,7 @@ function autoSaveRoast(){                                   // every roast lands
 function syncAutoSaved(){                                   // weights/bean typed after Drop update the saved record
   if(!autoSaved.id||autoSaved.charge!==chargeMs)return;
   const a=loadLogs(),r=a.find(x=>x.id===autoSaved.id);if(!r)return;
-  r.bean=$('beanInfo').value.trim();r.weightIn=+$('wIn').value||null;r.weightOut=+$('wOut').value||null;
+  r.bean=$('beanInfo').value.trim();r.weightIn=+$('wIn').value||null;r.weightOut=+$('wOut').value||null;r.mtime=Date.now();
   saveLogs(a);
 }
 $('beanInfo').addEventListener('input',syncAutoSaved);
@@ -1450,7 +1469,7 @@ $('btnSaveRoast').addEventListener('click',()=>{
   const a=loadLogs();
   const ex=(autoSaved.id&&autoSaved.charge===chargeMs)?a.find(x=>x.id===autoSaved.id):null;
   if(ex){                                                   // rename/refresh the auto-saved record instead of duplicating
-    ex.name=name||defName;ex.bean=bean;ex.weightIn=+$('wIn').value||null;ex.weightOut=+$('wOut').value||null;
+    ex.name=name||defName;ex.bean=bean;ex.weightIn=+$('wIn').value||null;ex.weightOut=+$('wOut').value||null;ex.mtime=Date.now();
     ex.samples=samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv}));ex.events=Object.assign({},events);
     ex.stats=roastStats()||ex.stats;
     if(saveLogs(a)){refreshRoastSelect();log('Roast updated: '+ex.name);}
@@ -1468,9 +1487,92 @@ $('btnLoadRoast').addEventListener('click',()=>{
   if(r.stats)renderStatsCard(r.stats,r.weightIn,r.weightOut);else $('statsCard').style.display='none';
   $('rowCount').textContent=samples.length+' samples · '+r.name;renderEvents();drawChart();log('Loaded roast: '+r.name);
 });
-$('btnDelRoast').addEventListener('click',()=>{const id=$('roastSelect').value;if(!id)return;if(!confirm('Delete this saved roast?'))return;saveLogs(loadLogs().filter(r=>r.id!==id));refreshRoastSelect();});
+$('btnDelRoast').addEventListener('click',()=>{const id=$('roastSelect').value;if(!id)return;if(!confirm('Delete this saved roast?'))return;cloudTomb(id);saveLogs(loadLogs().filter(r=>r.id!==id));refreshRoastSelect();});
+
+// ---------- Cloud sync (Cloudflare Worker + KV) ----------
+const cloud={url:'',code:'',rev:0,pushTid:null,pulling:false,pushing:false,lastMs:0};
+function loadTombs(){try{return JSON.parse(localStorage.getItem('rc_tombs')||'{}');}catch(e){return{};}}
+function saveTombs(t){try{localStorage.setItem('rc_tombs',JSON.stringify(t));}catch(e){}}
+function cloudTomb(id){const t=loadTombs();t[id]=Date.now();saveTombs(t);}       // record a deletion so it propagates
+function mergeStores(local,remote,tombs){                                        // union by id, newer mtime wins, tombstones remove
+  const by={};
+  for(const r of (local||[]))if(r&&r.id)by[r.id]=r;
+  for(const r of (remote||[])){if(!r||!r.id)continue;const e=by[r.id];
+    if(!e||(r.mtime||0)>(e.mtime||0))by[r.id]=r;}
+  const out=[];
+  for(const id in by){const td=tombs[id];if(td!=null&&td>=(by[id].mtime||0))continue;out.push(by[id]);}
+  out.sort((a,b)=>(a.mtime||0)-(b.mtime||0));
+  return out;
+}
+function cloudConfigured(){return !!(cloud.url&&cloud.code);}
+function cloudStatus(msg){$('syncStatus').textContent=msg;}
+function cloudUrl(){return cloud.url.replace(/\/+$/,'')+'/d/'+encodeURIComponent(cloud.code);}
+async function cloudPull(){
+  if(!cloudConfigured()||cloud.pulling)return null;cloud.pulling=true;
+  try{
+    const r=await fetch(cloudUrl(),{method:'GET'});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const blob=await r.json();cloud.rev=blob.rev||0;
+    applyRemote(blob);
+    cloud.lastMs=Date.now();cloudStatus('Synced — '+new Date().toLocaleTimeString());
+    return blob;
+  }catch(e){cloudStatus('Sync error: '+e.message);return null;}
+  finally{cloud.pulling=false;}
+}
+function applyRemote(blob){                                                       // merge remote into local + refresh UI
+  const tombs=Object.assign({},loadTombs(),blob.tombs||{});
+  const profSel=$('profSelect').value,roastSel=$('roastSelect').value,etSel=$('etSel').value;
+  const mp=mergeStores(loadProfilesStore(),blob.profiles,tombs);
+  const ml=mergeStores(loadLogs(),blob.logs,tombs);
+  try{localStorage.setItem(PROF_KEY,JSON.stringify(mp));localStorage.setItem(LOG_KEY,JSON.stringify(ml));}catch(e){}
+  saveTombs(tombs);
+  refreshProfileSelect(mp.some(p=>p.id===profSel)?profSel:'');
+  $('roastSelect').value=roastSel;$('etSel').value=etSel;refreshRoastSelect();
+  drawChart();
+}
+async function cloudPush(retry){
+  if(!cloudConfigured()||cloud.pushing)return;cloud.pushing=true;
+  try{
+    const body={base:cloud.rev,profiles:loadProfilesStore(),logs:loadLogs(),tombs:loadTombs()};
+    const r=await fetch(cloudUrl(),{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+    if(r.status===409){const cur=await r.json();cloud.rev=cur.rev||0;applyRemote(cur);
+      if(!retry){cloud.pushing=false;return cloudPush(true);}throw new Error('conflict');}
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const res=await r.json();cloud.rev=res.rev||cloud.rev;
+    cloud.lastMs=Date.now();cloudStatus('Synced — '+new Date().toLocaleTimeString());
+  }catch(e){cloudStatus('Sync error: '+e.message);}
+  finally{cloud.pushing=false;}
+}
+function cloudSchedulePush(){                                                     // debounced push after any local change
+  if(!cloudConfigured())return;
+  clearTimeout(cloud.pushTid);cloud.pushTid=setTimeout(()=>cloudPush(false),1500);
+}
+async function cloudSyncNow(){if(!cloudConfigured())return;await cloudPull();await cloudPush(false);}
+function cloudSaveCfg(){try{localStorage.setItem('rc_sync',JSON.stringify({url:cloud.url,code:cloud.code}));}catch(e){}}
+$('syncGen').addEventListener('click',()=>{
+  const b=new Uint8Array(18);crypto.getRandomValues(b);
+  $('syncCode').value=btoa(String.fromCharCode(...b)).replace(/[+/=]/g,'').slice(0,24);
+});
+$('syncConnect').addEventListener('click',()=>{
+  if(cloudConfigured()&&$('syncConnect').textContent==='Disconnect'){
+    cloud.url='';cloud.code='';cloudSaveCfg();$('syncNow').disabled=true;
+    $('syncConnect').textContent='Connect';$('syncConnect').classList.add('green');cloudStatus('Not connected.');return;
+  }
+  const url=$('syncUrl').value.trim(),code=$('syncCode').value.trim();
+  if(!url||!/^[A-Za-z0-9_-]{16,64}$/.test(code)){alert('Enter a Worker URL and a sync code (16+ chars, letters/digits/-/_). Use Generate for a new one.');return;}
+  cloud.url=url;cloud.code=code;cloud.rev=0;cloudSaveCfg();
+  $('syncNow').disabled=false;$('syncConnect').textContent='Disconnect';$('syncConnect').classList.remove('green');
+  cloudStatus('Connecting…');cloudSyncNow();
+});
+$('syncNow').addEventListener('click',cloudSyncNow);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)cloudPull();});
+setInterval(()=>{if(cloudConfigured()&&!document.hidden)cloudPull();},45000);
 
 // ---------- init ----------
+try{const sc=JSON.parse(localStorage.getItem('rc_sync')||'null');
+  if(sc&&sc.url&&sc.code){cloud.url=sc.url;cloud.code=sc.code;
+    $('syncUrl').value=sc.url;$('syncCode').value=sc.code;
+    $('syncNow').disabled=false;$('syncConnect').textContent='Disconnect';$('syncConnect').classList.remove('green');}}catch(e){}
 let savedTheme='night';try{savedTheme=localStorage.getItem('rc_theme')||'night';}catch(e){}
 applyTheme(savedTheme==='day');
 renderPoints();refreshProfileSelect();refreshRoastSelect();
@@ -1480,6 +1582,7 @@ try{const ep=JSON.parse(localStorage.getItem('rc_etrun')||'null');
     if(ep.endBt)$('etEndBt').value=ep.endBt;
     if(ep.id){$('etSel').value=ep.id;if($('etSel').value===ep.id)applyEtRef();}}}catch(e){}
 drawChart();
+if(cloudConfigured()){cloudStatus('Connecting…');cloudSyncNow();}
 </script>
 </body>
 </html>
