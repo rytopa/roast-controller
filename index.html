@@ -44,6 +44,16 @@
   .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:7px}
   @media(max-width:620px){.tiles{grid-template-columns:repeat(3,1fr)}}
+  .stage{display:grid;grid-template-columns:1fr;gap:10px}
+  @media(min-width:860px){
+    body{max-width:1160px}
+    .stage{grid-template-columns:230px 1fr;align-items:start}
+    .liverail{position:sticky;top:12px}
+    .liverail .tiles{grid-template-columns:1fr;gap:6px}
+    .liverail .tile{text-align:left;padding:7px 11px}
+    .liverail .tile .v{font-size:30px}
+    #chart{height:440px}
+  }
   .tile{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:9px 6px;text-align:center}
   .tile .v{font-size:23px;font-weight:700;font-variant-numeric:tabular-nums}
   .tile .u{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.04em;margin-top:1px}
@@ -109,40 +119,43 @@
     <div id="ctlNote" class="small" style="margin-top:6px"></div>
   </div>
 
-  <div class="panel">
-    <h2>Live</h2>
-    <div class="tiles">
-      <div class="tile bt"><div class="v" id="tBt">—</div><div class="u">Bean °C</div></div>
-      <div class="tile et"><div class="v" id="tEt">—</div><div class="u">ET °C</div></div>
-      <div class="tile ror"><div class="v" id="tRor">—</div><div class="u">RoR °C/m</div></div>
-      <div class="tile sv"><div class="v" id="tSv">—</div><div class="u">Target °C</div></div>
-      <div class="tile"><div class="v" id="tHeat">—</div><div class="u">Heater %</div></div>
-      <div class="tile"><div class="v" id="tFan">—</div><div class="u">Fan %</div></div>
+  <div class="stage">
+    <div class="panel liverail">
+      <h2>Live</h2>
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <div class="small">Roast time <b id="tTimer" style="color:var(--text);font-size:15px">0:00</b></div>
+        <span id="pidPill" class="pill off">PID off</span>
+      </div>
+      <div class="tiles">
+        <div class="tile bt"><div class="v" id="tBt">—</div><div class="u">Bean °C</div></div>
+        <div class="tile et"><div class="v" id="tEt">—</div><div class="u">ET °C</div></div>
+        <div class="tile ror"><div class="v" id="tRor">—</div><div class="u">RoR °C/m</div></div>
+        <div class="tile sv"><div class="v" id="tSv">—</div><div class="u">Target °C</div></div>
+        <div class="tile"><div class="v" id="tHeat">—</div><div class="u">Heater %</div></div>
+        <div class="tile"><div class="v" id="tFan">—</div><div class="u">Fan %</div></div>
+      </div>
+      <div id="liveBar" style="display:none;height:26px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin-top:8px;font-size:11px;font-weight:700"></div>
+      <div class="small" style="margin-top:8px"><span id="bgDelta"></span> <span id="etaInfo"></span> <span id="tDev"></span></div>
     </div>
-    <div id="liveBar" style="display:none;height:26px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin-top:8px;font-size:11px;font-weight:700"></div>
-    <div class="row" style="justify-content:space-between;margin-top:8px">
-      <div class="small">Roast time <b id="tTimer" style="color:var(--text);font-size:15px">0:00</b> <span id="pidPill" class="pill off" style="margin-left:6px">PID off</span> <span id="bgDelta" style="margin-left:6px"></span></div>
-      <div class="small"><span id="etaInfo"></span> <span id="tDev"></span></div>
-    </div>
-    <div class="row" style="margin-top:8px;gap:6px;align-items:center">
-      <label class="ck" style="margin:0"><input type="checkbox" id="alarmRor" checked><span>RoR crash / flick warnings</span></label>
-      <span class="small">· Alert at BT</span><input id="alarmTemp" type="number" min="0" max="260" placeholder="e.g. 195" style="width:84px"><span class="small">°C</span>
-      <span class="small">· RoR window</span><input id="rorWin" type="number" min="5" max="60" value="15" style="width:64px"><span class="small">s</span>
-    </div>
-    <div id="alarmBanner" class="banner err" style="display:none;margin:8px 0 0"></div>
-  </div>
 
-  <div class="panel">
-    <h2>Chart</h2>
-    <canvas id="chart"></canvas>
-    <div class="legend">
-      <span><i style="background:var(--bt)"></i>Bean (BT)</span>
-      <span><i style="background:var(--et)"></i>Exhaust (ET)</span>
-      <span><i style="background:var(--sv)"></i>Target (SV)</span>
-      <span><i style="background:var(--ror)"></i>RoR <span class="small">(0–30 °C/min)</span></span>
-      <span><i style="background:var(--heat)"></i>Heater % <span class="small">(right)</span></span>
-      <span><i style="background:var(--fan)"></i>Fan % <span class="small">(right)</span></span>
-      <span class="small">hover / drag to inspect values · top pane: temps (left axis) + RoR 0–30 °C/min (right axis) · bottom pane: heater &amp; fan % · bar = phases · dashed = plan · faded = background roast</span>
+    <div class="panel">
+      <h2>Chart</h2>
+      <canvas id="chart"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--bt)"></i>Bean (BT)</span>
+        <span><i style="background:var(--et)"></i>Exhaust (ET)</span>
+        <span><i style="background:var(--sv)"></i>Target (SV)</span>
+        <span><i style="background:var(--ror)"></i>RoR <span class="small">(0–30 °C/min)</span></span>
+        <span><i style="background:var(--heat)"></i>Heater % <span class="small">(right)</span></span>
+        <span><i style="background:var(--fan)"></i>Fan % <span class="small">(right)</span></span>
+        <span class="small">hover / drag to inspect values · top pane: temps (left axis) + RoR 0–30 °C/min (right axis) · bottom pane: heater &amp; fan % · bar = phases · dashed = plan · faded = background roast</span>
+      </div>
+      <div class="row" style="margin-top:8px;gap:6px;align-items:center">
+        <label class="ck" style="margin:0"><input type="checkbox" id="alarmRor" checked><span>RoR crash / flick warnings</span></label>
+        <span class="small">· Alert at BT</span><input id="alarmTemp" type="number" min="0" max="260" placeholder="e.g. 195" style="width:84px"><span class="small">°C</span>
+        <span class="small">· RoR window</span><input id="rorWin" type="number" min="5" max="60" value="15" style="width:64px"><span class="small">s</span>
+      </div>
+      <div id="alarmBanner" class="banner err" style="display:none;margin:8px 0 0"></div>
     </div>
   </div>
 
