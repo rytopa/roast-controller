@@ -148,7 +148,8 @@
         <span><i style="background:var(--ror)"></i>RoR <span class="small">(0–30 °C/min)</span></span>
         <span><i style="background:var(--heat)"></i>Heater % <span class="small">(right)</span></span>
         <span><i style="background:var(--fan)"></i>Fan % <span class="small">(right)</span></span>
-        <span class="small">hover / drag to inspect values · top pane: temps (left axis) + RoR 0–30 °C/min (right axis) · bottom pane: heater &amp; fan % · bar = phases · dashed = plan · faded = background roast</span>
+        <span><i style="background:#e6b84d"></i>Σ heat <span class="small">(cumulative)</span></span>
+        <span class="small">hover / drag to inspect values · top pane: temps (left axis) + RoR 0–30 °C/min (right axis) · bottom pane: heater &amp; fan %, dashed gold = cumulative heat used · bar = phases · dashed = plan · faded = background roast</span>
       </div>
       <div class="row" style="margin-top:8px;gap:6px;align-items:center">
         <label class="ck" style="margin:0"><input type="checkbox" id="alarmRor" checked><span>RoR crash / flick warnings</span></label>
@@ -1226,11 +1227,11 @@ const PALETTES={
   night:{grid:'#352c22',label:'#93846c',text:'#f2ebe1',bt:'#f5a04c',et:'#66c1eb',sv:'#74dd86',ror:'#f381b0',heat:'#ff7059',fan:'#aebfd0',
     plan:'rgba(116,221,134,.8)',planRor:'rgba(243,129,176,.8)',planFan:'rgba(174,191,208,.8)',
     ev:{charge:'#a99a7f',dry:'#e2b95e',fc:'#ff7059',drop:'#66c1eb'},ptSel:'#c0ffcd',ptStroke:'#0c0a08',
-    cross:'#b8ab93',badgeBg:'rgba(10,8,6,.85)',badgeText:'#f2ebe1'},
+    cross:'#b8ab93',badgeBg:'rgba(10,8,6,.85)',badgeText:'#f2ebe1',cum:'#e6b84d'},
   day:{grid:'#e3d8c3',label:'#8a7a62',text:'#2b2115',bt:'#c96f1e',et:'#177fb4',sv:'#1e9e44',ror:'#c73577',heat:'#d43a20',fan:'#5a758f',
     plan:'rgba(30,158,68,.75)',planRor:'rgba(199,53,119,.75)',planFan:'rgba(90,117,143,.75)',
     ev:{charge:'#8a7a5f',dry:'#b5861e',fc:'#d43a20',drop:'#177fb4'},ptSel:'#0f7a33',ptStroke:'#ffffff',
-    cross:'#7a6c54',badgeBg:'rgba(255,255,253,.92)',badgeText:'#2b2115'}
+    cross:'#7a6c54',badgeBg:'rgba(255,255,253,.92)',badgeText:'#2b2115',cum:'#b8860b'}
 };
 let themeDay=false;
 function pal(){return themeDay?PALETTES.day:PALETTES.night;}
@@ -1317,6 +1318,19 @@ function drawChart(){
   const line=(key,col,dash,Yf,wid)=>{ctx.strokeStyle=col;ctx.lineWidth=wid||2;ctx.setLineDash(dash||[]);ctx.beginPath();let started=false;
     for(const s of samples){const v=s[key];if(v==null||Number.isNaN(v)){continue;}const x=X(s.t),y=(Yf||Y)(v);if(!started){ctx.moveTo(x,y);started=true;}else ctx.lineTo(x,y);}ctx.stroke();ctx.setLineDash([]);};
   line('fan',P.fan,null,Y2,1.6);line('heat',P.heat,null,Y2,1.6);
+  const cumPts=[];                                                   // cumulative heat load (%·min), controls pane
+  {let acc=0;for(let i=0;i<samples.length;i++){const s=samples[i];
+     if(i>0&&s.heat!=null&&!Number.isNaN(s.heat)){const dt=s.t-samples[i-1].t;if(dt>0&&dt<30)acc+=samples[i-1].heat*dt/60;}
+     cumPts.push({t:s.t,v:acc});}
+   const cumMax=cumPts.length?cumPts[cumPts.length-1].v:0;
+   if(cumMax>0){const Yc=v=>cpY+(1-v/cumMax)*cpH;
+     ctx.strokeStyle=P.cum;ctx.lineWidth=1.6;ctx.setLineDash([4,3]);ctx.beginPath();let st=false;
+     for(const p of cumPts){const x=X(p.t),y=Yc(p.v);if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}
+     ctx.stroke();ctx.setLineDash([]);
+     const hw=+($('heaterW').value),wh=hw*cumMax/6000;             // Wh = W · (%·min) / 6000
+     const lbl=hw>0?(wh>=1000?(wh/1000).toFixed(2)+' kWh':Math.round(wh)+' Wh')
+       :Math.round(cumMax)+' %·min';
+     ctx.fillStyle=P.cum;ctx.font='600 10px system-ui';ctx.fillText('Σ '+lbl,pL+3,cpY+10);ctx.font='10px system-ui';}}
   const rorPts=[];                                                   // actual RoR (kept for hover lookup)
   {const bp=samples.filter(s=>s.bt!=null&&!Number.isNaN(s.bt));
    const wn=rorWinS();
