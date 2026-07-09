@@ -44,6 +44,16 @@
   .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:7px}
   @media(max-width:620px){.tiles{grid-template-columns:repeat(3,1fr)}}
+  .stage{display:grid;grid-template-columns:1fr;gap:10px}
+  @media(min-width:860px){
+    body{max-width:1160px}
+    .stage{grid-template-columns:230px 1fr;align-items:start}
+    .liverail{position:sticky;top:12px}
+    .liverail .tiles{grid-template-columns:1fr;gap:6px}
+    .liverail .tile{text-align:left;padding:7px 11px}
+    .liverail .tile .v{font-size:30px}
+    #chart{height:440px}
+  }
   .tile{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:9px 6px;text-align:center}
   .tile .v{font-size:23px;font-weight:700;font-variant-numeric:tabular-nums}
   .tile .u{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.04em;margin-top:1px}
@@ -109,40 +119,43 @@
     <div id="ctlNote" class="small" style="margin-top:6px"></div>
   </div>
 
-  <div class="panel">
-    <h2>Live</h2>
-    <div class="tiles">
-      <div class="tile bt"><div class="v" id="tBt">—</div><div class="u">Bean °C</div></div>
-      <div class="tile et"><div class="v" id="tEt">—</div><div class="u">ET °C</div></div>
-      <div class="tile ror"><div class="v" id="tRor">—</div><div class="u">RoR °C/m</div></div>
-      <div class="tile sv"><div class="v" id="tSv">—</div><div class="u">Target °C</div></div>
-      <div class="tile"><div class="v" id="tHeat">—</div><div class="u">Heater %</div></div>
-      <div class="tile"><div class="v" id="tFan">—</div><div class="u">Fan %</div></div>
+  <div class="stage">
+    <div class="panel liverail">
+      <h2>Live</h2>
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <div class="small">Roast time <b id="tTimer" style="color:var(--text);font-size:15px">0:00</b></div>
+        <span id="pidPill" class="pill off">PID off</span>
+      </div>
+      <div class="tiles">
+        <div class="tile bt"><div class="v" id="tBt">—</div><div class="u">Bean °C</div></div>
+        <div class="tile et"><div class="v" id="tEt">—</div><div class="u">ET °C</div></div>
+        <div class="tile ror"><div class="v" id="tRor">—</div><div class="u">RoR °C/m</div></div>
+        <div class="tile sv"><div class="v" id="tSv">—</div><div class="u">Target °C</div></div>
+        <div class="tile"><div class="v" id="tHeat">—</div><div class="u">Heater %</div></div>
+        <div class="tile"><div class="v" id="tFan">—</div><div class="u">Fan %</div></div>
+      </div>
+      <div id="liveBar" style="display:none;height:26px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin-top:8px;font-size:11px;font-weight:700"></div>
+      <div class="small" style="margin-top:8px"><span id="bgDelta"></span> <span id="etaInfo"></span> <span id="tDev"></span></div>
     </div>
-    <div id="liveBar" style="display:none;height:26px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin-top:8px;font-size:11px;font-weight:700"></div>
-    <div class="row" style="justify-content:space-between;margin-top:8px">
-      <div class="small">Roast time <b id="tTimer" style="color:var(--text);font-size:15px">0:00</b> <span id="pidPill" class="pill off" style="margin-left:6px">PID off</span> <span id="bgDelta" style="margin-left:6px"></span></div>
-      <div class="small"><span id="etaInfo"></span> <span id="tDev"></span></div>
-    </div>
-    <div class="row" style="margin-top:8px;gap:6px;align-items:center">
-      <label class="ck" style="margin:0"><input type="checkbox" id="alarmRor" checked><span>RoR crash / flick warnings</span></label>
-      <span class="small">· Alert at BT</span><input id="alarmTemp" type="number" min="0" max="260" placeholder="e.g. 195" style="width:84px"><span class="small">°C</span>
-      <span class="small">· RoR window</span><input id="rorWin" type="number" min="5" max="60" value="15" style="width:64px"><span class="small">s</span>
-    </div>
-    <div id="alarmBanner" class="banner err" style="display:none;margin:8px 0 0"></div>
-  </div>
 
-  <div class="panel">
-    <h2>Chart</h2>
-    <canvas id="chart"></canvas>
-    <div class="legend">
-      <span><i style="background:var(--bt)"></i>Bean (BT)</span>
-      <span><i style="background:var(--et)"></i>Exhaust (ET)</span>
-      <span><i style="background:var(--sv)"></i>Target (SV)</span>
-      <span><i style="background:var(--ror)"></i>RoR <span class="small">(0–30 °C/min)</span></span>
-      <span><i style="background:var(--heat)"></i>Heater % <span class="small">(right)</span></span>
-      <span><i style="background:var(--fan)"></i>Fan % <span class="small">(right)</span></span>
-      <span class="small">hover / drag to inspect values · top pane: temps (left axis) + RoR 0–30 °C/min (right axis) · bottom pane: heater &amp; fan % · bar = phases · dashed = plan · faded = background roast</span>
+    <div class="panel">
+      <h2>Chart</h2>
+      <canvas id="chart"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--bt)"></i>Bean (BT)</span>
+        <span><i style="background:var(--et)"></i>Exhaust (ET)</span>
+        <span><i style="background:var(--sv)"></i>Target (SV)</span>
+        <span><i style="background:var(--ror)"></i>RoR <span class="small">(0–30 °C/min)</span></span>
+        <span><i style="background:var(--heat)"></i>Heater % <span class="small">(right)</span></span>
+        <span><i style="background:var(--fan)"></i>Fan % <span class="small">(right)</span></span>
+        <span class="small">hover / drag to inspect values · top pane: temps (left axis) + RoR 0–30 °C/min (right axis) · bottom pane: heater &amp; fan % · bar = phases · dashed = plan · faded = background roast</span>
+      </div>
+      <div class="row" style="margin-top:8px;gap:6px;align-items:center">
+        <label class="ck" style="margin:0"><input type="checkbox" id="alarmRor" checked><span>RoR crash / flick warnings</span></label>
+        <span class="small">· Alert at BT</span><input id="alarmTemp" type="number" min="0" max="260" placeholder="e.g. 195" style="width:84px"><span class="small">°C</span>
+        <span class="small">· RoR window</span><input id="rorWin" type="number" min="5" max="60" value="15" style="width:64px"><span class="small">s</span>
+      </div>
+      <div id="alarmBanner" class="banner err" style="display:none;margin:8px 0 0"></div>
     </div>
   </div>
 
@@ -200,6 +213,9 @@
         <option value="20" selected>Smooth: medium (20 s)</option>
         <option value="40">Smooth: heavy (40 s)</option>
       </select>
+    </div>
+    <div class="row" style="margin-bottom:8px;align-items:center">
+      <span class="small"><b>Drop at BT</b></span><input id="etEndBt" type="number" min="150" max="250" style="width:80px"><span class="small">°C — the run ends (heater off) when the bean temp reaches this, not on the reference's clock.</span>
     </div>
     <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="etArm"><span><b>Arm for auto-charge</b> — the bean-drop detection starts this ET-track run instead of the normal profile, and the reference shows as the chart background.</span></label>
     <button id="etRunBtn" class="green" style="width:100%">▶ Start ET-track run</button>
@@ -835,7 +851,12 @@ function buildEtRef(){
   const base=bgBaseOf(rec);
   let endT=null;for(let i=sm.length-1;i>=0;i--){if(sm[i].et!=null&&!Number.isNaN(sm[i].et)){endT=sm[i].t;break;}}
   if(endT==null||endT-base<30)return null;
-  return{name:rec.name,samples:sm,events:rec.events||{},base,endE:endT-base,_i:0};
+  const ev=rec.events||{};                                            // ending BT = BT at the reference's drop (or last valid BT)
+  let endBt=null;
+  const dropT=ev.drop!=null?base+ev.drop:null;
+  if(dropT!=null){let bd=1e9;for(const q of rec.samples){if(q.bt==null||Number.isNaN(q.bt))continue;const d=Math.abs(q.t-dropT);if(d<bd){bd=d;endBt=q.bt;}}if(bd>10)endBt=null;}
+  if(endBt==null)for(let i=rec.samples.length-1;i>=0;i--){const b=rec.samples[i].bt;if(b!=null&&!Number.isNaN(b)){endBt=b;break;}}
+  return{name:rec.name,samples:sm,events:ev,base,endE:endT-base,endBt:endBt!=null?Math.round(endBt):null,_i:0};
 }
 function refAt(ref,e,key){                             // interpolate the reference at e seconds after its charge
   const t=ref.base+e,ss=ref.samples;
@@ -854,15 +875,16 @@ function applyEtRef(){
   if(etRef){
     bg={name:etRef.name+' (ET ref)',samples:etRef.samples,events:etRef.events,base:etRef.base};bgIdx=0;
     $('bgName').textContent='BG: '+etRef.name+' (ET ref)';$('btnBgClear').style.display='';
+    if(etRef.endBt!=null)$('etEndBt').value=etRef.endBt;              // prefill the drop-at-BT from the reference
   }
   drawChart();saveEtPrefs();
 }
-function saveEtPrefs(){try{localStorage.setItem('rc_etrun',JSON.stringify({id:$('etSel').value,sm:$('etSmooth').value,
+function saveEtPrefs(){try{localStorage.setItem('rc_etrun',JSON.stringify({id:$('etSel').value,sm:$('etSmooth').value,endBt:$('etEndBt').value,
   kp:$('etKp').value,ki:$('etKi').value,kd:$('etKd').value,slew:$('etSlew').value,max:$('etMax').value}));}catch(e){}}
 $('etSel').addEventListener('change',()=>{if(!etRun)applyEtRef();});
 $('etSmooth').addEventListener('change',()=>{if(!etRun)applyEtRef();});
 $('etArm').addEventListener('change',()=>{if($('etArm').checked&&!etRef&&!etRun)applyEtRef();});
-['etKp','etKi','etKd','etSlew','etMax'].forEach(id=>$(id).addEventListener('change',saveEtPrefs));
+['etKp','etKi','etKd','etSlew','etMax','etEndBt'].forEach(id=>$(id).addEventListener('change',saveEtPrefs));
 
 $('etRunBtn').addEventListener('click',()=>{etRun?stopEtRun('stopped by user'):startEtRun();});
 async function startEtRun(){
@@ -879,7 +901,8 @@ async function startEtRun(){
   etRun={startT:nowT(),integ:0,lastOut:out0,lastFan:fan0,tid:setInterval(etTick,2000)};
   $('etSel').disabled=$('etSmooth').disabled=true;
   $('etRunBtn').textContent='■ Stop ET-track';$('etRunBtn').classList.remove('green');$('etRunBtn').classList.add('danger');
-  log('ET-track started: '+etRef.name+' (ends '+fmt(etRef.endE)+', fan '+fan0+'%, heater '+out0+'%)');
+  const dropBt0=Math.max(120,Math.min(250,+$('etEndBt').value||etRef.endBt||210));
+  log('ET-track started: '+etRef.name+' (drop at BT '+dropBt0+'°, ref length '+fmt(etRef.endE)+', fan '+fan0+'%, heater '+out0+'%)');
 }
 function stopEtRun(reason,keepHeat){
   if(!etRun)return;clearInterval(etRun.tid);etRun=null;
@@ -890,15 +913,14 @@ function stopEtRun(reason,keepHeat){
   $('etStatus').textContent='ET-track stopped ('+reason+')'+(keepHeat?'.':' — heater off.');
   log('ET-track stopped: '+reason);
 }
-function finishEtRun(){
+function finishEtRun(msg){
   stopEtRun('complete',true);
   send('OT1,0');
-  fireAlarm('✅ ET profile complete — heater OFF. Drop the beans.');
+  fireAlarm(msg||'✅ ET profile complete — heater OFF. Drop the beans.');
 }
 function etTick(){
   if(!etRun||!etRef)return;
   const e=nowT()-etRun.startT;
-  if(e>=etRef.endE){finishEtRun();return;}
   const kp=+$('etKp').value||2,ki=+$('etKi').value||0.06,kd=+$('etKd').value||15;
   const slew=Math.max(2,Math.min(50,+$('etSlew').value||15)),etMax=+$('etMax').value||240;
   const s=samples[samples.length-1];
@@ -912,6 +934,10 @@ function etTick(){
     if(etRun.lastOut!==0){send('OT1,0');etRun.lastOut=0;fireAlarm('⚠️ Temperature ceiling reached — heater cut');}
     return;
   }
+  const dropBt=Math.max(120,Math.min(250,+$('etEndBt').value||etRef.endBt||210));
+  if(bt!=null&&bt>=dropBt){finishEtRun('🎯 Drop temp reached (BT '+Math.round(bt)+'°) — heater OFF. Drop the beans.');return;}
+  if(e>=etRef.endE+120){finishEtRun('⏱ BT didn\'t reach '+dropBt+'° within 2 min of the reference end — heater OFF.');return;}
+  const overrun=e>=etRef.endE;                                      // past the reference clock: hold final ET, wait for BT
   const target=refAt(etRef,e,'et');
   if(target==null){finishEtRun();return;}
   const err=target-s.et;
@@ -932,8 +958,10 @@ function etTick(){
   if(out!==etRun.lastOut){send('OT1,'+out);etRun.lastOut=out;}
   if(!fanOverride){const fv=Math.round(refAt(etRef,e,'fan')??NaN);  // replay the reference fan
     if(Number.isFinite(fv)&&fv!==etRun.lastFan){send('IO3,'+fv);etRun.lastFan=fv;}}
-  $('etStatus').innerHTML='🎯 target ET '+Math.round(target)+'° · actual <b style="color:var(--text)">'+Math.round(s.et)+'°</b> · err '
-    +(err>=0?'+':'')+err.toFixed(1)+'° · heater <b style="color:var(--text)">'+out+'%</b> · '+fmt(e)+' / '+fmt(etRef.endE);
+  const dropTxt=' · → drop @ '+dropBt+'°'+(bt!=null?' (BT '+Math.round(bt)+'°)':'');
+  $('etStatus').innerHTML=(overrun?'⏳ holding final ET — waiting for BT '+dropBt+'°':'🎯 target ET '+Math.round(target)+'°')
+    +' · actual <b style="color:var(--text)">'+Math.round(s.et)+'°</b> · err '
+    +(err>=0?'+':'')+err.toFixed(1)+'° · heater <b style="color:var(--text)">'+out+'%</b>'+dropTxt;
 }
 
 // ---------- Between-batch protocol ----------
@@ -1449,7 +1477,8 @@ renderPoints();refreshProfileSelect();refreshRoastSelect();
 try{const ep=JSON.parse(localStorage.getItem('rc_etrun')||'null');
   if(ep){$('etSmooth').value=ep.sm??'20';$('etKp').value=ep.kp??2;$('etKi').value=ep.ki??0.06;
     $('etKd').value=ep.kd??15;$('etSlew').value=ep.slew??15;$('etMax').value=ep.max??240;
-    if(ep.id)$('etSel').value=ep.id;}}catch(e){}
+    if(ep.endBt)$('etEndBt').value=ep.endBt;
+    if(ep.id){$('etSel').value=ep.id;if($('etSel').value===ep.id)applyEtRef();}}}catch(e){}
 drawChart();
 </script>
 </body>
