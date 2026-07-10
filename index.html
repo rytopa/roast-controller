@@ -1616,9 +1616,13 @@ function cloudSchedulePush(){                                                   
 }
 async function cloudSyncNow(){if(!cloudConfigured())return;await cloudPull();await cloudPush(false);}
 function cloudSaveCfg(){try{localStorage.setItem('rc_sync',JSON.stringify({url:cloud.url,code:cloud.code}));}catch(e){}}
+function cloudSaveFields(){try{localStorage.setItem('rc_syncfields',JSON.stringify({url:$('syncUrl').value.trim(),code:$('syncCode').value.trim()}));}catch(e){}}
+$('syncUrl').addEventListener('input',cloudSaveFields);              // remember what's typed, even before Connect
+$('syncCode').addEventListener('input',cloudSaveFields);
 $('syncGen').addEventListener('click',()=>{
   const b=new Uint8Array(18);crypto.getRandomValues(b);
   $('syncCode').value=btoa(String.fromCharCode(...b)).replace(/[+/=]/g,'').slice(0,24);
+  cloudSaveFields();
 });
 $('syncConnect').addEventListener('click',()=>{
   if(cloudConfigured()&&$('syncConnect').textContent==='Disconnect'){
@@ -1636,7 +1640,9 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)cloudPull(
 setInterval(()=>{if(cloudConfigured()&&!document.hidden)cloudPull();},45000);
 
 // ---------- init ----------
-try{const sc=JSON.parse(localStorage.getItem('rc_sync')||'null');
+try{const sf=JSON.parse(localStorage.getItem('rc_syncfields')||'null');   // pre-fill the typed URL/code always
+  if(sf){if(sf.url)$('syncUrl').value=sf.url;if(sf.code)$('syncCode').value=sf.code;}}catch(e){}
+try{const sc=JSON.parse(localStorage.getItem('rc_sync')||'null');         // restore an active connection
   if(sc&&sc.url&&sc.code){cloud.url=sc.url;cloud.code=sc.code;
     $('syncUrl').value=sc.url;$('syncCode').value=sc.code;
     $('syncNow').disabled=false;$('syncConnect').textContent='Disconnect';$('syncConnect').classList.remove('green');}}catch(e){}
