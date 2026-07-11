@@ -785,6 +785,7 @@ $('profDelete').addEventListener('click',()=>{const id=$('profSelect').value;if(
 // applied in the selected shape (cfg.mode). Legacy cfg.drop (percent below
 // start) is still accepted and converted.
 const FAN_MODES=['knee','hold','linear','steps'];
+const AUTO_FAN_KNEE=160;   // the °C at which the fan schedule's knee sits (see autoFanAt); also used to arm the schedule after charge
 function autoFanAt(bt,cfg,endTemp){
   const start=cfg.start,mode=cfg.mode||'knee';
   let floor=cfg.end!=null?cfg.end:(cfg.drop!=null?start*(1-cfg.drop/100):start*0.7);
@@ -829,11 +830,19 @@ async function startProfile(){
   const fan0=af?af.start:(pts[0].fan!=null?Math.round(pts[0].fan):40); send('IO3,'+fan0); await delay(300);
   if(!pidEngaged)await engagePID(pts[0].sv); else setSV(pts[0].sv);
   const startT=nowT();
-  profile={points:pts,startT,autoFan:af,lastFan:null,fanSentAt:null,tid:setInterval(()=>{   // lastFan null: first tick re-sends the fan even if the start command was lost
+  profile={points:pts,startT,autoFan:af,lastFan:null,fanSentAt:null,btMin:null,fanArmed:false,tid:setInterval(()=>{   // lastFan null: first tick re-sends the fan even if the start command was lost
     const e=nowT()-startT,p=interpAt(pts,e);
     if(p){setSV(p.sv);
       let fv=null;
-      if(af){const s=samples[samples.length-1];if(s&&s.bt!=null&&!Number.isNaN(s.bt))fv=autoFanAt(s.bt,af,endSv);}
+      if(af){const s=samples[samples.length-1];
+        if(s&&s.bt!=null&&!Number.isNaN(s.bt)){
+          if(profile.btMin==null||s.bt<profile.btMin)profile.btMin=s.bt;   // track the charge turning point
+          // Right after charge the BT probe still reads the hot empty roaster (often >160°), which would
+          // trip the fan schedule's 160° knee before the beans have taken. Hold the start fan until BT has
+          // dipped below the knee and started climbing again (turning point passed), then follow the schedule.
+          if(!profile.fanArmed&&profile.btMin<AUTO_FAN_KNEE&&s.bt>=profile.btMin+3)profile.fanArmed=true;
+          fv=profile.fanArmed?autoFanAt(s.bt,af,endSv):af.start;
+        }}
       else if(p.fan!=null)fv=Math.round(p.fan);
       if(!fanOverride&&fv!=null){
         if(fv!==profile.lastFan){send('IO3,'+fv);profile.lastFan=fv;profile.fanSentAt=e;}
@@ -1007,16 +1016,34 @@ $('bbpStart').addEventListener('click',()=>{bbp?stopBBP('cancelled'):startBBP();
 async function startBBP(){
   if(!writeChar){alert('Connect the roaster first.');return;}
   if(!$('enableControl').checked){alert('Tick "Enable control" in the Control panel first.');return;}
-  stopRamp();stopProfile();stopEtRun('between-batch cycle',true);
   const coolTo=Math.max(40,Math.min(150,+$('bbpCool').value||100));
   const chargeT=Math.max(coolTo+10,Math.min(240,+$('bbpCharge').value||180));
   const fanLow=Math.max(10,Math.min(100,+$('bbpFan').value||20));
+  // ---- confirmation summary: what profile + air flow this cycle will run ----
+  const auto=$('bbpAuto').checked,pts=getPoints(),haveProfile=pts.length>=2;
+  const pname=$('profName').value.trim(),af=uiAutoFan();
+  let airLine;
+  if(af)airLine='Auto fan '+af.start+'% → '+af.end+'% ('+af.mode+')';
+  else if(haveProfile){const fans=pts.map(p=>p.fan).filter(f=>f!=null);
+    airLine=fans.length?'Table fan '+Math.round(fans[0])+'% → '+Math.round(fans[fans.length-1])+'%':'per-point table fan';}
+  else airLine='—';
+  const summary=['Start the between-batch cycle?','',
+    'Profile:  '+(haveProfile?(pname||'(unnamed loaded profile)'):'⚠ NONE loaded'),
+    'Roast air flow:  '+airLine,
+    'Charge-ramp fan:  '+fanLow+'%',
+    'Cool to '+coolTo+'° → charge '+chargeT+'°','',
+    auto?(haveProfile?'Auto-charge ON — "'+(pname||'the loaded profile')+'" runs automatically when the beans drop.'
+                     :'⚠ Auto-charge ON but NO profile is loaded — load one before you charge.')
+        :'Auto-charge OFF — you start the roast manually after dropping.'].join('\n');
+  if(!confirm(summary))return;
+  stopRamp();stopProfile();stopEtRun('between-batch cycle',true);
+  if(chargeMs||samples.length){autoSaveRoast();resetRoastView();}   // clear the previous roast so the new batch gets a fresh graph
   await send('PID,OFF ');pidEngaged=false;setPidPill();
   await delay(200);await send('OT1,0');await delay(200);await send('IO3,100');
   bbp={phase:'cool',coolTo,chargeT,fanLow,heatStart:null,startSv:null,soakStart:null,readyMax:null,tid:setInterval(bbpTick,1000)};
   $('bbpStart').textContent='■ Cancel cycle';$('bbpStart').classList.remove('blue');$('bbpStart').classList.add('danger');
   log('BBP: cooling to '+coolTo+'°C (fan 100%, heater off), charge '+chargeT+'°C, fan '+fanLow+'%');
-  if($('bbpAuto').checked&&getPoints().length<2)log('⚠️ Auto-charge is on but no valid profile is loaded — load one before the beans go in.');
+  if(auto&&!haveProfile)log('⚠️ Auto-charge is on but no valid profile is loaded — load one before the beans go in.');
   bbpTick();
 }
 function stopBBP(reason,keepHeat){
