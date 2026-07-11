@@ -152,6 +152,14 @@
         <span class="small">hover / drag to inspect values · top pane: temps (left axis) + RoR 0–30 °C/min (right axis) · bottom pane: heater &amp; fan %, dashed gold = cumulative heat used · bar = phases · dashed = plan · faded = background roast</span>
       </div>
       <div class="row" style="margin-top:8px;gap:6px;align-items:center">
+        <span class="small"><b>Fan</b></span>
+        <button id="cFanM5">−5</button>
+        <input type="number" id="cFanVal" min="0" max="100" value="50" style="width:64px">
+        <button id="cFanP5">+5</button>
+        <button id="btnCFan" class="blue">Set fan</button>
+        <span class="small">a manual change during a profile roast pauses the automated fan (resume from the Control panel)</span>
+      </div>
+      <div class="row" style="margin-top:8px;gap:6px;align-items:center">
         <label class="ck" style="margin:0"><input type="checkbox" id="alarmRor" checked><span>RoR crash / flick warnings</span></label>
         <span class="small">· Alert at BT</span><input id="alarmTemp" type="number" min="0" max="260" placeholder="e.g. 195" style="width:84px"><span class="small">°C</span>
         <span class="small">· RoR window</span><input id="rorWin" type="number" min="5" max="60" value="15" style="width:64px"><span class="small">s</span>
@@ -240,7 +248,7 @@
     <div class="row" style="margin-bottom:8px">
       <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Cool to °C</div><input id="bbpCool" type="number" min="40" max="150" value="100"></div>
       <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge temp °C</div><input id="bbpCharge" type="number" min="120" max="240" value="180"></div>
-      <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge fan %</div><input id="bbpFan" type="number" min="10" max="100" value="20"></div>
+      <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge fan %</div><input id="bbpFan" type="number" min="10" max="100" value="30"></div>
     </div>
     <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="bbpAuto" checked><span><b>Auto-charge</b> — when the beans drop (BT plunges), mark Charge and start the profile loaded in the designer automatically. <b>No need to press ▶ Run profile</b> — the whole roast runs from this one button.</span></label>
     <button id="bbpStart" class="blue" style="width:100%">🔄 Start between-batch cycle</button>
@@ -496,7 +504,7 @@ function clampPct(v){v=parseInt(v,10);return Number.isNaN(v)?0:Math.max(0,Math.m
 // profile's fan commands for the rest of the roast (PID curve keeps running).
 let fanOverride=false;
 function curFan(){for(let i=samples.length-1;i>=0;i--){const f=samples[i].fan;if(f!=null&&!Number.isNaN(f))return f;}return clampPct($('fanVal').value);}
-function manualFan(v){v=clampPct(v);$('fanVal').value=v;send('IO3,'+v);markFanOverride();}
+function manualFan(v){v=clampPct(v);$('fanVal').value=v;$('cFanVal').value=v;send('IO3,'+v);markFanOverride();}
 function markFanOverride(){if((profile||etRun)&&!fanOverride){fanOverride=true;$('fanOvrNote').style.display='';
   log('✋ Manual fan override — automated fan paused (temperature control keeps running)');}}
 function clearFanOverride(){fanOverride=false;$('fanOvrNote').style.display='none';}
@@ -510,6 +518,12 @@ document.querySelectorAll('[data-raw]').forEach(b=>b.addEventListener('click',()
   else send(raw);
 }));
 $('btnFan').addEventListener('click',()=>manualFan($('fanVal').value));
+// Fan row next to the chart — same manualFan path as the Control panel, but this row isn't
+// inside the enable-gated #controls container, so gate each click explicitly.
+function fanCtlOk(){if(!writeChar||!$('enableControl').checked){alert('Connect the roaster and tick "Enable control" first.');return false;}return true;}
+$('cFanM5').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()-5);});
+$('cFanP5').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()+5);});
+$('btnCFan').addEventListener('click',()=>{if(fanCtlOk())manualFan($('cFanVal').value);});
 $('btnSv').addEventListener('click',async()=>{stopRamp();stopProfile();stopEtRun('manual setpoint',true);const v=+$('svVal').value;if(pidEngaged)setSV(v);else await engagePID(v);});
 $('btnOt1').addEventListener('click',()=>send('OT1,'+clampPct($('ot1Val').value)));
 $('emergency').addEventListener('click',async()=>{stopRamp();stopProfile();stopBBP('emergency',true);stopEtRun('emergency',true);await send('PID,OFF ');pidEngaged=false;setPidPill();setTimeout(()=>send('OT1,0'),300);});
@@ -822,6 +836,7 @@ function interpAt(pts,e){
   return{sv:last.sv,fan:last.fan};
 }
 $('profRun').addEventListener('click',()=>{profile?stopProfile():startProfile();});
+const CHARGE_SOAK=[{until:30,pct:30},{until:45,pct:40}];   // open-loop heater steps after charge (roast clock); the PID takes over after the last step
 async function startProfile(){
   const pts=getPoints();if(pts.length<2){alert('Add at least 2 points.');return;}
   if(!writeChar){alert('Connect the roaster first.');return;}
@@ -829,11 +844,28 @@ async function startProfile(){
   stopRamp();stopEtRun('profile started',true);clearFanOverride();
   const af=uiAutoFan(),endSv=Math.max(175,pts[pts.length-1].sv);
   const fan0=af?af.start:(pts[0].fan!=null?Math.round(pts[0].fan):40); send('IO3,'+fan0); await delay(300);
-  if(!pidEngaged)await engagePID(pts[0].sv); else setSV(pts[0].sv);
+  // Fresh charge -> fixed-power soak (PID off) per CHARGE_SOAK, timed on the roast clock; the PID
+  // takes over after the last step. A run started without a recent Charge (restart mid-roast,
+  // manual run) engages the PID immediately as before.
+  const soaking=!!(chargeMs&&(Date.now()-chargeMs)/1000<10&&(Date.now()-chargeMs)/1000<CHARGE_SOAK[CHARGE_SOAK.length-1].until);
+  if(soaking){
+    if(pidEngaged){await send('PID,OFF ');pidEngaged=false;setPidPill();await delay(200);}
+    curSV=null;$('tSv').textContent='—';                     // no setpoint while open-loop: keep the SV readout/chart honest
+    await send('OT1,'+CHARGE_SOAK[0].pct);
+    log('Charge soak: heater '+CHARGE_SOAK.map(s=>s.pct+'% to '+fmt(s.until)).join(', then ')+' — then the PID takes over');
+  }else{
+    if(!pidEngaged)await engagePID(pts[0].sv); else setSV(pts[0].sv);
+  }
   const startT=nowT();
-  profile={points:pts,startT,autoFan:af,lastFan:null,fanSentAt:null,btMin:null,fanArmed:false,tid:setInterval(()=>{   // lastFan null: first tick re-sends the fan even if the start command was lost
+  profile={points:pts,startT,autoFan:af,lastFan:null,fanSentAt:null,btMin:null,fanArmed:false,soakPct:soaking?CHARGE_SOAK[0].pct:null,tid:setInterval(()=>{   // lastFan null: first tick re-sends the fan even if the start command was lost
     const e=nowT()-startT,p=interpAt(pts,e);
-    if(p){setSV(p.sv);
+    if(p){
+      if(profile.soakPct!=null){                             // charge soak: fixed heater %, no setpoint while the PID is off
+        const ce=chargeMs?(Date.now()-chargeMs)/1000:1e9;
+        const st=CHARGE_SOAK.find(s=>ce<s.until);
+        if(st){if(st.pct!==profile.soakPct){send('OT1,'+st.pct);profile.soakPct=st.pct;log('Charge soak: heater '+st.pct+'%');}}
+        else{profile.soakPct=null;engagePID(p.sv);log('Charge soak done — PID engaged (SV '+Math.round(p.sv)+'°)');}
+      }else if(!engaging)setSV(p.sv);
       let fv=null;
       if(af){const s=samples[samples.length-1];
         if(s&&s.bt!=null&&!Number.isNaN(s.bt)){
@@ -1020,7 +1052,7 @@ async function startBBP(){
   if(!$('enableControl').checked){alert('Tick "Enable control" in the Control panel first.');return;}
   const coolTo=Math.max(40,Math.min(150,+$('bbpCool').value||100));
   const chargeT=Math.max(coolTo+10,Math.min(240,+$('bbpCharge').value||180));
-  const fanLow=Math.max(10,Math.min(100,+$('bbpFan').value||20));
+  const fanLow=Math.max(10,Math.min(100,+$('bbpFan').value||30));
   // ---- confirmation summary: what will actually run at bean drop + the air flow it uses ----
   const auto=$('bbpAuto').checked,pts=getPoints(),haveProfile=pts.length>=2;
   const pname=$('profName').value.trim(),af=uiAutoFan();
