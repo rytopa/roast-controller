@@ -158,8 +158,11 @@
         <button id="cFanP5">+5</button>
         <button id="btnCFan" class="blue">Set fan</button>
         <button id="cFan0">Fan 0</button>
-        <span class="small">a manual change during a profile roast pauses the automated fan (resume from the Control panel)</span>
+        <span class="small">a manual change during a profile roast pauses the automated fan — options to resume appear below</span>
       </div>
+      <div id="fanOvrNote" class="small" style="display:none;color:var(--warn);margin-top:8px">✋ <b>Manual fan override</b> — the automated fan is paused for this roast (temperature control keeps running).
+        <button id="fanOvrResume" style="padding:4px 9px;font-size:12px;margin-left:6px">Resume profile fan</button>
+        <button id="fanOvrRebase" style="padding:4px 9px;font-size:12px;margin-left:6px">Resume — shift curve to my fan</button></div>
       <div class="row" style="margin-top:8px;gap:6px;align-items:center">
         <label class="ck" style="margin:0"><input type="checkbox" id="alarmRor" checked><span>RoR crash / flick warnings</span></label>
         <span class="small">· Alert at BT</span><input id="alarmTemp" type="number" min="0" max="260" placeholder="e.g. 195" style="width:84px"><span class="small">°C</span>
@@ -289,7 +292,6 @@
         <button id="fanMinus">−5</button><button id="fanPlus">+5</button>
         <input type="number" id="fanVal" min="0" max="100" value="50" style="width:70px"><button id="btnFan" class="blue">Set fan</button>
       </div>
-      <div id="fanOvrNote" class="small" style="display:none;color:var(--warn);margin-bottom:6px">✋ <b>Manual fan override</b> — the profile's fan commands are paused for this roast; the PID temperature curve keeps running. <button id="fanOvrResume" style="padding:4px 9px;font-size:12px;margin-left:6px">Resume profile fan</button></div>
       <div class="small" style="margin-bottom:12px">Fan must be running before the heater will fire. Adjusting the fan by hand during a profile roast takes over the fan for the rest of the roast.</div>
       <hr>
       <div class="ctl-row">
@@ -510,6 +512,27 @@ function markFanOverride(){if((profile||etRun)&&!fanOverride){fanOverride=true;$
   log('✋ Manual fan override — automated fan paused (temperature control keeps running)');}}
 function clearFanOverride(){fanOverride=false;$('fanOvrNote').style.display='none';}
 $('fanOvrResume').addEventListener('click',()=>{clearFanOverride();if(profile)profile.lastFan=null;log('Profile fan control resumed');});
+// "Shift curve to my fan": offset the whole air schedule so it passes through the hand-set
+// value (schedule said 60, beans needed 70 -> rest of the curve runs +10), then resume it.
+$('fanOvrRebase').addEventListener('click',()=>{
+  const cur=clampPct($('fanVal').value);                 // the value the hand adjustment landed on (manualFan keeps it in sync)
+  let sched=null;                                        // what the automation would command right now, unshifted
+  if(profile){
+    const pts=profile.points,af=profile.autoFan;
+    if(af){const s=samples[samples.length-1],endSv=Math.max(175,pts[pts.length-1].sv);
+      if(s&&s.bt!=null&&!Number.isNaN(s.bt))sched=profile.fanArmed?autoFanAt(s.bt,af,endSv):af.start;}
+    else{const p=interpAt(pts,nowT()-profile.startT);if(p&&p.fan!=null)sched=Math.round(p.fan);}
+    if(sched!=null){profile.fanOfs=cur-sched;profile.lastFan=null;}
+  }else if(etRun&&etRef){
+    const fv=Math.round(refAt(etRef,nowT()-etRun.startT,'fan')??NaN);
+    if(Number.isFinite(fv)){sched=fv;etRun.fanOfs=cur-fv;etRun.lastFan=null;}
+  }
+  if(sched==null){log('⚠️ No automated fan scheduled right now — nothing to shift.');return;}
+  clearFanOverride();
+  const ofs=cur-sched;
+  log('Air curve shifted '+(ofs>=0?'+':'')+ofs+'% (through '+cur+'%) — automated fan resumed');
+  drawChart();
+});
 $('fanMinus').addEventListener('click',()=>manualFan(curFan()-5));
 $('fanPlus').addEventListener('click',()=>manualFan(curFan()+5));
 
@@ -859,7 +882,7 @@ async function startProfile(){
     if(!pidEngaged)await engagePID(pts[0].sv); else setSV(pts[0].sv);
   }
   const startT=nowT();
-  profile={points:pts,startT,autoFan:af,lastFan:null,fanSentAt:null,btMin:null,fanArmed:false,soakPct:soaking?CHARGE_SOAK[0].pct:null,tid:setInterval(()=>{   // lastFan null: first tick re-sends the fan even if the start command was lost
+  profile={points:pts,startT,autoFan:af,lastFan:null,fanSentAt:null,btMin:null,fanArmed:false,fanOfs:0,soakPct:soaking?CHARGE_SOAK[0].pct:null,tid:setInterval(()=>{   // lastFan null: first tick re-sends the fan even if the start command was lost
     const e=nowT()-startT,p=interpAt(pts,e);
     if(p){
       if(profile.soakPct!=null){                             // charge soak: fixed heater %, no setpoint while the PID is off
@@ -880,6 +903,7 @@ async function startProfile(){
           fv=profile.fanArmed?autoFanAt(s.bt,af,endSv):af.start;
         }}
       else if(p.fan!=null)fv=Math.round(p.fan);
+      if(fv!=null&&profile.fanOfs)fv=Math.max(0,Math.min(100,fv+profile.fanOfs));   // curve shifted through a mid-roast hand adjustment
       if(!fanOverride&&fv!=null){
         if(fv!==profile.lastFan){send('IO3,'+fv);profile.lastFan=fv;profile.fanSentAt=e;}
         else{const s=samples[samples.length-1];                    // verify against telemetry: re-send if the roaster disagrees
@@ -972,7 +996,7 @@ async function startEtRun(){
   const pill=$('pidPill');pill.textContent='SW PID';pill.className='pill on';
   const fan0=Math.round(refAt(etRef,0,'fan')??40);send('IO3,'+fan0);
   const out0=Math.max(0,Math.min(100,Math.round(refAt(etRef,0,'heat')??0)));send('OT1,'+out0);
-  etRun={startT:nowT(),integ:0,lastOut:out0,lastFan:fan0,tid:setInterval(etTick,2000)};
+  etRun={startT:nowT(),integ:0,lastOut:out0,lastFan:fan0,fanOfs:0,tid:setInterval(etTick,2000)};
   $('etSel').disabled=$('etSmooth').disabled=true;
   $('etRunBtn').textContent='■ Stop ET-track';$('etRunBtn').classList.remove('green');$('etRunBtn').classList.add('danger');
   const dropBt0=Math.max(120,Math.min(250,+$('etEndBt').value||etRef.endBt||210));
@@ -1038,8 +1062,9 @@ function etTick(){
   out=Math.max(0,Math.min(100,out));
   out=Math.round(Math.max(etRun.lastOut-slew,Math.min(etRun.lastOut+slew,out)));
   if(out!==etRun.lastOut){send('OT1,'+out);etRun.lastOut=out;}
-  if(!fanOverride){const fv=Math.round(refAt(etRef,e,'fan')??NaN);  // replay the reference fan
-    if(Number.isFinite(fv)&&fv!==etRun.lastFan){send('IO3,'+fv);etRun.lastFan=fv;}}
+  if(!fanOverride){let fv=Math.round(refAt(etRef,e,'fan')??NaN);    // replay the reference fan
+    if(Number.isFinite(fv)){if(etRun.fanOfs)fv=Math.max(0,Math.min(100,fv+etRun.fanOfs));   // curve shifted through a hand adjustment
+      if(fv!==etRun.lastFan){send('IO3,'+fv);etRun.lastFan=fv;}}}
   const dropTxt=' · → drop @ '+dropBt+'°'+(bt!=null?' (BT '+Math.round(bt)+'°)':'');
   $('etStatus').innerHTML=(overrun?'⏳ holding final ET — waiting for BT '+dropBt+'°':'🎯 target ET '+Math.round(target)+'°')
     +' · actual <b style="color:var(--text)">'+Math.round(s.et)+'°</b> · err '
@@ -1401,11 +1426,11 @@ function drawChart(){
        const r=dt>0?Math.max(0,Math.min(30,(interpAt(planPts,hi).sv-interpAt(planPts,lo).sv)/dt*60)):0;
        const x=X(planStart+e),y=Yr(r);if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}}
     ctx.stroke();
-    const paf=profile?profile.autoFan:uiAutoFan();
+    const paf=profile?profile.autoFan:uiAutoFan(),pofs=profile?(profile.fanOfs||0):0;
     if(paf){const endSv=Math.max(175,planPts[planPts.length-1].sv);
       ctx.strokeStyle=P.planFan;ctx.beginPath();let st=false;
       for(let e=planPts[0].t;e<=planPts[planPts.length-1].t;e+=10){const q=interpAt(planPts,e);
-        const x=X(planStart+e),y=Y2(autoFanAt(q.sv,paf,endSv));if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}
+        const x=X(planStart+e),y=Y2(Math.max(0,Math.min(100,autoFanAt(q.sv,paf,endSv)+pofs)));if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}
       ctx.stroke();}
     ctx.setLineDash([]);
   }
