@@ -234,10 +234,10 @@
     <details>
       <summary>Control tuning (advanced)</summary>
       <div class="row" style="margin-top:8px">
-        <div style="flex:1;min-width:70px"><div class="small" style="margin-bottom:3px">Kp</div><input id="etKp" type="number" step="0.1" value="2.0"></div>
+        <div style="flex:1;min-width:70px"><div class="small" style="margin-bottom:3px">Kp</div><input id="etKp" type="number" step="0.1" value="1.2"></div>
         <div style="flex:1;min-width:70px"><div class="small" style="margin-bottom:3px">Ki</div><input id="etKi" type="number" step="0.01" value="0.06"></div>
-        <div style="flex:1;min-width:70px"><div class="small" style="margin-bottom:3px">Kd</div><input id="etKd" type="number" step="1" value="15"></div>
-        <div style="flex:1;min-width:70px"><div class="small" style="margin-bottom:3px">Slew %/tick</div><input id="etSlew" type="number" min="2" max="50" value="15"></div>
+        <div style="flex:1;min-width:70px"><div class="small" style="margin-bottom:3px">Kd</div><input id="etKd" type="number" step="1" value="20"></div>
+        <div style="flex:1;min-width:70px"><div class="small" style="margin-bottom:3px">Slew %/tick</div><input id="etSlew" type="number" min="2" max="50" value="8"></div>
         <div style="flex:1;min-width:70px"><div class="small" style="margin-bottom:3px">ET max °C</div><input id="etMax" type="number" min="150" max="260" value="240"></div>
       </div>
       <div class="small" style="margin-top:6px">Heater = reference heater % + Kp·error + Ki·∫error − Kd·(dET/dt), clamped 0–100 and slew-limited. Telemetry stale &gt;8 s or ET ≥ max ⇒ heater cut.</div>
@@ -968,6 +968,7 @@ async function startEtRun(){
   stopRamp();stopProfile();clearFanOverride();
   etRef._i=0;
   await send('PID,OFF ');pidEngaged=false;
+  curSV=null;$('tSv').textContent='—';                              // no setpoint in ET-track: don't chart a stale SV line
   const pill=$('pidPill');pill.textContent='SW PID';pill.className='pill on';
   const fan0=Math.round(refAt(etRef,0,'fan')??40);send('IO3,'+fan0);
   const out0=Math.max(0,Math.min(100,Math.round(refAt(etRef,0,'heat')??0)));send('OT1,'+out0);
@@ -992,11 +993,18 @@ function finishEtRun(msg){
   autoSaveRoast();                                 // ET-track ran to completion -> save it too
   fireAlarm(msg||'✅ ET profile complete — heater OFF & roast saved. Drop the beans.');
 }
+function etMean(t0,t1){                                // mean ET over samples with t0 < t <= t1
+  let sum=0,n=0;
+  for(let i=samples.length-1;i>=0;i--){const q=samples[i];
+    if(q.t<=t0)break;
+    if(q.t<=t1&&q.et!=null&&!Number.isNaN(q.et)){sum+=q.et;n++;}}
+  return n?sum/n:null;
+}
 function etTick(){
   if(!etRun||!etRef)return;
   const e=nowT()-etRun.startT;
-  const kp=+$('etKp').value||2,ki=+$('etKi').value||0.06,kd=+$('etKd').value||15;
-  const slew=Math.max(2,Math.min(50,+$('etSlew').value||15)),etMax=+$('etMax').value||240;
+  const kp=+$('etKp').value||1.2,ki=+$('etKi').value||0.06,kd=+$('etKd').value||20;
+  const slew=Math.max(2,Math.min(50,+$('etSlew').value||8)),etMax=+$('etMax').value||240;
   const s=samples[samples.length-1];
   const fresh=s&&(nowT()-s.t)<8;
   if(!fresh||s.et==null||Number.isNaN(s.et)){                       // watchdog: no fresh telemetry -> heater cut, keep waiting
@@ -1014,19 +1022,19 @@ function etTick(){
   const overrun=e>=etRef.endE;                                      // past the reference clock: hold final ET, wait for BT
   const target=refAt(etRef,e,'et');
   if(target==null){finishEtRun();return;}
-  const err=target-s.et;
+  const etNow=etMean(s.t-8,s.t)??s.et;                              // control on a short ET average: the exhaust probe answers the heater
+  const err=target-etNow;                                           // within seconds, and raw-reading P+D limit-cycles the loop
   const base=refAt(etRef,e,'heat')??0;                              // feedforward from the reference roast
-  let dTerm=0;                                                      // derivative on measurement (~6 s)
-  for(let i=samples.length-2;i>=0;i--){const p=samples[i];
-    if(p.et==null||Number.isNaN(p.et))continue;
-    const dt=s.t-p.t;
-    if(dt>=5){dTerm=-kd*(s.et-p.et)/dt;break;}}
+  const etPrev=etMean(s.t-18,s.t-10);                               // derivative on the filtered measurement, ~10 s apart
+  const dTerm=etPrev!=null?-kd*(etNow-etPrev)/10:0;
   const unsat=(etRun.lastOut>0&&etRun.lastOut<100)||(etRun.lastOut<=0&&err>0)||(etRun.lastOut>=100&&err<0);
   if(unsat)etRun.integ+=err*2;                                      // anti-windup: only integrate when it can act
   if(err<-15)etRun.integ*=0.7;                                      // bleed on big overshoot
   const iCap=25/Math.max(ki,1e-6);
   etRun.integ=Math.max(-iCap,Math.min(iCap,etRun.integ));
-  let out=base+kp*err+ki*etRun.integ+dTerm;
+  let trim=kp*err+ki*etRun.integ+dTerm;
+  trim=Math.max(-25,Math.min(25,trim));                             // the reference heater is roughly right — the PID only trims around it
+  let out=base+trim;
   out=Math.max(0,Math.min(100,out));
   out=Math.round(Math.max(etRun.lastOut-slew,Math.min(etRun.lastOut+slew,out)));
   if(out!==etRun.lastOut){send('OT1,'+out);etRun.lastOut=out;}
@@ -1726,8 +1734,10 @@ let savedTheme='night';try{savedTheme=localStorage.getItem('rc_theme')||'night';
 applyTheme(savedTheme==='day');
 renderPoints();refreshProfileSelect();refreshRoastSelect();
 try{const ep=JSON.parse(localStorage.getItem('rc_etrun')||'null');
-  if(ep){$('etSmooth').value=ep.sm??'20';$('etKp').value=ep.kp??2;$('etKi').value=ep.ki??0.06;
-    $('etKd').value=ep.kd??15;$('etSlew').value=ep.slew??15;$('etMax').value=ep.max??240;
+  if(ep){
+    if(+ep.kp===2&&+ep.ki===0.06&&+ep.kd===15&&+ep.slew===15){ep.kp=1.2;ep.kd=20;ep.slew=8;}   // old shipped tuning (limit-cycled) -> new defaults
+    $('etSmooth').value=ep.sm??'20';$('etKp').value=ep.kp??1.2;$('etKi').value=ep.ki??0.06;
+    $('etKd').value=ep.kd??20;$('etSlew').value=ep.slew??8;$('etMax').value=ep.max??240;
     if(ep.endBt)$('etEndBt').value=ep.endBt;
     if(ep.id){$('etSel').value=ep.id;if($('etSel').value===ep.id)applyEtRef();}}}catch(e){}
 drawChart();
