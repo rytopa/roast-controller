@@ -361,6 +361,7 @@ const samples=[];          // {t,bt,et,heat,fan,sv,raw}
 const btHist=[];           // {ms,bt} for RoR
 const events={charge:null,dry:null,fc:null,drop:null};
 const liveCross={de:null,fc:null};                 // BT crossings of the DE/FC temps this roast
+const liveTP={min:null,armed:false};               // post-charge turning point: don't trust the hot-probe reading until BT bottoms out
 const alarms={temp:false,crash:false,flick:false,minRor:null};
 let bg=null,bgIdx=0;                               // background roast overlay
 
@@ -793,10 +794,10 @@ function autoFanAt(bt,cfg,endTemp){
   const D=start-floor;
   let f;
   if(mode==='linear'){const a=100,b=Math.max(a+1,endTemp);f=start-D*Math.min(1,Math.max(0,(bt-a)/(b-a)));}
-  else if(mode==='hold'){const k=160;f=bt<=k?start:start-D*Math.min(1,(bt-k)/Math.max(1,endTemp-k));}
+  else if(mode==='hold'){const k=AUTO_FAN_KNEE;f=bt<=k?start:start-D*Math.min(1,(bt-k)/Math.max(1,endTemp-k));}
   else if(mode==='steps'){const de=+$('phDE').value||160,fc=Math.max((+$('phDE').value||160),+$('phFC').value||200);
     f=bt<de?start:(bt<fc?start-D/2:floor);}
-  else{const knee=160,t1=100,preDrop=0.3*D;                       // knee (default)
+  else{const knee=AUTO_FAN_KNEE,t1=100,preDrop=0.3*D;             // knee (default)
     if(bt<=t1)f=start;
     else if(bt<=knee)f=start-preDrop*(bt-t1)/(knee-t1);
     else f=(start-preDrop)-(D-preDrop)*Math.min(1,(bt-knee)/Math.max(1,endTemp-knee));}
@@ -840,7 +841,8 @@ async function startProfile(){
           // Right after charge the BT probe still reads the hot empty roaster (often >160°), which would
           // trip the fan schedule's 160° knee before the beans have taken. Hold the start fan until BT has
           // dipped below the knee and started climbing again (turning point passed), then follow the schedule.
-          if(!profile.fanArmed&&profile.btMin<AUTO_FAN_KNEE&&s.bt>=profile.btMin+3)profile.fanArmed=true;
+          // (90 s fallback: a restart mid-roast never dips below the knee — don't hold the start fan forever)
+          if(!profile.fanArmed&&((profile.btMin<AUTO_FAN_KNEE&&s.bt>=profile.btMin+3)||e>=90))profile.fanArmed=true;
           fv=profile.fanArmed?autoFanAt(s.bt,af,endSv):af.start;
         }}
       else if(p.fan!=null)fv=Math.round(p.fan);
@@ -1019,25 +1021,37 @@ async function startBBP(){
   const coolTo=Math.max(40,Math.min(150,+$('bbpCool').value||100));
   const chargeT=Math.max(coolTo+10,Math.min(240,+$('bbpCharge').value||180));
   const fanLow=Math.max(10,Math.min(100,+$('bbpFan').value||20));
-  // ---- confirmation summary: what profile + air flow this cycle will run ----
+  // ---- confirmation summary: what will actually run at bean drop + the air flow it uses ----
   const auto=$('bbpAuto').checked,pts=getPoints(),haveProfile=pts.length>=2;
   const pname=$('profName').value.trim(),af=uiAutoFan();
-  let airLine;
-  if(af)airLine='Auto fan '+af.start+'% → '+af.end+'% ('+af.mode+')';
-  else if(haveProfile){const fans=pts.map(p=>p.fan).filter(f=>f!=null);
-    airLine=fans.length?'Table fan '+Math.round(fans[0])+'% → '+Math.round(fans[fans.length-1])+'%':'per-point table fan';}
-  else airLine='—';
+  const etArmed=$('etArm').checked&&!!(etRef||$('etSel').value);      // etArm diverts auto-charge to the ET-track run
+  let runLine,airLine;
+  if(etArmed){
+    const etName=etRef?etRef.name:($('etSel').selectedOptions[0]?$('etSel').selectedOptions[0].textContent.trim():'selected reference');
+    runLine='ET-track — '+etName;
+    airLine='fan replayed from the ET reference';
+  }else{
+    runLine=haveProfile?(pname||'(unnamed loaded profile)'):'⚠ NONE loaded';
+    if(af)airLine='Auto fan '+af.start+'% → '+af.end+'% ('+af.mode+')';
+    else if(haveProfile){const fans=pts.map(p=>p.fan).filter(f=>f!=null);
+      airLine=fans.length?'Table fan '+Math.round(fans[0])+'% → '+Math.round(fans[fans.length-1])+'%':'per-point table fan';}
+    else airLine='—';
+  }
   const summary=['Start the between-batch cycle?','',
-    'Profile:  '+(haveProfile?(pname||'(unnamed loaded profile)'):'⚠ NONE loaded'),
+    (etArmed?'Run:  ':'Profile:  ')+runLine,
     'Roast air flow:  '+airLine,
     'Charge-ramp fan:  '+fanLow+'%',
     'Cool to '+coolTo+'° → charge '+chargeT+'°','',
-    auto?(haveProfile?'Auto-charge ON — "'+(pname||'the loaded profile')+'" runs automatically when the beans drop.'
+    auto?(etArmed?'Auto-charge ON — the ET-track run starts automatically when the beans drop.'
+         :haveProfile?'Auto-charge ON — "'+(pname||'the loaded profile')+'" runs automatically when the beans drop.'
                      :'⚠ Auto-charge ON but NO profile is loaded — load one before you charge.')
-        :'Auto-charge OFF — you start the roast manually after dropping.'].join('\n');
+        :'Auto-charge OFF — you start the roast manually after dropping.',
+    (chargeMs||samples.length)?'\nThe chart resets for the new batch'+(chargeMs?' (the roast on it is auto-saved first)':'')+'.':''
+    ].join('\n');
   if(!confirm(summary))return;
   stopRamp();stopProfile();stopEtRun('between-batch cycle',true);
-  if(chargeMs||samples.length){autoSaveRoast();resetRoastView();}   // clear the previous roast so the new batch gets a fresh graph
+  if(chargeMs)autoSaveRoast();                                      // a finished roast (even without Drop pressed) lands in the log
+  if(chargeMs||samples.length)resetRoastView();                     // fresh graph for the new batch (idle warm-up telemetry isn't saved)
   await send('PID,OFF ');pidEngaged=false;setPidPill();
   await delay(200);await send('OT1,0');await delay(200);await send('IO3,100');
   bbp={phase:'cool',coolTo,chargeT,fanLow,heatStart:null,startSv:null,soakStart:null,readyMax:null,tid:setInterval(bbpTick,1000)};
@@ -1099,14 +1113,20 @@ function liveTrack(bt,ror){
   if(!chargeMs||bt==null)return;
   const e=(Date.now()-chargeMs)/1000;
   const deT=+$('phDE').value||160,fcT=Math.max(deT,+$('phFC').value||200);
-  if(liveCross.de==null&&bt>=deT)liveCross.de=e;
-  if(liveCross.fc==null&&bt>=fcT)liveCross.fc=e;
+  if(!liveTP.armed){                               // right after charge the probe still reads the hot roaster (often >DE temp),
+    if(liveTP.min==null||bt<liveTP.min)liveTP.min=bt;   // which would stamp DE at 0:00 and false-fire the RoR-crash alarm —
+    if((liveTP.min<deT&&bt>=liveTP.min+3)||e>=90)liveTP.armed=true;   // wait for the turning point (or 90 s) before trusting crossings/alarms
+  }
+  if(liveTP.armed){
+    if(liveCross.de==null&&bt>=deT)liveCross.de=e;
+    if(liveCross.fc==null&&bt>=fcT)liveCross.fc=e;
+  }
   updateLiveBar();
   if(bg){const b=bgBtAt(e);
     $('bgDelta').innerHTML=b!=null?'· vs BG <b style="color:var(--text)">'+((bt-b)>=0?'+':'')+(bt-b).toFixed(1)+'°</b>':'';}
   if(events.drop==null&&ror!=null&&ror>0.5&&bt<fcT)$('etaInfo').textContent='FC in ~'+fmt((fcT-bt)/ror*60)+' ·';
   else $('etaInfo').textContent='';
-  checkAlarms(bt,ror,e);
+  if(liveTP.armed)checkAlarms(bt,ror,e);
 }
 function checkAlarms(bt,ror,e){
   if(events.drop!=null)return;
@@ -1211,7 +1231,7 @@ $('heaterW').addEventListener('change',()=>{
 
 // ---------- Roast timer + events ----------
 $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;events.dry=events.fc=events.drop=null;
-  liveCross.de=liveCross.fc=null;alarms.temp=alarms.crash=alarms.flick=false;alarms.minRor=null;bgIdx=0;
+  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.armed=false;alarms.temp=alarms.crash=alarms.flick=false;alarms.minRor=null;bgIdx=0;
   if(connectMs){                                   // drop pre-charge telemetry and make Charge the chart's zero point
     const base=(chargeMs-connectMs)/1000;
     const keep=samples.filter(s=>s.t>=base).map(s=>Object.assign({},s,{t:+((s.t-base).toFixed(1))}));
@@ -1234,7 +1254,7 @@ function resetRoastView(){                         // fresh chart for the next b
   samples.length=0;btHist.length=0;rxBuffer='';
   Object.assign(events,{charge:null,dry:null,fc:null,drop:null});
   chargeMs=null;if(connectMs)connectMs=Date.now(); // rebase the time axis
-  liveCross.de=liveCross.fc=null;alarms.temp=alarms.crash=alarms.flick=false;alarms.minRor=null;bgIdx=0;
+  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.armed=false;alarms.temp=alarms.crash=alarms.flick=false;alarms.minRor=null;bgIdx=0;
   curSV=null;$('tSv').textContent='—';
   $('rowCount').textContent='0 samples';
   $('evTimes').innerHTML='Roast saved &amp; chart reset — press <b>Charge</b> for the next batch (or Load the saved roast to review it).';
