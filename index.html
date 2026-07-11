@@ -994,9 +994,12 @@ async function startEtRun(){
   await send('PID,OFF ');pidEngaged=false;
   curSV=null;$('tSv').textContent='—';                              // no setpoint in ET-track: don't chart a stale SV line
   const pill=$('pidPill');pill.textContent='SW PID';pill.className='pill on';
+  // Fresh charge -> same fixed-power soak as a profile run (CHARGE_SOAK); the ET loop takes over after the last step.
+  const soaking=!!(chargeMs&&(Date.now()-chargeMs)/1000<10&&(Date.now()-chargeMs)/1000<CHARGE_SOAK[CHARGE_SOAK.length-1].until);
   const fan0=Math.round(refAt(etRef,0,'fan')??40);send('IO3,'+fan0);
-  const out0=Math.max(0,Math.min(100,Math.round(refAt(etRef,0,'heat')??0)));send('OT1,'+out0);
-  etRun={startT:nowT(),integ:0,lastOut:out0,lastFan:fan0,fanOfs:0,tid:setInterval(etTick,2000)};
+  const out0=soaking?CHARGE_SOAK[0].pct:Math.max(0,Math.min(100,Math.round(refAt(etRef,0,'heat')??0)));send('OT1,'+out0);
+  etRun={startT:nowT(),integ:0,lastOut:out0,lastFan:fan0,fanOfs:0,soakPct:soaking?out0:null,tid:setInterval(etTick,2000)};
+  if(soaking)log('Charge soak: heater '+CHARGE_SOAK.map(x=>x.pct+'% to '+fmt(x.until)).join(', then ')+' — then the ET-track loop takes over');
   $('etSel').disabled=$('etSmooth').disabled=true;
   $('etRunBtn').textContent='■ Stop ET-track';$('etRunBtn').classList.remove('green');$('etRunBtn').classList.add('danger');
   const dropBt0=Math.max(120,Math.min(250,+$('etEndBt').value||etRef.endBt||210));
@@ -1051,10 +1054,16 @@ function etTick(){
   const base=refAt(etRef,e,'heat')??0;                              // feedforward from the reference roast
   etRun.tickN=(etRun.tickN||0)+1;
   let out=etRun.lastOut;
+  if(etRun.soakPct!=null){                                          // fixed-power charge soak (CHARGE_SOAK), same as a profile run:
+    const ce=chargeMs?(Date.now()-chargeMs)/1000:1e9;               // the loop (and its integral) stays out until the soak ends
+    const st=CHARGE_SOAK.find(x=>ce<x.until);
+    if(st){if(st.pct!==etRun.soakPct){out=st.pct;send('OT1,'+out);etRun.soakPct=out;etRun.lastOut=out;log('Charge soak: heater '+out+'%');}}
+    else{etRun.soakPct=null;log('Charge soak done — ET-track loop engaged');}
+  }
   // Control move every other tick (4 s). Correcting every 2 s still hunted (the loop out-ran the
   // exhaust's response); safety checks above stay at 2 s. Derivative defaults OFF: with the
   // measurement-filter lag it acted a quarter-cycle late and fed the oscillation.
-  if(etRun.tickN%2===0){
+  if(etRun.soakPct==null&&etRun.tickN%2===0){
     const etPrev=etMean(s.t-8,s.t-4);
     const dTerm=(kd>0&&etPrev!=null)?-kd*(etNow-etPrev)/4:0;
     const unsat=(etRun.lastOut>0&&etRun.lastOut<100)||(etRun.lastOut<=0&&err>0)||(etRun.lastOut>=100&&err<0);
@@ -1072,7 +1081,7 @@ function etTick(){
     if(Number.isFinite(fv)){if(etRun.fanOfs)fv=Math.max(0,Math.min(100,fv+etRun.fanOfs));   // curve shifted through a hand adjustment
       if(fv!==etRun.lastFan){send('IO3,'+fv);etRun.lastFan=fv;}}}
   const dropTxt=' · → drop @ '+dropBt+'°'+(bt!=null?' (BT '+Math.round(bt)+'°)':'');
-  $('etStatus').innerHTML=(overrun?'⏳ holding final ET — waiting for BT '+dropBt+'°':'🎯 target ET '+Math.round(target)+'°')
+  $('etStatus').innerHTML=(etRun.soakPct!=null?'🔥 charge soak — heater '+out+'%':overrun?'⏳ holding final ET — waiting for BT '+dropBt+'°':'🎯 target ET '+Math.round(target)+'°')
     +' · actual <b style="color:var(--text)">'+Math.round(s.et)+'°</b> · err '
     +(err>=0?'+':'')+err.toFixed(1)+'° · heater <b style="color:var(--text)">'+out+'%</b>'+dropTxt;
 }
