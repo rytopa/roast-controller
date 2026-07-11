@@ -157,6 +157,7 @@
         <input type="number" id="cFanVal" min="0" max="100" value="50" style="width:64px">
         <button id="cFanP5">+5</button>
         <button id="btnCFan" class="blue">Set fan</button>
+        <button id="cFan0">Fan 0</button>
         <span class="small">a manual change during a profile roast pauses the automated fan (resume from the Control panel)</span>
       </div>
       <div class="row" style="margin-top:8px;gap:6px;align-items:center">
@@ -524,6 +525,7 @@ function fanCtlOk(){if(!writeChar||!$('enableControl').checked){alert('Connect t
 $('cFanM5').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()-5);});
 $('cFanP5').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()+5);});
 $('btnCFan').addEventListener('click',()=>{if(fanCtlOk())manualFan($('cFanVal').value);});
+$('cFan0').addEventListener('click',()=>{if(fanCtlOk())manualFan(0);});
 $('btnSv').addEventListener('click',async()=>{stopRamp();stopProfile();stopEtRun('manual setpoint',true);const v=+$('svVal').value;if(pidEngaged)setSV(v);else await engagePID(v);});
 $('btnOt1').addEventListener('click',()=>send('OT1,'+clampPct($('ot1Val').value)));
 $('emergency').addEventListener('click',async()=>{stopRamp();stopProfile();stopBBP('emergency',true);stopEtRun('emergency',true);await send('PID,OFF ');pidEngaged=false;setPidPill();setTimeout(()=>send('OT1,0'),300);});
