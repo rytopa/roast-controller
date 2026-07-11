@@ -822,6 +822,7 @@ function interpAt(pts,e){
   return{sv:last.sv,fan:last.fan};
 }
 $('profRun').addEventListener('click',()=>{profile?stopProfile():startProfile();});
+const CHARGE_SOAK=[{until:30,pct:30},{until:45,pct:40}];   // open-loop heater steps after charge (roast clock); the PID takes over after the last step
 async function startProfile(){
   const pts=getPoints();if(pts.length<2){alert('Add at least 2 points.');return;}
   if(!writeChar){alert('Connect the roaster first.');return;}
@@ -829,11 +830,28 @@ async function startProfile(){
   stopRamp();stopEtRun('profile started',true);clearFanOverride();
   const af=uiAutoFan(),endSv=Math.max(175,pts[pts.length-1].sv);
   const fan0=af?af.start:(pts[0].fan!=null?Math.round(pts[0].fan):40); send('IO3,'+fan0); await delay(300);
-  if(!pidEngaged)await engagePID(pts[0].sv); else setSV(pts[0].sv);
+  // Fresh charge -> fixed-power soak (PID off) per CHARGE_SOAK, timed on the roast clock; the PID
+  // takes over after the last step. A run started without a recent Charge (restart mid-roast,
+  // manual run) engages the PID immediately as before.
+  const soaking=!!(chargeMs&&(Date.now()-chargeMs)/1000<10&&(Date.now()-chargeMs)/1000<CHARGE_SOAK[CHARGE_SOAK.length-1].until);
+  if(soaking){
+    if(pidEngaged){await send('PID,OFF ');pidEngaged=false;setPidPill();await delay(200);}
+    curSV=null;$('tSv').textContent='—';                     // no setpoint while open-loop: keep the SV readout/chart honest
+    await send('OT1,'+CHARGE_SOAK[0].pct);
+    log('Charge soak: heater '+CHARGE_SOAK.map(s=>s.pct+'% to '+fmt(s.until)).join(', then ')+' — then the PID takes over');
+  }else{
+    if(!pidEngaged)await engagePID(pts[0].sv); else setSV(pts[0].sv);
+  }
   const startT=nowT();
-  profile={points:pts,startT,autoFan:af,lastFan:null,fanSentAt:null,btMin:null,fanArmed:false,tid:setInterval(()=>{   // lastFan null: first tick re-sends the fan even if the start command was lost
+  profile={points:pts,startT,autoFan:af,lastFan:null,fanSentAt:null,btMin:null,fanArmed:false,soakPct:soaking?CHARGE_SOAK[0].pct:null,tid:setInterval(()=>{   // lastFan null: first tick re-sends the fan even if the start command was lost
     const e=nowT()-startT,p=interpAt(pts,e);
-    if(p){setSV(p.sv);
+    if(p){
+      if(profile.soakPct!=null){                             // charge soak: fixed heater %, no setpoint while the PID is off
+        const ce=chargeMs?(Date.now()-chargeMs)/1000:1e9;
+        const st=CHARGE_SOAK.find(s=>ce<s.until);
+        if(st){if(st.pct!==profile.soakPct){send('OT1,'+st.pct);profile.soakPct=st.pct;log('Charge soak: heater '+st.pct+'%');}}
+        else{profile.soakPct=null;engagePID(p.sv);log('Charge soak done — PID engaged (SV '+Math.round(p.sv)+'°)');}
+      }else if(!engaging)setSV(p.sv);
       let fv=null;
       if(af){const s=samples[samples.length-1];
         if(s&&s.bt!=null&&!Number.isNaN(s.bt)){
