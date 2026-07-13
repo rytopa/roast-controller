@@ -362,6 +362,41 @@
 
   <div class="small" style="text-align:center;margin:4px 0 20px">Device must advertise as <b>MATCHBOX</b>/<b>MBOX</b>. Frame decode: <b>ET</b>=field 0, <b>BT</b>=field 1, heater=field 2, fan=field 3 (4-field form).</div>
 
+  <div class="panel">
+    <h2>Green coffee inventory</h2>
+    <div class="row" style="margin-bottom:8px">
+      <button id="btnAddInventory" class="green">+ Add bean</button>
+      <button id="btnPhotoLabel" class="blue">📷 Photo label (OCR)</button>
+    </div>
+    <input type="file" id="inventoryPhotoInput" accept="image/*" style="display:none" capture="environment">
+    <div id="inventoryList" style="margin-top:10px"></div>
+    <div id="inventoryEmpty" class="small" style="color:var(--dim);margin-top:10px">No beans in inventory yet.</div>
+  </div>
+
+  <div id="inventoryModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:1000;padding:12px;overflow:auto">
+    <div style="background:var(--panel);border-radius:var(--r);padding:16px;max-width:500px;margin:auto;margin-top:40px">
+      <h2 style="margin-top:0">Inventory item</h2>
+      <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:8px">
+        <span class="small">Bean name</span><input type="text" id="invName" placeholder="e.g. Ethiopian Yirgacheffe">
+      </div>
+      <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:8px">
+        <span class="small">Origin / farm</span><input type="text" id="invOrigin" placeholder="e.g. Washed, crop 2025">
+      </div>
+      <div class="row" style="margin-bottom:8px;gap:10px">
+        <div style="flex:1"><div class="small" style="margin-bottom:3px">Available g</div><input type="number" id="invWeight" min="0" inputmode="decimal" placeholder="0"></div>
+        <div style="flex:1"><div class="small" style="margin-bottom:3px">Roast level</div><select id="invRoastLevel" style="width:100%"><option value="">— choose —</option><option value="light">Light</option><option value="medium">Medium</option><option value="dark">Dark</option><option value="espresso">Espresso</option></select></div>
+      </div>
+      <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:10px">
+        <span class="small">Notes</span><textarea id="invNotes" rows="2" placeholder="cupping notes, best brew method, etc."></textarea>
+      </div>
+      <div class="row" style="justify-content:flex-end;gap:8px">
+        <button id="invCancel" style="flex:0">Cancel</button>
+        <button id="invSave" class="green" style="flex:0">Save</button>
+      </div>
+    </div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
 <script>
 "use strict";
 const CANDIDATE_SERVICES=[0xffe0,0xfff0,'6e400001-b5a3-f393-e0a9-e50e24dcca9e','49535343-fe7d-4ae5-8fa9-9fafd205e455',0xffe5,0xfee0,0xff00];
@@ -1762,6 +1797,115 @@ $('syncNow').addEventListener('click',cloudSyncNow);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)cloudPull();});
 setInterval(()=>{if(cloudConfigured()&&!document.hidden)cloudPull();},45000);
 
+// ---------- Green coffee inventory ----------
+const INV_KEY='rc_inventory_v1';
+let currentInventoryEdit=null;
+function loadInventory(){try{return JSON.parse(localStorage.getItem(INV_KEY)||'[]');}catch(e){return[];}}
+function saveInventory(a){try{localStorage.setItem(INV_KEY,JSON.stringify(a));}catch(e){alert('Storage full.');}cloudSchedulePush();}
+function refreshInventoryList(){
+  const inv=loadInventory();
+  const list=$('inventoryList');
+  const empty=$('inventoryEmpty');
+  list.innerHTML='';
+  if(!inv.length){empty.style.display='';return;}
+  empty.style.display='none';
+  inv.forEach((item,i)=>{
+    const card=document.createElement('div');
+    card.className='panel';
+    card.style.marginBottom='8px';
+    card.style.padding='10px 12px';
+    const totalGrams=item.weight||0;
+    const html='<div style="display:flex;justify-content:space-between;margin-bottom:6px"><div><b>'+escapeHtml(item.name||'Unknown')+'</b>'+(item.origin?' · <span class="small" style="color:var(--dim)">'+escapeHtml(item.origin)+'</span>':'')+'</div>'
+      +'<div style="text-align:right"><button data-inv-edit="'+i+'" style="padding:4px 9px;font-size:12px;margin-right:4px">Edit</button><button data-inv-del="'+i+'" class="danger" style="padding:4px 9px;font-size:12px">Del</button></div></div>'
+      +'<div class="kv"><span>Available</span><b>'+totalGrams.toFixed(1)+' g</b></div>'
+      +(item.roastLevel?'<div class="kv"><span>Roast level</span><b style="text-transform:capitalize">'+escapeHtml(item.roastLevel)+'</b></div>':'')
+      +(item.notes?'<div class="small" style="color:var(--dim);margin-top:6px">'+escapeHtml(item.notes).replace(/\n/g,'<br>')+'</div>':'');
+    card.innerHTML=html;
+    list.appendChild(card);
+  });
+  list.querySelectorAll('[data-inv-edit]').forEach(b=>b.addEventListener('click',e=>{editInventoryItem(+e.target.dataset.invEdit);}));
+  list.querySelectorAll('[data-inv-del]').forEach(b=>b.addEventListener('click',e=>{
+    const idx=+e.target.dataset.invDel;
+    if(confirm('Delete this bean from inventory?')){
+      const a=loadInventory();
+      a.splice(idx,1);
+      saveInventory(a);
+      refreshInventoryList();
+      log('Inventory item deleted');
+    }
+  }));
+}
+function editInventoryItem(idx){
+  const inv=loadInventory();
+  currentInventoryEdit=idx<inv.length?idx:null;
+  const item=currentInventoryEdit!=null?inv[currentInventoryEdit]:{name:'',origin:'',weight:0,roastLevel:'',notes:'',date:new Date().toISOString()};
+  $('invName').value=item.name||'';
+  $('invOrigin').value=item.origin||'';
+  $('invWeight').value=item.weight||'';
+  $('invRoastLevel').value=item.roastLevel||'';
+  $('invNotes').value=item.notes||'';
+  $('inventoryModal').style.display='block';
+}
+function closeInventoryModal(){
+  $('inventoryModal').style.display='none';
+  currentInventoryEdit=null;
+}
+$('btnAddInventory').addEventListener('click',()=>editInventoryItem(-1));
+$('invCancel').addEventListener('click',closeInventoryModal);
+$('invSave').addEventListener('click',()=>{
+  const name=$('invName').value.trim();
+  if(!name){alert('Enter a bean name.');return;}
+  const inv=loadInventory();
+  const item={
+    id:'i'+(currentInventoryEdit!=null?inv[currentInventoryEdit].id?.slice(1):Date.now()),
+    name,
+    origin:$('invOrigin').value.trim(),
+    weight:parseFloat($('invWeight').value)||0,
+    roastLevel:$('invRoastLevel').value,
+    notes:$('invNotes').value.trim(),
+    date:currentInventoryEdit!=null&&inv[currentInventoryEdit]?inv[currentInventoryEdit].date:new Date().toISOString()
+  };
+  if(currentInventoryEdit!=null){
+    inv[currentInventoryEdit]=item;
+  }else{
+    inv.push(item);
+  }
+  saveInventory(inv);
+  refreshInventoryList();
+  closeInventoryModal();
+  log(currentInventoryEdit!=null?'Inventory item updated':'Inventory item added: '+name);
+});
+async function recognizePhotoLabel(file){
+  try{
+    $('btnPhotoLabel').disabled=true;
+    $('btnPhotoLabel').textContent='📷 Processing OCR…';
+    const data=await file.arrayBuffer();
+    const worker=await Tesseract.createWorker();
+    const result=await worker.recognize(new Uint8Array(data));
+    const text=result.data.text.trim();
+    await worker.terminate();
+    if(!text){alert('No text found in the image.');return;}
+    log('OCR extracted: '+text.slice(0,100)+(text.length>100?'…':''));
+    $('invName').value=text.split('\n')[0].trim().slice(0,100);
+    $('inventoryModal').style.display='block';
+    currentInventoryEdit=null;
+    $('invOrigin').focus();
+  }catch(err){
+    log('❌ OCR error: '+err.message);
+    alert('Error processing image: '+err.message);
+  }finally{
+    $('btnPhotoLabel').disabled=false;
+    $('btnPhotoLabel').textContent='📷 Photo label (OCR)';
+  }
+}
+$('btnPhotoLabel').addEventListener('click',()=>$('inventoryPhotoInput').click());
+$('inventoryPhotoInput').addEventListener('change',e=>{
+  const file=e.target.files[0];
+  e.target.value='';
+  if(file)recognizePhotoLabel(file);
+});
+function escapeHtml(text){return (text||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+
 // ---------- init ----------
 try{const sf=JSON.parse(localStorage.getItem('rc_syncfields')||'null');   // pre-fill the typed URL/code always
   if(sf){if(sf.url)$('syncUrl').value=sf.url;if(sf.code)$('syncCode').value=sf.code;}}catch(e){}
@@ -1782,6 +1926,7 @@ try{const ep=JSON.parse(localStorage.getItem('rc_etrun')||'null');
     if(ep.endBt)$('etEndBt').value=ep.endBt;
     if(ep.id){$('etSel').value=ep.id;if($('etSel').value===ep.id)applyEtRef();}}}catch(e){}
 drawChart();
+refreshInventoryList();
 if(cloudConfigured()){cloudStatus('Connecting…');cloudSyncNow();}
 </script>
 </body>
