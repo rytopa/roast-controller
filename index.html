@@ -392,7 +392,12 @@
           <span class="small">API key</span>
           <input type="password" id="aiKey" placeholder="paste your key (stored in this browser only)" autocomplete="off">
         </div>
-        <div class="small" style="margin-top:6px">With a key set, <b>📷 Photo label</b> sends the photo to your chosen AI to read the label — far better on messy, dense, or multi-language labels. It fills the name, origin, bag weight, and a tidy spec summary. The key is kept only in this browser (never cloud-synced) and the photo is sent to <b>your own account</b> (billed to you). Leave blank to use on-device OCR instead. Get a key at <b>console.anthropic.com</b> (Claude) or <b>aistudio.google.com</b> (Gemini — has a free tier).</div>
+        <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-top:6px">
+          <span class="small">Proxy Worker URL</span>
+          <input type="text" id="aiProxy" placeholder="optional — https://…workers.dev (keeps the key off this device)">
+        </div>
+        <div class="small" style="margin-top:6px">With a key set, <b>📷 Photo label</b> sends the photo to your chosen AI to read the label — far better on messy, dense, or multi-language labels. It fills the name, origin, bag weight, and a tidy spec summary. The photo is sent to <b>your own account</b> (billed to you). Get a key at <b>console.anthropic.com</b> (Claude) or <b>aistudio.google.com</b> (Gemini — has a free tier). Leave everything blank to use on-device OCR instead.</div>
+        <div class="small" style="margin-top:6px">🔒 <b>Proxy Worker URL</b> (optional): route through your own Cloudflare Worker (deploy <b>ai-proxy-worker.js</b> from the repo) so the key lives on the Worker, not this browser — best for shared/public use. When a proxy is set the API-key field above is ignored. The key is kept only in this browser and never cloud-synced.</div>
       </div>
     </details>
     <div class="row" style="align-items:center;gap:6px;margin:2px 0 10px">
@@ -2099,6 +2104,8 @@ function parseGreenLabel(text){
 function aiProvider(){try{return localStorage.getItem('rc_aiprov')==='google'?'google':'anthropic';}catch(e){return'anthropic';}}
 function aiKeyFor(p){try{return (localStorage.getItem(p==='google'?'rc_gkey':'rc_aikey')||'').trim();}catch(e){return'';}}
 function aiKey(){return aiKeyFor(aiProvider());}          // key for the currently-selected provider
+function aiProxy(){try{return (localStorage.getItem('rc_aiproxy')||'').trim().replace(/\/+$/,'');}catch(e){return'';}}
+function aiEnabled(){return !!(aiProxy()||aiKey());}      // AI available via a proxy Worker or a direct key
 const AI_LABEL_SCHEMA={type:'object',additionalProperties:false,
   required:['name','origin','weightGrams','notes'],
   properties:{
@@ -2142,10 +2149,12 @@ async function anthropicExtractLabel(base64,mediaType){
       {type:'image',source:{type:'base64',media_type:mediaType,data:base64}},
       {type:'text',text:AI_LABEL_PROMPT}]}],
     output_config:{format:{type:'json_schema',schema:AI_LABEL_SCHEMA}}};
-  const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
-    headers:{'content-type':'application/json','x-api-key':aiKeyFor('anthropic'),
-      'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify(body)});
+  const proxy=aiProxy();                                  // proxy Worker injects the key; direct call sends it from the browser
+  const url=proxy?proxy+'/anthropic':'https://api.anthropic.com/v1/messages';
+  const headers=proxy?{'content-type':'application/json'}
+    :{'content-type':'application/json','x-api-key':aiKeyFor('anthropic'),
+      'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'};
+  const r=await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});
   if(!r.ok){let msg='HTTP '+r.status;try{const e=await r.json();if(e&&e.error&&e.error.message)msg+=' — '+e.error.message;}catch(_){}throw new Error(msg);}
   const data=await r.json();
   if(data.stop_reason==='refusal')throw new Error('request was declined');
@@ -2158,8 +2167,10 @@ async function geminiExtractLabel(base64,mediaType){
       {inline_data:{mime_type:mediaType,data:base64}},
       {text:AI_LABEL_PROMPT}]}],
     generationConfig:{responseMimeType:'application/json',responseSchema:GEMINI_LABEL_SCHEMA}};
-  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-    {method:'POST',headers:{'content-type':'application/json','x-goog-api-key':aiKeyFor('google')},body:JSON.stringify(body)});
+  const proxy=aiProxy();                                  // proxy Worker injects the key; direct call sends it from the browser
+  const url=proxy?proxy+'/gemini':'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+  const headers=proxy?{'content-type':'application/json'}:{'content-type':'application/json','x-goog-api-key':aiKeyFor('google')};
+  const r=await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});
   if(!r.ok){let msg='HTTP '+r.status;try{const e=await r.json();if(e&&e.error&&e.error.message)msg+=' — '+e.error.message;}catch(_){}throw new Error(msg);}
   const data=await r.json();
   const cand=(data.candidates||[])[0];
@@ -2187,7 +2198,7 @@ async function aiReadLabel(file){
 }
 // Dispatcher: use Claude when a key is set (fall back to on-device OCR on error), else Tesseract.
 async function recognizePhotoLabel(file){
-  if(aiKey()){
+  if(aiEnabled()){
     try{await aiReadLabel(file);return;}
     catch(e){log('❌ AI read failed: '+e.message+' — falling back to on-device OCR');alert('AI read failed ('+e.message+'). Falling back to on-device OCR.');}
   }
@@ -2233,6 +2244,7 @@ function loadAiKeyField(){$('aiKey').value=aiKeyFor($('aiProvider').value);}    
 $('aiProvider').addEventListener('change',()=>{try{localStorage.setItem('rc_aiprov',$('aiProvider').value);}catch(e){}loadAiKeyField();});
 $('aiKey').addEventListener('input',()=>{const k=$('aiProvider').value==='google'?'rc_gkey':'rc_aikey';                // local only — never cloud-synced
   try{localStorage.setItem(k,$('aiKey').value.trim());}catch(e){}});
+$('aiProxy').addEventListener('input',()=>{try{localStorage.setItem('rc_aiproxy',$('aiProxy').value.trim());}catch(e){}});
 $('btnPhotoLabel').addEventListener('click',()=>$('inventoryPhotoInput').click());
 $('inventoryPhotoInput').addEventListener('change',e=>{
   const file=e.target.files[0];
@@ -2266,6 +2278,7 @@ try{const bc=JSON.parse(localStorage.getItem('rc_batch')||'null');         // re
 refreshInventoryList();
 renderBatchResult();
 try{const pv=localStorage.getItem('rc_aiprov');if(pv)$('aiProvider').value=pv;}catch(e){}
+try{const px=localStorage.getItem('rc_aiproxy');if(px)$('aiProxy').value=px;}catch(e){}
 loadAiKeyField();
 try{const iu=localStorage.getItem('rc_invuse')||'';                        // restore the bean picked in the Roast session panel
   if(iu){$('invUseSel').value=iu;if($('invUseSel').value===iu)invUse.itemId=iu;}}catch(e){}
