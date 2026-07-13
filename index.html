@@ -1939,43 +1939,48 @@ $('invUseSel').addEventListener('change',()=>{
 });
 // Pull the common green-coffee spec fields out of OCR text. Each field is
 // anchored to BOTH its Chinese and English labels: on these sheets the value
-// usually sits next to the Chinese label (豆种 Typica), with the English word
-// (Variety) on a separate line — so English-only anchoring grabs the wrong
-// token. We scan all matches left-to-right and skip any value that is itself a
-// label word (guards the two-column "Variety Region" case).
-const LABELVAL=/^(variet|region|grade|densit|altit|moistur|content|process|roast|degree|cupping|notes|coffee)/i;
+// sits next to the Chinese label (豆种 埃塞原生种 / 豆种 Typica). Values may be
+// Chinese OR Latin, so text values capture one whitespace-delimited token. We
+// scan all matches left-to-right and skip any value that is itself a label
+// word (guards the two-column "Variety Region" case and Chinese equivalents).
+const LABELVAL=/^(variet|region|grade|densit|altit|moistur|content|process|roast|degree|cupping|notes|coffee|国家|产区|产地|豆种|海拔|密度|含水|水[份分]|处理|瑕疵|规格|风味|阶梯|净|重量)/i;
 function parseGreenLabel(text){
   const clean=text.replace(/[|]+/g,' ');
   const fields=[];
+  const strip=s=>(s||'').replace(/^[、,;.►▶>:：\s]+/,'').replace(/[、,;.►▶>\s]+$/,'').replace(/\s+/g,' ').trim();
   const grab=(label,anchor,val)=>{                     // anchor = label alternatives, val = value pattern
     const g=new RegExp('(?:'+anchor+')\\s*[:：]?\\s*('+val+')','gi');
     let m;while((m=g.exec(clean))){
-      const v=(m[1]||'').replace(/[、,;.\s]+$/,'').replace(/\s+/g,' ').trim();
+      const v=strip(m[1]);
       if(v&&!LABELVAL.test(v)){fields.push([label,v]);return v;}}
     return null;
   };
-  const TOKEN='[A-Za-z][A-Za-z0-9+/-]*';
-  const variety=grab('Variety','豆\\s*种|品\\s*种|Variet\\w*',TOKEN);
-  const region =grab('Region','产\\s*地|产\\s*区|Region',TOKEN);
+  const TXT='[^\\s:：]{1,24}';                          // one token (CJK or Latin), stops at whitespace
+  const country=grab('Country','国\\s*家|Country|Origin\\s*country',TXT);
+  const region =grab('Region','产\\s*区|产\\s*地|Region',TXT);
+  grab('Processing station','处理站|Washing\\s*station|Mill|Station',TXT);
+  grab('Variety','豆\\s*种|品\\s*种|Variet\\w*',TXT);
   grab('Grade','等\\s*级|级\\s*别|Grade','[A-Za-z0-9]{1,4}');
-  grab('Altitude','海\\s*拔|Altit\\w*','[\\d,]+\\s*m');
+  grab('Altitude','海\\s*拔|Altit\\w*','[\\d.,]+\\s*-?\\s*[\\d.,]*\\s*m');
   grab('Density','密\\s*度|Densit\\w*','[\\d.,]+\\s*g\\s*/?\\s*[Ll]');
-  grab('Moisture','水\\s*[份分]|Moistur\\w*(?:\\s*content)?','[\\d.,]+\\s*%');
-  const process=grab('Process','处理方式|处理法|加工方式|Process','[A-Za-z]+');
-  grab('Suggested roast','建议烘焙度?|烘焙度|Roast\\w*\\s*degree','[A-Za-z]+');
-  const cm=clean.match(/Cupping\s*Notes?\s*[:：]?\s*([^\n]+)/i)          // prefer the English notes line
-    ||clean.match(/杯测风味\s*[:：]?\s*([^\n]+)/);
-  if(cm&&cm[1]){const v=cm[1].replace(/、/g,', ').replace(/\s+/g,' ').replace(/[,\s]+$/,'').trim();
-    if(v)fields.push(['Cupping notes',v]);}
-  // best name: the line in the first ~10 with the most Latin letters that isn't a field label / brand
+  grab('Moisture','含\\s*水\\s*率|水\\s*[份分]|Moistur\\w*(?:\\s*content)?','[\\d.,]+\\s*%');
+  grab('Defect rate','瑕\\s*疵\\s*率?|Defect\\w*','[\\d.,]+\\s*%');
+  grab('Process','处理方式|处理法|加工方式|Process','[^\\s:：]{1,16}');
+  grab('Packaging','规\\s*格|Packaging|Pack\\s*size','[0-9][^\\s:：]{0,14}');
+  grab('Suggested roast','建议烘焙度?|烘焙度|Roast\\w*\\s*degree','[A-Za-z\\u4e00-\\u9fff]{1,6}');
+  const cm=clean.match(/(?:Cupping\s*Notes?|杯测风味|风\s*味)\s*[:：]?\s*([^\n]+)/i);
+  if(cm&&cm[1]){const v=strip(cm[1].replace(/、/g,', '));if(v)fields.push(['Cupping notes',v]);}
+  // best name: prefer a strong Latin header line; else build one from country + region
   const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);
-  const LABELKW=/variet|region|grade|densit|altit|moistur|process|roast|cupping|coffee$/i;
+  const LABELKW=/variet|region|grade|densit|altit|moistur|process|roast|cupping|coffee$|国家|产区|产地|豆种|海拔|密度|含水|处理|瑕疵|规格|风味|阶梯|产品信息|净含|重量/i;
   let name='',best=0;
-  for(const l of lines.slice(0,10)){if(LABELKW.test(l))continue;
+  for(const l of lines.slice(0,12)){if(LABELKW.test(l))continue;
     const latin=(l.match(/[A-Za-z]/g)||[]).length;
-    if(latin>best&&latin>=6&&l.length<=90){best=latin;name=l;}}
-  const origin=[region,process].filter(Boolean).join(', ');
-  return{name,origin,variety,fields};
+    if(latin>best&&latin>=8&&l.length<=90){best=latin;name=l;}}
+  if(!name)name=[country,region].filter(Boolean).join(' ');
+  if(!name)name=lines.find(l=>!LABELKW.test(l))||lines[0]||'';
+  const origin=[country,region].filter(Boolean).join(' · ')||region||'';   // geographic origin for the Origin/farm field
+  return{name,origin,fields};
 }
 async function recognizePhotoLabel(file){
   let worker=null;
@@ -1993,7 +1998,10 @@ async function recognizePhotoLabel(file){
     editInventoryItem(-1);                                // fresh form, then pre-fill from the label
     $('invName').value=(p.name||'').slice(0,100);
     if(p.origin)$('invOrigin').value=p.origin.slice(0,100);
-    const wm=text.match(/(\d+(?:[.,]\d+)?)\s*(kg|kilograms?|g|gr|grams?)\b(?!\s*\/)/i);  // bag weight; (?!/) skips density "g/L"
+    // Only auto-fill Available g from an EXPLICIT net-weight label. Spec sheets
+    // carry traps — packaging "60kg/袋", pricing "5KG", density "840g/L" — that
+    // must never silently become stock; the user enters how much they bought.
+    const wm=text.match(/(?:净\s*含?\s*量|净\s*重|Net\s*(?:wt|weight)|Weight)\s*[:：]?\s*(\d+(?:[.,]\d+)?)\s*(kg|kilograms?|g|gr|grams?)\b(?!\s*[\/Ll])/i);
     if(wm){const n=parseFloat(wm[1].replace(',','.'));
       if(Number.isFinite(n))$('invWeight').value=/^k/i.test(wm[2])?Math.round(n*1000):Math.round(n);}
     // tidy Notes block from the parsed fields; fall back to raw text if nothing matched
