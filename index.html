@@ -271,6 +271,11 @@
     </div>
     <div class="small" style="margin-top:8px" id="evTimes">Press <b>Charge</b> when beans go in to start the timer. <b>Drop</b> also turns the heater off (the fan keeps its current speed). When a running profile reaches its last point, the heater switches off automatically.</div>
     <hr>
+    <div class="row" style="margin-bottom:4px;align-items:center">
+      <span class="small"><b>Bean from inventory</b></span>
+      <select id="invUseSel" style="flex:1;min-width:160px"><option value="">— not tracked —</option></select>
+    </div>
+    <div class="small" style="margin-bottom:8px">Pick the green you're roasting — at <b>Drop</b> the <b>Green g</b> below is deducted from that bean's stock automatically (editing Green g after the drop adjusts it).</div>
     <div class="row">
       <div style="flex:2.2;min-width:170px"><div class="small" style="margin-bottom:3px">Bean / batch details</div><input id="beanInfo" type="text" placeholder="e.g. Timor Hybrid washed, crop 2025"></div>
       <div style="flex:1;min-width:86px"><div class="small" style="margin-bottom:3px">Green g</div><input id="wIn" type="number" min="0" inputmode="decimal"></div>
@@ -362,6 +367,41 @@
 
   <div class="small" style="text-align:center;margin:4px 0 20px">Device must advertise as <b>MATCHBOX</b>/<b>MBOX</b>. Frame decode: <b>ET</b>=field 0, <b>BT</b>=field 1, heater=field 2, fan=field 3 (4-field form).</div>
 
+  <div class="panel">
+    <h2>Green coffee inventory</h2>
+    <div class="row" style="margin-bottom:8px">
+      <button id="btnAddInventory" class="green">+ Add bean</button>
+      <button id="btnPhotoLabel" class="blue">📷 Photo label (OCR)</button>
+    </div>
+    <input type="file" id="inventoryPhotoInput" accept="image/*" style="display:none" capture="environment">
+    <div id="inventoryList" style="margin-top:10px"></div>
+    <div id="inventoryEmpty" class="small" style="color:var(--dim);margin-top:10px">No beans in inventory yet.</div>
+  </div>
+
+  <div id="inventoryModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:1000;padding:12px;overflow:auto">
+    <div style="background:var(--panel);border-radius:var(--r);padding:16px;max-width:500px;margin:auto;margin-top:40px">
+      <h2 style="margin-top:0">Inventory item</h2>
+      <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:8px">
+        <span class="small">Bean name</span><input type="text" id="invName" placeholder="e.g. Ethiopian Yirgacheffe">
+      </div>
+      <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:8px">
+        <span class="small">Origin / farm</span><input type="text" id="invOrigin" placeholder="e.g. Washed, crop 2025">
+      </div>
+      <div class="row" style="margin-bottom:8px;gap:10px">
+        <div style="flex:1"><div class="small" style="margin-bottom:3px">Available g</div><input type="number" id="invWeight" min="0" inputmode="decimal" placeholder="0"></div>
+        <div style="flex:1"><div class="small" style="margin-bottom:3px">Roast level</div><select id="invRoastLevel" style="width:100%"><option value="">— choose —</option><option value="light">Light</option><option value="medium">Medium</option><option value="dark">Dark</option><option value="espresso">Espresso</option></select></div>
+      </div>
+      <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:10px">
+        <span class="small">Notes</span><textarea id="invNotes" rows="2" placeholder="cupping notes, best brew method, etc."></textarea>
+      </div>
+      <div class="row" style="justify-content:flex-end;gap:8px">
+        <button id="invCancel" style="flex:0">Cancel</button>
+        <button id="invSave" class="green" style="flex:0">Save</button>
+      </div>
+    </div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
 <script>
 "use strict";
 const CANDIDATE_SERVICES=[0xffe0,0xfff0,'6e400001-b5a3-f393-e0a9-e50e24dcca9e','49535343-fe7d-4ae5-8fa9-9fafd205e455',0xffe5,0xfee0,0xff00];
@@ -1307,6 +1347,7 @@ $('heaterW').addEventListener('change',()=>{
 
 // ---------- Roast timer + events ----------
 $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;events.dry=events.fc=events.drop=null;
+  invUse.dropped=false;invUse.deducted=0;         // new batch: fresh inventory-deduction session
   liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.armed=false;alarms.temp=alarms.crash=alarms.flick=false;alarms.minRor=null;bgIdx=0;
   if(connectMs){                                   // drop pre-charge telemetry and make Charge the chart's zero point
     const base=(chargeMs-connectMs)/1000;
@@ -1324,6 +1365,7 @@ $('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-c
     setTimeout(()=>send('OT1,0'),250);
     log('DROP — heater off (fan unchanged)');}
   autoSaveRoast();
+  invUse.dropped=true;applyInvDeduction();        // take the batch's green weight out of the selected bean's stock
   renderStatsCard(roastStats(),+$('wIn').value,+$('wOut').value);
   resetRoastView();}});
 function resetRoastView(){                         // fresh chart for the next batch (the roast was just auto-saved)
@@ -1343,7 +1385,8 @@ function updateLoss(){
   syncAutoSaved();
   if(chargeMs&&events.drop!=null)renderStatsCard(roastStats(),a,b);
 }
-$('wIn').addEventListener('input',updateLoss);$('wOut').addEventListener('input',updateLoss);
+$('wIn').addEventListener('input',()=>{updateLoss();if(invUse.dropped)applyInvDeduction();});  // weight typed after Drop still hits the inventory
+$('wOut').addEventListener('input',updateLoss);
 function renderEvents(){
   const parts=[];for(const kl of [['dry','Dry End'],['fc','First Crack'],['drop','Drop']])if(events[kl[0]]!=null)parts.push(kl[1]+' '+fmt(events[kl[0]]));
   $('evTimes').innerHTML=parts.length?parts.join(' · '):'Timer running…';
@@ -1620,7 +1663,7 @@ function refreshRoastSelect(){const a=loadLogs();
 function buildRoastRec(name){
   return{id:'r'+Date.now(),name,date:new Date().toISOString(),mtime:Date.now(),
     chargeT:(chargeMs&&connectMs)?+(((chargeMs-connectMs)/1000).toFixed(1)):null,stats:roastStats(),
-    bean:$('beanInfo').value.trim(),weightIn:+$('wIn').value||null,weightOut:+$('wOut').value||null,
+    bean:$('beanInfo').value.trim(),invId:invUse.itemId||null,weightIn:+$('wIn').value||null,weightOut:+$('wOut').value||null,
     samples:samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv})),
     events:Object.assign({},events)};
 }
@@ -1714,16 +1757,18 @@ function applyRemote(blob){                                                     
   const profSel=$('profSelect').value,roastSel=$('roastSelect').value,etSel=$('etSel').value;
   const mp=mergeStores(loadProfilesStore(),blob.profiles,tombs);
   const ml=mergeStores(loadLogs(),blob.logs,tombs);
-  try{localStorage.setItem(PROF_KEY,JSON.stringify(mp));localStorage.setItem(LOG_KEY,JSON.stringify(ml));}catch(e){}
+  const mi=mergeStores(loadInventory(),blob.inventory,tombs);
+  try{localStorage.setItem(PROF_KEY,JSON.stringify(mp));localStorage.setItem(LOG_KEY,JSON.stringify(ml));localStorage.setItem(INV_KEY,JSON.stringify(mi));}catch(e){}
   saveTombs(tombs);
   refreshProfileSelect(mp.some(p=>p.id===profSel)?profSel:'');
   $('roastSelect').value=roastSel;$('etSel').value=etSel;refreshRoastSelect();
+  refreshInventoryList();
   drawChart();
 }
 async function cloudPush(retry){
   if(!cloudConfigured()||cloud.pushing)return;cloud.pushing=true;
   try{
-    const body={base:cloud.rev,profiles:loadProfilesStore(),logs:loadLogs(),tombs:loadTombs()};
+    const body={base:cloud.rev,profiles:loadProfilesStore(),logs:loadLogs(),inventory:loadInventory(),tombs:loadTombs()};
     const r=await fetch(cloudUrl(),{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
     if(r.status===409){const cur=await r.json();cloud.rev=cur.rev||0;applyRemote(cur);
       if(!retry){cloud.pushing=false;return cloudPush(true);}throw new Error('conflict');}
@@ -1762,6 +1807,165 @@ $('syncNow').addEventListener('click',cloudSyncNow);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)cloudPull();});
 setInterval(()=>{if(cloudConfigured()&&!document.hidden)cloudPull();},45000);
 
+// ---------- Green coffee inventory ----------
+const INV_KEY='rc_inventory_v1';
+let currentInventoryEdit=null;
+function loadInventory(){try{return JSON.parse(localStorage.getItem(INV_KEY)||'[]');}catch(e){return[];}}
+function saveInventory(a){try{localStorage.setItem(INV_KEY,JSON.stringify(a));}catch(e){alert('Storage full.');}cloudSchedulePush();}
+function refreshInventoryList(){
+  refreshInvUseSel();                                // keep the Roast session bean picker in step
+  const inv=loadInventory();
+  const list=$('inventoryList');
+  const empty=$('inventoryEmpty');
+  list.innerHTML='';
+  if(!inv.length){empty.style.display='';return;}
+  empty.style.display='none';
+  inv.forEach((item,i)=>{
+    const card=document.createElement('div');
+    card.className='panel';
+    card.style.marginBottom='8px';
+    card.style.padding='10px 12px';
+    const totalGrams=item.weight||0;
+    const html='<div style="display:flex;justify-content:space-between;margin-bottom:6px"><div><b>'+escapeHtml(item.name||'Unknown')+'</b>'+(item.origin?' · <span class="small" style="color:var(--dim)">'+escapeHtml(item.origin)+'</span>':'')+'</div>'
+      +'<div style="text-align:right"><button data-inv-edit="'+i+'" style="padding:4px 9px;font-size:12px;margin-right:4px">Edit</button><button data-inv-del="'+i+'" class="danger" style="padding:4px 9px;font-size:12px">Del</button></div></div>'
+      +'<div class="kv"><span>Available</span><b'+(totalGrams<=0?' style="color:var(--danger)"':'')+'>'+totalGrams.toFixed(1)+' g'+(totalGrams<=0?' — out of stock':'')+'</b></div>'
+      +(item.roastLevel?'<div class="kv"><span>Roast level</span><b style="text-transform:capitalize">'+escapeHtml(item.roastLevel)+'</b></div>':'')
+      +(item.notes?'<div class="small" style="color:var(--dim);margin-top:6px">'+escapeHtml(item.notes).replace(/\n/g,'<br>')+'</div>':'');
+    card.innerHTML=html;
+    list.appendChild(card);
+  });
+  list.querySelectorAll('[data-inv-edit]').forEach(b=>b.addEventListener('click',e=>{editInventoryItem(+e.target.dataset.invEdit);}));
+  list.querySelectorAll('[data-inv-del]').forEach(b=>b.addEventListener('click',e=>{
+    const idx=+e.target.dataset.invDel;
+    if(confirm('Delete this bean from inventory?')){
+      const a=loadInventory();
+      if(a[idx]&&a[idx].id)cloudTomb(a[idx].id);     // propagate the deletion to synced devices
+      a.splice(idx,1);
+      saveInventory(a);
+      refreshInventoryList();
+      log('Inventory item deleted');
+    }
+  }));
+}
+function editInventoryItem(idx){
+  const inv=loadInventory();
+  currentInventoryEdit=(idx>=0&&idx<inv.length)?idx:null;
+  const item=currentInventoryEdit!=null?inv[currentInventoryEdit]:{name:'',origin:'',weight:0,roastLevel:'',notes:'',date:new Date().toISOString()};
+  $('invName').value=item.name||'';
+  $('invOrigin').value=item.origin||'';
+  $('invWeight').value=item.weight||'';
+  $('invRoastLevel').value=item.roastLevel||'';
+  $('invNotes').value=item.notes||'';
+  $('inventoryModal').style.display='block';
+}
+function closeInventoryModal(){
+  $('inventoryModal').style.display='none';
+  currentInventoryEdit=null;
+}
+$('btnAddInventory').addEventListener('click',()=>editInventoryItem(-1));
+$('invCancel').addEventListener('click',closeInventoryModal);
+$('invSave').addEventListener('click',()=>{
+  const name=$('invName').value.trim();
+  if(!name){alert('Enter a bean name.');return;}
+  const isEdit=currentInventoryEdit!=null;
+  const inv=loadInventory();
+  const item={
+    id:'i'+(currentInventoryEdit!=null?inv[currentInventoryEdit].id?.slice(1):Date.now()),
+    name,
+    origin:$('invOrigin').value.trim(),
+    weight:parseFloat($('invWeight').value)||0,
+    roastLevel:$('invRoastLevel').value,
+    notes:$('invNotes').value.trim(),
+    date:currentInventoryEdit!=null&&inv[currentInventoryEdit]?inv[currentInventoryEdit].date:new Date().toISOString(),
+    mtime:Date.now()
+  };
+  if(currentInventoryEdit!=null){
+    inv[currentInventoryEdit]=item;
+  }else{
+    inv.push(item);
+  }
+  saveInventory(inv);
+  refreshInventoryList();
+  closeInventoryModal();
+  log(isEdit?'Inventory item updated: '+name:'Inventory item added: '+name);
+});
+
+// ---------- Roast session ↔ inventory link ----------
+// Pick a bean in the Roast session panel; at Drop the batch's Green g is
+// deducted from that bean's stock. Typing/correcting Green g after the drop
+// re-adjusts the same deduction (never double-counts), and switching the
+// selected bean after the drop moves the grams to the right bean.
+let invUse={itemId:'',dropped:false,deducted:0};
+function refreshInvUseSel(){
+  const s=$('invUseSel'),cur=s.value;
+  s.innerHTML='<option value="">— not tracked —</option>';
+  loadInventory().forEach(it=>{const o=document.createElement('option');o.value=it.id;
+    o.textContent=it.name+' · '+(it.weight||0).toFixed(0)+' g left';s.appendChild(o);});
+  s.value=cur;if(s.value!==cur)s.value='';
+}
+function adjustInvWeight(id,delta){                 // delta>0 returns grams to stock, delta<0 takes them out
+  if(!id||!delta)return null;
+  const inv=loadInventory(),item=inv.find(x=>x.id===id);
+  if(!item)return null;
+  item.weight=Math.max(0,+(((item.weight||0)+delta).toFixed(1)));
+  item.mtime=Date.now();
+  saveInventory(inv);refreshInventoryList();
+  return item;
+}
+function applyInvDeduction(){
+  if(!invUse.itemId)return;
+  const g=Math.max(0,+$('wIn').value||0);
+  const delta=g-invUse.deducted;                    // only the change since the last deduction
+  if(!delta)return;
+  const item=adjustInvWeight(invUse.itemId,-delta);
+  if(!item)return;
+  invUse.deducted=g;
+  log('📦 Inventory — '+item.name+': −'+g+' g green, '+item.weight.toFixed(0)+' g left'+(item.weight<=0?' ⚠️ OUT OF STOCK':''));
+}
+$('invUseSel').addEventListener('change',()=>{
+  if(invUse.deducted>0){adjustInvWeight(invUse.itemId,invUse.deducted);invUse.deducted=0;}   // switching bean after Drop: put the grams back first
+  invUse.itemId=$('invUseSel').value;
+  try{localStorage.setItem('rc_invuse',invUse.itemId);}catch(e){}
+  const item=loadInventory().find(x=>x.id===invUse.itemId);
+  if(item){$('beanInfo').value=item.name+(item.origin?' — '+item.origin:'');syncAutoSaved();}
+  if(invUse.dropped)applyInvDeduction();
+});
+async function recognizePhotoLabel(file){
+  try{
+    $('btnPhotoLabel').disabled=true;
+    $('btnPhotoLabel').textContent='📷 Processing OCR…';
+    const data=await file.arrayBuffer();
+    const worker=await Tesseract.createWorker();
+    const result=await worker.recognize(new Uint8Array(data));
+    const text=result.data.text.trim();
+    await worker.terminate();
+    if(!text){alert('No text found in the image.');return;}
+    log('OCR extracted: '+text.slice(0,100)+(text.length>100?'…':''));
+    const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);
+    editInventoryItem(-1);                             // fresh form, then pre-fill from the label
+    $('invName').value=(lines[0]||'').slice(0,100);
+    if(lines[1])$('invOrigin').value=lines[1].slice(0,100);
+    const wm=text.match(/(\d+(?:[.,]\d+)?)\s*(kg|kilo|g|gr|grams?)\b/i);   // bag weight, e.g. "1 kg" / "500g"
+    if(wm){const n=parseFloat(wm[1].replace(',','.'));
+      if(Number.isFinite(n))$('invWeight').value=/^k/i.test(wm[2])?Math.round(n*1000):Math.round(n);}
+    $('invNotes').value=('Label OCR:\n'+text).slice(0,500);
+    $('invOrigin').focus();
+  }catch(err){
+    log('❌ OCR error: '+err.message);
+    alert('Error processing image: '+err.message);
+  }finally{
+    $('btnPhotoLabel').disabled=false;
+    $('btnPhotoLabel').textContent='📷 Photo label (OCR)';
+  }
+}
+$('btnPhotoLabel').addEventListener('click',()=>$('inventoryPhotoInput').click());
+$('inventoryPhotoInput').addEventListener('change',e=>{
+  const file=e.target.files[0];
+  e.target.value='';
+  if(file)recognizePhotoLabel(file);
+});
+function escapeHtml(text){return (text||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+
 // ---------- init ----------
 try{const sf=JSON.parse(localStorage.getItem('rc_syncfields')||'null');   // pre-fill the typed URL/code always
   if(sf){if(sf.url)$('syncUrl').value=sf.url;if(sf.code)$('syncCode').value=sf.code;}}catch(e){}
@@ -1782,6 +1986,9 @@ try{const ep=JSON.parse(localStorage.getItem('rc_etrun')||'null');
     if(ep.endBt)$('etEndBt').value=ep.endBt;
     if(ep.id){$('etSel').value=ep.id;if($('etSel').value===ep.id)applyEtRef();}}}catch(e){}
 drawChart();
+refreshInventoryList();
+try{const iu=localStorage.getItem('rc_invuse')||'';                        // restore the bean picked in the Roast session panel
+  if(iu){$('invUseSel').value=iu;if($('invUseSel').value===iu)invUse.itemId=iu;}}catch(e){}
 if(cloudConfigured()){cloudStatus('Connecting…');cloudSyncNow();}
 </script>
 </body>
