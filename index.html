@@ -276,6 +276,10 @@
       <select id="invUseSel" style="flex:1;min-width:160px"><option value="">— not tracked —</option></select>
     </div>
     <div class="small" style="margin-bottom:8px">Pick the green you're roasting — at <b>Drop</b> the <b>Green g</b> below is deducted from that bean's stock automatically (editing Green g after the drop adjusts it).</div>
+    <div id="invBatchRow" class="row" style="display:none;align-items:center;gap:6px;margin-bottom:8px">
+      <button id="invUseBatch" class="blue" style="padding:6px 11px;font-size:12.5px">Use 200 g</button>
+      <span class="small" id="invBatchNote"></span>
+    </div>
     <div class="row">
       <div style="flex:2.2;min-width:170px"><div class="small" style="margin-bottom:3px">Bean / batch details</div><input id="beanInfo" type="text" placeholder="e.g. Timor Hybrid washed, crop 2025"></div>
       <div style="flex:1;min-width:86px"><div class="small" style="margin-bottom:3px">Green g</div><input id="wIn" type="number" min="0" inputmode="decimal"></div>
@@ -374,8 +378,24 @@
       <button id="btnPhotoLabel" class="blue">📷 Photo label (OCR)</button>
     </div>
     <input type="file" id="inventoryPhotoInput" accept="image/*" style="display:none" capture="environment">
+    <div class="row" style="align-items:center;gap:6px;margin:2px 0 10px">
+      <span class="small"><b>Batch size</b></span>
+      <input id="batchMin" type="number" min="1" value="100" style="width:66px"><span class="small">–</span>
+      <input id="batchMax" type="number" min="1" value="200" style="width:66px"><span class="small">g per roast — used to plan splits below.</span>
+    </div>
     <div id="inventoryList" style="margin-top:10px"></div>
     <div id="inventoryEmpty" class="small" style="color:var(--dim);margin-top:10px">No beans in inventory yet.</div>
+    <details style="margin-top:12px">
+      <summary>⚖️ Batch planner</summary>
+      <div style="margin-top:8px">
+        <div class="row" style="align-items:center;gap:6px;margin-bottom:8px">
+          <span class="small">Green to split</span>
+          <select id="batchBean" style="flex:1;min-width:120px"><option value="">— enter weight —</option></select>
+          <input id="batchWeight" type="number" min="0" inputmode="decimal" placeholder="g" style="width:90px">
+        </div>
+        <div id="batchResult" class="small" style="line-height:1.6"></div>
+      </div>
+    </details>
   </div>
 
   <div id="inventoryModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:1000;padding:12px;overflow:auto">
@@ -387,9 +407,8 @@
       <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:8px">
         <span class="small">Origin / farm</span><input type="text" id="invOrigin" placeholder="e.g. Washed, crop 2025">
       </div>
-      <div class="row" style="margin-bottom:8px;gap:10px">
-        <div style="flex:1"><div class="small" style="margin-bottom:3px">Available g</div><input type="number" id="invWeight" min="0" inputmode="decimal" placeholder="0"></div>
-        <div style="flex:1"><div class="small" style="margin-bottom:3px">Roast level</div><select id="invRoastLevel" style="width:100%"><option value="">— choose —</option><option value="light">Light</option><option value="medium">Medium</option><option value="dark">Dark</option><option value="espresso">Espresso</option></select></div>
+      <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:8px">
+        <span class="small">Available g</span><input type="number" id="invWeight" min="0" inputmode="decimal" placeholder="0">
       </div>
       <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:10px">
         <span class="small">Notes</span><textarea id="invNotes" rows="2" placeholder="cupping notes, best brew method, etc."></textarea>
@@ -1814,6 +1833,8 @@ function loadInventory(){try{return JSON.parse(localStorage.getItem(INV_KEY)||'[
 function saveInventory(a){try{localStorage.setItem(INV_KEY,JSON.stringify(a));}catch(e){alert('Storage full.');}cloudSchedulePush();}
 function refreshInventoryList(){
   refreshInvUseSel();                                // keep the Roast session bean picker in step
+  refreshBatchBean();                                // and the batch-planner bean picker
+  updateInvBatchSuggestion();                        // and the suggested-batch button
   const inv=loadInventory();
   const list=$('inventoryList');
   const empty=$('inventoryEmpty');
@@ -1827,14 +1848,15 @@ function refreshInventoryList(){
     card.style.padding='10px 12px';
     const totalGrams=item.weight||0;
     const html='<div style="display:flex;justify-content:space-between;margin-bottom:6px"><div><b>'+escapeHtml(item.name||'Unknown')+'</b>'+(item.origin?' · <span class="small" style="color:var(--dim)">'+escapeHtml(item.origin)+'</span>':'')+'</div>'
-      +'<div style="text-align:right"><button data-inv-edit="'+i+'" style="padding:4px 9px;font-size:12px;margin-right:4px">Edit</button><button data-inv-del="'+i+'" class="danger" style="padding:4px 9px;font-size:12px">Del</button></div></div>'
+      +'<div style="text-align:right;white-space:nowrap"><button data-inv-edit="'+i+'" style="padding:4px 9px;font-size:12px;margin-right:4px">Edit</button><button data-inv-dup="'+i+'" style="padding:4px 9px;font-size:12px;margin-right:4px">Dup</button><button data-inv-del="'+i+'" class="danger" style="padding:4px 9px;font-size:12px">Del</button></div></div>'
       +'<div class="kv"><span>Available</span><b'+(totalGrams<=0?' style="color:var(--danger)"':'')+'>'+totalGrams.toFixed(1)+' g'+(totalGrams<=0?' — out of stock':'')+'</b></div>'
-      +(item.roastLevel?'<div class="kv"><span>Roast level</span><b style="text-transform:capitalize">'+escapeHtml(item.roastLevel)+'</b></div>':'')
+      +batchHint(totalGrams)
       +(item.notes?'<div class="small" style="color:var(--dim);margin-top:6px">'+escapeHtml(item.notes).replace(/\n/g,'<br>')+'</div>':'');
     card.innerHTML=html;
     list.appendChild(card);
   });
   list.querySelectorAll('[data-inv-edit]').forEach(b=>b.addEventListener('click',e=>{editInventoryItem(+e.target.dataset.invEdit);}));
+  list.querySelectorAll('[data-inv-dup]').forEach(b=>b.addEventListener('click',e=>{duplicateInventoryItem(+e.target.dataset.invDup);}));
   list.querySelectorAll('[data-inv-del]').forEach(b=>b.addEventListener('click',e=>{
     const idx=+e.target.dataset.invDel;
     if(confirm('Delete this bean from inventory?')){
@@ -1847,14 +1869,75 @@ function refreshInventoryList(){
     }
   }));
 }
+function duplicateInventoryItem(idx){                 // pre-fill the form from a bean (e.g. the A / PB variant off one spec sheet) as a NEW item
+  const src=loadInventory()[idx];if(!src)return;
+  editInventoryItem(-1);                              // fresh new item: nothing is saved until the user hits Save
+  $('invName').value=src.name||'';
+  $('invOrigin').value=src.origin||'';
+  $('invWeight').value='';                            // a different lot/variant — enter its own weight
+  $('invNotes').value=src.notes||'';
+  $('invName').focus();$('invName').select();
+  log('Bean duplicated into the form — tweak the differing fields and Save.');
+}
+// ---------- Batch planner ----------
+// Split an available green weight into equal batches that each fall within the
+// roaster's min–max range, so there's no awkward leftover. Fewest batches =
+// largest even batch ≤ max.
+const trimN=n=>(Math.round(n*10)/10).toString();
+function batchMin(){return Math.max(1,+$('batchMin').value||100);}
+function batchMax(){return Math.max(batchMin(),+$('batchMax').value||200);}
+function batchPlan(avail,min,max){
+  avail=+avail;
+  if(!(avail>0)||!(min>0)||!(max>=min))return null;
+  const n=Math.max(1,Math.ceil(avail/max));           // fewest batches so each ≤ max
+  const size=avail/n;
+  const full=Math.floor(avail/max),rem=avail-full*max; // max-size alternative + leftover
+  return{avail,min,max,n,size,belowMin:size<min-1e-6,full,rem};
+}
+function batchHint(avail){                             // compact per-card line using the saved range
+  const p=batchPlan(avail,batchMin(),batchMax());
+  if(!p||avail<=0)return'';
+  const txt=p.belowMin?('1 small batch of '+trimN(avail)+' g (below '+p.min+' g min)')
+    :(p.n+' × '+trimN(p.size)+' g');
+  return'<div class="kv"><span>Batches</span><b>'+txt+'</b></div>';
+}
+function refreshBatchBean(){
+  const s=$('batchBean'),cur=s.value;
+  s.innerHTML='<option value="">— enter weight —</option>';
+  loadInventory().forEach(it=>{const o=document.createElement('option');o.value=it.id;
+    o.textContent=it.name+' · '+(it.weight||0).toFixed(0)+' g';s.appendChild(o);});
+  s.value=cur;if(s.value!==cur)s.value='';
+}
+function renderBatchResult(){
+  const min=batchMin(),max=batchMax(),w=+$('batchWeight').value||0,el=$('batchResult');
+  if(!el)return;
+  if(!(w>0)){el.innerHTML='Enter a weight (or pick a bean) to see a suggested split.';return;}
+  const p=batchPlan(w,min,max);
+  if(p.belowMin){el.innerHTML='<b>'+trimN(w)+' g</b> is below your <b>'+min+' g</b> minimum — roast it as one small batch.';return;}
+  const rows=['✅ <b>'+p.n+' × '+trimN(p.size)+' g</b> — even split, nothing left over.'];
+  if(p.full>=1&&p.rem>0.05)                            // show the naive max-size split for comparison
+    rows.push('<span style="color:var(--dim)">vs max-size: '+p.full+' × '+max+' g + <b>'+trimN(p.rem)+' g</b> left over'+(p.rem<min?' (too small to roast)':'')+'.</span>');
+  const opts=[];const nMin=Math.ceil(w/max),nMax=Math.floor(w/min);
+  for(let n=nMin;n<=nMax&&n<=nMin+4;n++){const s=w/n;if(s>=min-1e-6&&s<=max+1e-6)opts.push(n+' × '+trimN(Math.round(s*10)/10)+' g');}
+  if(opts.length>1)rows.push('<span style="color:var(--dim)">Other even splits: '+opts.slice(1).join(' · ')+'</span>');
+  el.innerHTML=rows.join('<br>');
+}
+function saveBatchCfg(){try{localStorage.setItem('rc_batch',JSON.stringify({min:batchMin(),max:batchMax()}));}catch(e){}}
+$('batchMin').addEventListener('input',()=>{saveBatchCfg();renderBatchResult();refreshInventoryList();});
+$('batchMax').addEventListener('input',()=>{saveBatchCfg();renderBatchResult();refreshInventoryList();});
+$('batchWeight').addEventListener('input',renderBatchResult);
+$('batchBean').addEventListener('change',()=>{
+  const it=loadInventory().find(x=>x.id===$('batchBean').value);
+  if(it)$('batchWeight').value=it.weight||0;
+  renderBatchResult();
+});
 function editInventoryItem(idx){
   const inv=loadInventory();
   currentInventoryEdit=(idx>=0&&idx<inv.length)?idx:null;
-  const item=currentInventoryEdit!=null?inv[currentInventoryEdit]:{name:'',origin:'',weight:0,roastLevel:'',notes:'',date:new Date().toISOString()};
+  const item=currentInventoryEdit!=null?inv[currentInventoryEdit]:{name:'',origin:'',weight:0,notes:'',date:new Date().toISOString()};
   $('invName').value=item.name||'';
   $('invOrigin').value=item.origin||'';
   $('invWeight').value=item.weight||'';
-  $('invRoastLevel').value=item.roastLevel||'';
   $('invNotes').value=item.notes||'';
   $('inventoryModal').style.display='block';
 }
@@ -1874,7 +1957,6 @@ $('invSave').addEventListener('click',()=>{
     name,
     origin:$('invOrigin').value.trim(),
     weight:parseFloat($('invWeight').value)||0,
-    roastLevel:$('invRoastLevel').value,
     notes:$('invNotes').value.trim(),
     date:currentInventoryEdit!=null&&inv[currentInventoryEdit]?inv[currentInventoryEdit].date:new Date().toISOString(),
     mtime:Date.now()
@@ -1929,31 +2011,105 @@ $('invUseSel').addEventListener('change',()=>{
   const item=loadInventory().find(x=>x.id===invUse.itemId);
   if(item){$('beanInfo').value=item.name+(item.origin?' — '+item.origin:'');syncAutoSaved();}
   if(invUse.dropped)applyInvDeduction();
+  updateInvBatchSuggestion();
 });
+// Suggest one balanced batch for the selected bean, and let one tap load it into Green g.
+function updateInvBatchSuggestion(){
+  const row=$('invBatchRow');if(!row)return;
+  const it=loadInventory().find(x=>x.id===$('invUseSel').value);
+  const p=it&&it.weight>0?batchPlan(it.weight,batchMin(),batchMax()):null;
+  if(!p){row.style.display='none';return;}
+  const size=p.belowMin?it.weight:Math.round(p.size*10)/10;
+  row.style.display='flex';
+  $('invUseBatch').textContent='Use '+trimN(size)+' g';
+  $('invUseBatch').dataset.size=size;
+  $('invBatchNote').innerHTML=p.belowMin
+    ?'('+trimN(it.weight)+' g left — below your '+p.min+' g min)'
+    :'(1 of '+p.n+' × '+trimN(p.size)+' g · '+trimN(it.weight)+' g left)';
+}
+$('invUseBatch').addEventListener('click',()=>{
+  const size=+$('invUseBatch').dataset.size;if(!(size>0))return;
+  $('wIn').value=trimN(size);
+  $('wIn').dispatchEvent(new Event('input'));         // runs updateLoss (+ deduction if already dropped)
+  log('Green g set to one batch: '+trimN(size)+' g');
+});
+// Pull the common green-coffee spec fields out of OCR text. Each field is
+// anchored to BOTH its Chinese and English labels: on these sheets the value
+// sits next to the Chinese label (豆种 埃塞原生种 / 豆种 Typica). Values may be
+// Chinese OR Latin, so text values capture one whitespace-delimited token. We
+// scan all matches left-to-right and skip any value that is itself a label
+// word (guards the two-column "Variety Region" case and Chinese equivalents).
+const LABELVAL=/^(variet|region|grade|densit|altit|moistur|content|process|roast|degree|cupping|notes|coffee|国家|产区|产地|豆种|海拔|密度|含水|水[份分]|处理|瑕疵|规格|风味|阶梯|净|重量)/i;
+function parseGreenLabel(text){
+  const clean=text.replace(/[|]+/g,' ');
+  const fields=[];
+  const strip=s=>(s||'').replace(/^[、,;.►▶>:：\s]+/,'').replace(/[、,;.►▶>\s]+$/,'').replace(/\s+/g,' ').trim();
+  const grab=(label,anchor,val)=>{                     // anchor = label alternatives, val = value pattern
+    const g=new RegExp('(?:'+anchor+')\\s*[:：]?\\s*('+val+')','gi');
+    let m;while((m=g.exec(clean))){
+      const v=strip(m[1]);
+      if(v&&!LABELVAL.test(v)){fields.push([label,v]);return v;}}
+    return null;
+  };
+  const TXT='[^\\s:：]{1,24}';                          // one token (CJK or Latin), stops at whitespace
+  const country=grab('Country','国\\s*家|Country|Origin\\s*country',TXT);
+  const region =grab('Region','产\\s*区|产\\s*地|Region',TXT);
+  grab('Processing station','处理站|Washing\\s*station|Mill|Station',TXT);
+  grab('Variety','豆\\s*种|品\\s*种|Variet\\w*',TXT);
+  grab('Grade','等\\s*级|级\\s*别|Grade','[A-Za-z0-9]{1,4}');
+  grab('Altitude','海\\s*拔|Altit\\w*','[\\d.,]+\\s*-?\\s*[\\d.,]*\\s*m');
+  grab('Density','密\\s*度|Densit\\w*','[\\d.,]+\\s*g\\s*/?\\s*[Ll]');
+  grab('Moisture','含\\s*水\\s*率|水\\s*[份分]|Moistur\\w*(?:\\s*content)?','[\\d.,]+\\s*%');
+  grab('Defect rate','瑕\\s*疵\\s*率?|Defect\\w*','[\\d.,]+\\s*%');
+  grab('Process','处理方式|处理法|加工方式|Process','[^\\s:：]{1,16}');
+  grab('Packaging','规\\s*格|Packaging|Pack\\s*size','[0-9][^\\s:：]{0,14}');
+  grab('Suggested roast','建议烘焙度?|烘焙度|Roast\\w*\\s*degree','[A-Za-z\\u4e00-\\u9fff]{1,6}');
+  const cm=clean.match(/(?:Cupping\s*Notes?|杯测风味|风\s*味)\s*[:：]?\s*([^\n]+)/i);
+  if(cm&&cm[1]){const v=strip(cm[1].replace(/、/g,', '));if(v)fields.push(['Cupping notes',v]);}
+  // best name: prefer a strong Latin header line; else build one from country + region
+  const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);
+  const LABELKW=/variet|region|grade|densit|altit|moistur|process|roast|cupping|coffee$|国家|产区|产地|豆种|海拔|密度|含水|处理|瑕疵|规格|风味|阶梯|产品信息|净含|重量/i;
+  let name='',best=0;
+  for(const l of lines.slice(0,12)){if(LABELKW.test(l))continue;
+    const latin=(l.match(/[A-Za-z]/g)||[]).length;
+    if(latin>best&&latin>=8&&l.length<=90){best=latin;name=l;}}
+  if(!name)name=[country,region].filter(Boolean).join(' ');
+  if(!name)name=lines.find(l=>!LABELKW.test(l))||lines[0]||'';
+  const origin=[country,region].filter(Boolean).join(' · ')||region||'';   // geographic origin for the Origin/farm field
+  return{name,origin,fields};
+}
 async function recognizePhotoLabel(file){
+  let worker=null;
   try{
     $('btnPhotoLabel').disabled=true;
-    $('btnPhotoLabel').textContent='📷 Processing OCR…';
+    $('btnPhotoLabel').textContent='📷 Loading OCR…';
     const data=await file.arrayBuffer();
-    const worker=await Tesseract.createWorker();
+    worker=await Tesseract.createWorker('eng+chi_sim');   // English + Simplified Chinese
+    $('btnPhotoLabel').textContent='📷 Reading label…';
     const result=await worker.recognize(new Uint8Array(data));
-    const text=result.data.text.trim();
-    await worker.terminate();
+    const text=(result.data.text||'').trim();
     if(!text){alert('No text found in the image.');return;}
-    log('OCR extracted: '+text.slice(0,100)+(text.length>100?'…':''));
-    const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);
-    editInventoryItem(-1);                             // fresh form, then pre-fill from the label
-    $('invName').value=(lines[0]||'').slice(0,100);
-    if(lines[1])$('invOrigin').value=lines[1].slice(0,100);
-    const wm=text.match(/(\d+(?:[.,]\d+)?)\s*(kg|kilo|g|gr|grams?)\b/i);   // bag weight, e.g. "1 kg" / "500g"
+    log('OCR extracted '+text.length+' chars: '+text.slice(0,80).replace(/\n/g,' ')+'…');
+    const p=parseGreenLabel(text);
+    editInventoryItem(-1);                                // fresh form, then pre-fill from the label
+    $('invName').value=(p.name||'').slice(0,100);
+    if(p.origin)$('invOrigin').value=p.origin.slice(0,100);
+    // Only auto-fill Available g from an EXPLICIT net-weight label. Spec sheets
+    // carry traps — packaging "60kg/袋", pricing "5KG", density "840g/L" — that
+    // must never silently become stock; the user enters how much they bought.
+    const wm=text.match(/(?:净\s*含?\s*量|净\s*重|Net\s*(?:wt|weight)|Weight)\s*[:：]?\s*(\d+(?:[.,]\d+)?)\s*(kg|kilograms?|g|gr|grams?)\b(?!\s*[\/Ll])/i);
     if(wm){const n=parseFloat(wm[1].replace(',','.'));
       if(Number.isFinite(n))$('invWeight').value=/^k/i.test(wm[2])?Math.round(n*1000):Math.round(n);}
-    $('invNotes').value=('Label OCR:\n'+text).slice(0,500);
-    $('invOrigin').focus();
+    // tidy Notes block from the parsed fields; fall back to raw text if nothing matched
+    const notes=p.fields.length?p.fields.map(([k,v])=>k+': '+v).join('\n'):text;
+    $('invNotes').value=notes.slice(0,1000);
+    log('📷 Parsed '+p.fields.length+' field(s) from the label'+(p.fields.length?' — review & Save.':' — no known fields recognised; raw text kept in Notes.'));
+    $('invName').focus();
   }catch(err){
     log('❌ OCR error: '+err.message);
     alert('Error processing image: '+err.message);
   }finally{
+    if(worker){try{await worker.terminate();}catch(e){}}
     $('btnPhotoLabel').disabled=false;
     $('btnPhotoLabel').textContent='📷 Photo label (OCR)';
   }
@@ -1986,7 +2142,10 @@ try{const ep=JSON.parse(localStorage.getItem('rc_etrun')||'null');
     if(ep.endBt)$('etEndBt').value=ep.endBt;
     if(ep.id){$('etSel').value=ep.id;if($('etSel').value===ep.id)applyEtRef();}}}catch(e){}
 drawChart();
+try{const bc=JSON.parse(localStorage.getItem('rc_batch')||'null');         // restore the roaster's batch range
+  if(bc){if(bc.min)$('batchMin').value=bc.min;if(bc.max)$('batchMax').value=bc.max;}}catch(e){}
 refreshInventoryList();
+renderBatchResult();
 try{const iu=localStorage.getItem('rc_invuse')||'';                        // restore the bean picked in the Roast session panel
   if(iu){$('invUseSel').value=iu;if($('invUseSel').value===iu)invUse.itemId=iu;}}catch(e){}
 if(cloudConfigured()){cloudStatus('Connecting…');cloudSyncNow();}
