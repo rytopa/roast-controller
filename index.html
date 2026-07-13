@@ -1826,13 +1826,14 @@ function refreshInventoryList(){
     card.style.padding='10px 12px';
     const totalGrams=item.weight||0;
     const html='<div style="display:flex;justify-content:space-between;margin-bottom:6px"><div><b>'+escapeHtml(item.name||'Unknown')+'</b>'+(item.origin?' · <span class="small" style="color:var(--dim)">'+escapeHtml(item.origin)+'</span>':'')+'</div>'
-      +'<div style="text-align:right"><button data-inv-edit="'+i+'" style="padding:4px 9px;font-size:12px;margin-right:4px">Edit</button><button data-inv-del="'+i+'" class="danger" style="padding:4px 9px;font-size:12px">Del</button></div></div>'
+      +'<div style="text-align:right;white-space:nowrap"><button data-inv-edit="'+i+'" style="padding:4px 9px;font-size:12px;margin-right:4px">Edit</button><button data-inv-dup="'+i+'" style="padding:4px 9px;font-size:12px;margin-right:4px">Dup</button><button data-inv-del="'+i+'" class="danger" style="padding:4px 9px;font-size:12px">Del</button></div></div>'
       +'<div class="kv"><span>Available</span><b'+(totalGrams<=0?' style="color:var(--danger)"':'')+'>'+totalGrams.toFixed(1)+' g'+(totalGrams<=0?' — out of stock':'')+'</b></div>'
       +(item.notes?'<div class="small" style="color:var(--dim);margin-top:6px">'+escapeHtml(item.notes).replace(/\n/g,'<br>')+'</div>':'');
     card.innerHTML=html;
     list.appendChild(card);
   });
   list.querySelectorAll('[data-inv-edit]').forEach(b=>b.addEventListener('click',e=>{editInventoryItem(+e.target.dataset.invEdit);}));
+  list.querySelectorAll('[data-inv-dup]').forEach(b=>b.addEventListener('click',e=>{duplicateInventoryItem(+e.target.dataset.invDup);}));
   list.querySelectorAll('[data-inv-del]').forEach(b=>b.addEventListener('click',e=>{
     const idx=+e.target.dataset.invDel;
     if(confirm('Delete this bean from inventory?')){
@@ -1844,6 +1845,16 @@ function refreshInventoryList(){
       log('Inventory item deleted');
     }
   }));
+}
+function duplicateInventoryItem(idx){                 // pre-fill the form from a bean (e.g. the A / PB variant off one spec sheet) as a NEW item
+  const src=loadInventory()[idx];if(!src)return;
+  editInventoryItem(-1);                              // fresh new item: nothing is saved until the user hits Save
+  $('invName').value=src.name||'';
+  $('invOrigin').value=src.origin||'';
+  $('invWeight').value='';                            // a different lot/variant — enter its own weight
+  $('invNotes').value=src.notes||'';
+  $('invName').focus();$('invName').select();
+  log('Bean duplicated into the form — tweak the differing fields and Save.');
 }
 function editInventoryItem(idx){
   const inv=loadInventory();
