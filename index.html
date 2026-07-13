@@ -378,6 +378,16 @@
       <button id="btnPhotoLabel" class="blue">📷 Photo label (OCR)</button>
     </div>
     <input type="file" id="inventoryPhotoInput" accept="image/*" style="display:none" capture="environment">
+    <details style="margin-top:2px;margin-bottom:6px">
+      <summary>🤖 AI label reading (optional)</summary>
+      <div style="margin-top:8px">
+        <div class="ctl-row" style="grid-template-columns:auto 1fr">
+          <span class="small">Claude API key</span>
+          <input type="password" id="aiKey" placeholder="sk-ant-… (stored in this browser only)" autocomplete="off">
+        </div>
+        <div class="small" style="margin-top:6px">With a key set, <b>📷 Photo label</b> sends the photo to <b>Claude</b> (Anthropic) to read the label — far better on messy, dense, or multi-language labels. It fills the name, origin, bag weight, and a tidy spec summary. The key is kept only in this browser (never cloud-synced) and the photo is sent to <b>your own Anthropic account</b> (billed to you). Leave blank to use on-device OCR instead. Get a key at console.anthropic.com.</div>
+      </div>
+    </details>
     <div class="row" style="align-items:center;gap:6px;margin:2px 0 10px">
       <span class="small"><b>Batch size</b></span>
       <input id="batchMin" type="number" min="1" value="100" style="width:66px"><span class="small">–</span>
@@ -2078,7 +2088,80 @@ function parseGreenLabel(text){
   const origin=[country,region].filter(Boolean).join(' · ')||region||'';   // geographic origin for the Origin/farm field
   return{name,origin,fields};
 }
+// ---------- AI label reading (Claude vision, optional, bring-your-own-key) ----------
+function aiKey(){try{return (localStorage.getItem('rc_aikey')||'').trim();}catch(e){return'';}}
+const AI_LABEL_SCHEMA={type:'object',additionalProperties:false,
+  required:['name','origin','weightGrams','notes'],
+  properties:{
+    name:{type:'string',description:'Concise bean name: origin + estate/region + process if present, in the label\'s own language.'},
+    origin:{type:'string',description:'Country and/or region. Empty string if not shown.'},
+    weightGrams:{type:'number',description:'Net weight the buyer receives, in grams, ONLY from an explicit retail/net weight. 0 if none.'},
+    notes:{type:'string',description:'Tidy multi-line summary, one "Field: value" per line.'}
+  }};
+const AI_LABEL_PROMPT=
+'You are reading a photo of a GREEN (unroasted) coffee label or product spec sheet. It may be in English, Chinese, or another language.\n'+
+'Extract the details into the JSON schema:\n'+
+'- name: a concise bean name (origin + estate/region + process if present), in the label\'s own language.\n'+
+'- origin: country and/or region.\n'+
+'- weightGrams: the net weight of the bag the buyer receives, in grams, ONLY if the label states an explicit retail/net weight (e.g. "250g", "1kg net"). Do NOT use a wholesale sack size (e.g. "60kg/袋"), a tiered price row (e.g. "5KG"), or density ("840g/L"). If there is no clear net weight, use 0.\n'+
+'- notes: a tidy multi-line summary — one "Field: value" per line — for whichever of these appear: Variety, Region, Country, Altitude, Density, Moisture, Defect rate, Process, Grade, Suggested roast, Cupping notes. Keep values in their original language. Omit any field not on the label.\n'+
+'Return only the structured JSON.';
+function fileToScaledDataUrl(file,maxDim){                       // downscale before upload: smaller = cheaper tokens, under size limits
+  return new Promise((resolve,reject)=>{
+    const img=new Image(),url=URL.createObjectURL(file);
+    img.onload=()=>{let w=img.naturalWidth,h=img.naturalHeight;
+      const s=Math.min(1,maxDim/Math.max(w,h||1));w=Math.max(1,Math.round(w*s));h=Math.max(1,Math.round(h*s));
+      const c=document.createElement('canvas');c.width=w;c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      URL.revokeObjectURL(url);
+      try{resolve(c.toDataURL('image/jpeg',0.85));}catch(e){reject(e);}};
+    img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('could not read image'));};
+    img.src=url;
+  });
+}
+async function aiExtractLabel(base64,mediaType){
+  const body={model:'claude-opus-4-8',max_tokens:2048,
+    messages:[{role:'user',content:[
+      {type:'image',source:{type:'base64',media_type:mediaType,data:base64}},
+      {type:'text',text:AI_LABEL_PROMPT}]}],
+    output_config:{format:{type:'json_schema',schema:AI_LABEL_SCHEMA}}};
+  const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
+    headers:{'content-type':'application/json','x-api-key':aiKey(),
+      'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify(body)});
+  if(!r.ok){let msg='HTTP '+r.status;try{const e=await r.json();if(e&&e.error&&e.error.message)msg+=' — '+e.error.message;}catch(_){}throw new Error(msg);}
+  const data=await r.json();
+  if(data.stop_reason==='refusal')throw new Error('request was declined');
+  const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').trim();
+  if(!txt)throw new Error('empty response');
+  return JSON.parse(txt);
+}
+async function aiReadLabel(file){
+  const btn=$('btnPhotoLabel');
+  btn.disabled=true;btn.textContent='🤖 Reading with AI…';
+  try{
+    const durl=await fileToScaledDataUrl(file,2000);
+    const comma=durl.indexOf(','),meta=durl.slice(0,comma),b64=durl.slice(comma+1);
+    const mediaType=(meta.match(/data:(.*?);/)||[])[1]||'image/jpeg';
+    const out=await aiExtractLabel(b64,mediaType);
+    editInventoryItem(-1);                                       // fresh form, then pre-fill from the label
+    $('invName').value=((out.name||'')+'').slice(0,100);
+    if(out.origin)$('invOrigin').value=(out.origin+'').slice(0,100);
+    const w=+out.weightGrams;if(Number.isFinite(w)&&w>0)$('invWeight').value=Math.round(w);
+    $('invNotes').value=((out.notes||'')+'').slice(0,1500);
+    $('invName').focus();
+    log('🤖 AI read the label — review & Save.');
+  }finally{btn.disabled=false;btn.textContent='📷 Photo label (OCR)';}
+}
+// Dispatcher: use Claude when a key is set (fall back to on-device OCR on error), else Tesseract.
 async function recognizePhotoLabel(file){
+  if(aiKey()){
+    try{await aiReadLabel(file);return;}
+    catch(e){log('❌ AI read failed: '+e.message+' — falling back to on-device OCR');alert('AI read failed ('+e.message+'). Falling back to on-device OCR.');}
+  }
+  await tesseractReadLabel(file);
+}
+async function tesseractReadLabel(file){
   let worker=null;
   try{
     $('btnPhotoLabel').disabled=true;
@@ -2114,6 +2197,7 @@ async function recognizePhotoLabel(file){
     $('btnPhotoLabel').textContent='📷 Photo label (OCR)';
   }
 }
+$('aiKey').addEventListener('input',()=>{try{localStorage.setItem('rc_aikey',$('aiKey').value.trim());}catch(e){}});  // local only — never cloud-synced
 $('btnPhotoLabel').addEventListener('click',()=>$('inventoryPhotoInput').click());
 $('inventoryPhotoInput').addEventListener('change',e=>{
   const file=e.target.files[0];
@@ -2146,6 +2230,7 @@ try{const bc=JSON.parse(localStorage.getItem('rc_batch')||'null');         // re
   if(bc){if(bc.min)$('batchMin').value=bc.min;if(bc.max)$('batchMax').value=bc.max;}}catch(e){}
 refreshInventoryList();
 renderBatchResult();
+try{const ak=localStorage.getItem('rc_aikey');if(ak)$('aiKey').value=ak;}catch(e){}
 try{const iu=localStorage.getItem('rc_invuse')||'';                        // restore the bean picked in the Roast session panel
   if(iu){$('invUseSel').value=iu;if($('invUseSel').value===iu)invUse.itemId=iu;}}catch(e){}
 if(cloudConfigured()){cloudStatus('Connecting…');cloudSyncNow();}
