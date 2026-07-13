@@ -158,6 +158,7 @@
         <button id="cFanP5">+5</button>
         <button id="btnCFan" class="blue">Set fan</button>
         <button id="cFan0">Fan 0</button>
+        <button id="cPow0" class="danger">Power 0</button>
         <span class="small">a manual change during a profile roast pauses the automated fan — options to resume appear below</span>
       </div>
       <div id="fanOvrNote" class="small" style="display:none;color:var(--warn);margin-top:8px">✋ <b>Manual fan override</b> — the automated fan is paused for this roast (temperature control keeps running).
@@ -549,9 +550,11 @@ $('cFanM5').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()-5);})
 $('cFanP5').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()+5);});
 $('btnCFan').addEventListener('click',()=>{if(fanCtlOk())manualFan($('cFanVal').value);});
 $('cFan0').addEventListener('click',()=>{if(fanCtlOk())manualFan(0);});
+$('cPow0').addEventListener('click',()=>{if(fanCtlOk())heaterOff();});
 $('btnSv').addEventListener('click',async()=>{stopRamp();stopProfile();stopEtRun('manual setpoint',true);const v=+$('svVal').value;if(pidEngaged)setSV(v);else await engagePID(v);});
 $('btnOt1').addEventListener('click',()=>send('OT1,'+clampPct($('ot1Val').value)));
-$('emergency').addEventListener('click',async()=>{stopRamp();stopProfile();stopBBP('emergency',true);stopEtRun('emergency',true);await send('PID,OFF ');pidEngaged=false;setPidPill();setTimeout(()=>send('OT1,0'),300);});
+async function heaterOff(){stopRamp();stopProfile();stopBBP('emergency',true);stopEtRun('emergency',true);await send('PID,OFF ');pidEngaged=false;setPidPill();setTimeout(()=>send('OT1,0'),300);}
+$('emergency').addEventListener('click',heaterOff);
 document.querySelectorAll('[data-raw="PID,OFF "]').forEach(b=>b.addEventListener('click',()=>{pidEngaged=false;setPidPill();}));
 document.querySelectorAll('[data-raw="PID,ON "]').forEach(b=>b.addEventListener('click',()=>{pidEngaged=true;setPidPill();}));
 
