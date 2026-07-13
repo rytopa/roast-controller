@@ -1926,30 +1926,75 @@ $('invUseSel').addEventListener('change',()=>{
   if(item){$('beanInfo').value=item.name+(item.origin?' — '+item.origin:'');syncAutoSaved();}
   if(invUse.dropped)applyInvDeduction();
 });
+// Pull the common green-coffee spec fields out of OCR text. Each field is
+// anchored to BOTH its Chinese and English labels: on these sheets the value
+// usually sits next to the Chinese label (豆种 Typica), with the English word
+// (Variety) on a separate line — so English-only anchoring grabs the wrong
+// token. We scan all matches left-to-right and skip any value that is itself a
+// label word (guards the two-column "Variety Region" case).
+const LABELVAL=/^(variet|region|grade|densit|altit|moistur|content|process|roast|degree|cupping|notes|coffee)/i;
+function parseGreenLabel(text){
+  const clean=text.replace(/[|]+/g,' ');
+  const fields=[];
+  const grab=(label,anchor,val)=>{                     // anchor = label alternatives, val = value pattern
+    const g=new RegExp('(?:'+anchor+')\\s*[:：]?\\s*('+val+')','gi');
+    let m;while((m=g.exec(clean))){
+      const v=(m[1]||'').replace(/[、,;.\s]+$/,'').replace(/\s+/g,' ').trim();
+      if(v&&!LABELVAL.test(v)){fields.push([label,v]);return v;}}
+    return null;
+  };
+  const TOKEN='[A-Za-z][A-Za-z0-9+/-]*';
+  const variety=grab('Variety','豆\\s*种|品\\s*种|Variet\\w*',TOKEN);
+  const region =grab('Region','产\\s*地|产\\s*区|Region',TOKEN);
+  grab('Grade','等\\s*级|级\\s*别|Grade','[A-Za-z0-9]{1,4}');
+  grab('Altitude','海\\s*拔|Altit\\w*','[\\d,]+\\s*m');
+  grab('Density','密\\s*度|Densit\\w*','[\\d.,]+\\s*g\\s*/?\\s*[Ll]');
+  grab('Moisture','水\\s*[份分]|Moistur\\w*(?:\\s*content)?','[\\d.,]+\\s*%');
+  const process=grab('Process','处理方式|处理法|加工方式|Process','[A-Za-z]+');
+  grab('Suggested roast','建议烘焙度?|烘焙度|Roast\\w*\\s*degree','[A-Za-z]+');
+  const cm=clean.match(/Cupping\s*Notes?\s*[:：]?\s*([^\n]+)/i)          // prefer the English notes line
+    ||clean.match(/杯测风味\s*[:：]?\s*([^\n]+)/);
+  if(cm&&cm[1]){const v=cm[1].replace(/、/g,', ').replace(/\s+/g,' ').replace(/[,\s]+$/,'').trim();
+    if(v)fields.push(['Cupping notes',v]);}
+  // best name: the line in the first ~10 with the most Latin letters that isn't a field label / brand
+  const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);
+  const LABELKW=/variet|region|grade|densit|altit|moistur|process|roast|cupping|coffee$/i;
+  let name='',best=0;
+  for(const l of lines.slice(0,10)){if(LABELKW.test(l))continue;
+    const latin=(l.match(/[A-Za-z]/g)||[]).length;
+    if(latin>best&&latin>=6&&l.length<=90){best=latin;name=l;}}
+  const origin=[region,process].filter(Boolean).join(', ');
+  return{name,origin,variety,fields};
+}
 async function recognizePhotoLabel(file){
+  let worker=null;
   try{
     $('btnPhotoLabel').disabled=true;
-    $('btnPhotoLabel').textContent='📷 Processing OCR…';
+    $('btnPhotoLabel').textContent='📷 Loading OCR…';
     const data=await file.arrayBuffer();
-    const worker=await Tesseract.createWorker();
+    worker=await Tesseract.createWorker('eng+chi_sim');   // English + Simplified Chinese
+    $('btnPhotoLabel').textContent='📷 Reading label…';
     const result=await worker.recognize(new Uint8Array(data));
-    const text=result.data.text.trim();
-    await worker.terminate();
+    const text=(result.data.text||'').trim();
     if(!text){alert('No text found in the image.');return;}
-    log('OCR extracted: '+text.slice(0,100)+(text.length>100?'…':''));
-    const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);
-    editInventoryItem(-1);                             // fresh form, then pre-fill from the label
-    $('invName').value=(lines[0]||'').slice(0,100);
-    if(lines[1])$('invOrigin').value=lines[1].slice(0,100);
-    const wm=text.match(/(\d+(?:[.,]\d+)?)\s*(kg|kilo|g|gr|grams?)\b/i);   // bag weight, e.g. "1 kg" / "500g"
+    log('OCR extracted '+text.length+' chars: '+text.slice(0,80).replace(/\n/g,' ')+'…');
+    const p=parseGreenLabel(text);
+    editInventoryItem(-1);                                // fresh form, then pre-fill from the label
+    $('invName').value=(p.name||'').slice(0,100);
+    if(p.origin)$('invOrigin').value=p.origin.slice(0,100);
+    const wm=text.match(/(\d+(?:[.,]\d+)?)\s*(kg|kilograms?|g|gr|grams?)\b(?!\s*\/)/i);  // bag weight; (?!/) skips density "g/L"
     if(wm){const n=parseFloat(wm[1].replace(',','.'));
       if(Number.isFinite(n))$('invWeight').value=/^k/i.test(wm[2])?Math.round(n*1000):Math.round(n);}
-    $('invNotes').value=('Label OCR:\n'+text).slice(0,500);
-    $('invOrigin').focus();
+    // tidy Notes block from the parsed fields; fall back to raw text if nothing matched
+    const notes=p.fields.length?p.fields.map(([k,v])=>k+': '+v).join('\n'):text;
+    $('invNotes').value=notes.slice(0,1000);
+    log('📷 Parsed '+p.fields.length+' field(s) from the label'+(p.fields.length?' — review & Save.':' — no known fields recognised; raw text kept in Notes.'));
+    $('invName').focus();
   }catch(err){
     log('❌ OCR error: '+err.message);
     alert('Error processing image: '+err.message);
   }finally{
+    if(worker){try{await worker.terminate();}catch(e){}}
     $('btnPhotoLabel').disabled=false;
     $('btnPhotoLabel').textContent='📷 Photo label (OCR)';
   }
