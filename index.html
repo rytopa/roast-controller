@@ -387,9 +387,8 @@
       <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:8px">
         <span class="small">Origin / farm</span><input type="text" id="invOrigin" placeholder="e.g. Washed, crop 2025">
       </div>
-      <div class="row" style="margin-bottom:8px;gap:10px">
-        <div style="flex:1"><div class="small" style="margin-bottom:3px">Available g</div><input type="number" id="invWeight" min="0" inputmode="decimal" placeholder="0"></div>
-        <div style="flex:1"><div class="small" style="margin-bottom:3px">Roast level</div><select id="invRoastLevel" style="width:100%"><option value="">— choose —</option><option value="light">Light</option><option value="medium">Medium</option><option value="dark">Dark</option><option value="espresso">Espresso</option></select></div>
+      <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:8px">
+        <span class="small">Available g</span><input type="number" id="invWeight" min="0" inputmode="decimal" placeholder="0">
       </div>
       <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:10px">
         <span class="small">Notes</span><textarea id="invNotes" rows="2" placeholder="cupping notes, best brew method, etc."></textarea>
@@ -1829,7 +1828,6 @@ function refreshInventoryList(){
     const html='<div style="display:flex;justify-content:space-between;margin-bottom:6px"><div><b>'+escapeHtml(item.name||'Unknown')+'</b>'+(item.origin?' · <span class="small" style="color:var(--dim)">'+escapeHtml(item.origin)+'</span>':'')+'</div>'
       +'<div style="text-align:right"><button data-inv-edit="'+i+'" style="padding:4px 9px;font-size:12px;margin-right:4px">Edit</button><button data-inv-del="'+i+'" class="danger" style="padding:4px 9px;font-size:12px">Del</button></div></div>'
       +'<div class="kv"><span>Available</span><b'+(totalGrams<=0?' style="color:var(--danger)"':'')+'>'+totalGrams.toFixed(1)+' g'+(totalGrams<=0?' — out of stock':'')+'</b></div>'
-      +(item.roastLevel?'<div class="kv"><span>Roast level</span><b style="text-transform:capitalize">'+escapeHtml(item.roastLevel)+'</b></div>':'')
       +(item.notes?'<div class="small" style="color:var(--dim);margin-top:6px">'+escapeHtml(item.notes).replace(/\n/g,'<br>')+'</div>':'');
     card.innerHTML=html;
     list.appendChild(card);
@@ -1850,11 +1848,10 @@ function refreshInventoryList(){
 function editInventoryItem(idx){
   const inv=loadInventory();
   currentInventoryEdit=(idx>=0&&idx<inv.length)?idx:null;
-  const item=currentInventoryEdit!=null?inv[currentInventoryEdit]:{name:'',origin:'',weight:0,roastLevel:'',notes:'',date:new Date().toISOString()};
+  const item=currentInventoryEdit!=null?inv[currentInventoryEdit]:{name:'',origin:'',weight:0,notes:'',date:new Date().toISOString()};
   $('invName').value=item.name||'';
   $('invOrigin').value=item.origin||'';
   $('invWeight').value=item.weight||'';
-  $('invRoastLevel').value=item.roastLevel||'';
   $('invNotes').value=item.notes||'';
   $('inventoryModal').style.display='block';
 }
@@ -1874,7 +1871,6 @@ $('invSave').addEventListener('click',()=>{
     name,
     origin:$('invOrigin').value.trim(),
     weight:parseFloat($('invWeight').value)||0,
-    roastLevel:$('invRoastLevel').value,
     notes:$('invNotes').value.trim(),
     date:currentInventoryEdit!=null&&inv[currentInventoryEdit]?inv[currentInventoryEdit].date:new Date().toISOString(),
     mtime:Date.now()
