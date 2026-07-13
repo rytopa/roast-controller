@@ -378,6 +378,28 @@
       <button id="btnPhotoLabel" class="blue">📷 Photo label (OCR)</button>
     </div>
     <input type="file" id="inventoryPhotoInput" accept="image/*" style="display:none" capture="environment">
+    <details style="margin-top:2px;margin-bottom:6px">
+      <summary>🤖 AI label reading (optional)</summary>
+      <div style="margin-top:8px">
+        <div class="row" style="align-items:center;gap:6px;margin-bottom:6px">
+          <span class="small">Provider</span>
+          <select id="aiProvider" style="width:auto">
+            <option value="anthropic">Claude (Anthropic)</option>
+            <option value="google">Gemini (Google)</option>
+          </select>
+        </div>
+        <div class="ctl-row" style="grid-template-columns:auto 1fr">
+          <span class="small">API key</span>
+          <input type="password" id="aiKey" placeholder="paste your key (stored in this browser only)" autocomplete="off">
+        </div>
+        <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-top:6px">
+          <span class="small">Proxy Worker URL</span>
+          <input type="text" id="aiProxy" placeholder="optional — https://…workers.dev (keeps the key off this device)">
+        </div>
+        <div class="small" style="margin-top:6px">With a key set, <b>📷 Photo label</b> sends the photo to your chosen AI to read the label — far better on messy, dense, or multi-language labels. It fills the name, origin, bag weight, and a tidy spec summary. The photo is sent to <b>your own account</b> (billed to you). Get a key at <b>console.anthropic.com</b> (Claude) or <b>aistudio.google.com</b> (Gemini — has a free tier). Leave everything blank to use on-device OCR instead.</div>
+        <div class="small" style="margin-top:6px">🔒 <b>Proxy Worker URL</b> (optional): route through your own Cloudflare Worker (deploy <b>ai-proxy-worker.js</b> from the repo) so the key lives on the Worker, not this browser — best for shared/public use. When a proxy is set the API-key field above is ignored. The key is kept only in this browser and never cloud-synced.</div>
+      </div>
+    </details>
     <div class="row" style="align-items:center;gap:6px;margin:2px 0 10px">
       <span class="small"><b>Batch size</b></span>
       <input id="batchMin" type="number" min="1" value="100" style="width:66px"><span class="small">–</span>
@@ -2078,7 +2100,111 @@ function parseGreenLabel(text){
   const origin=[country,region].filter(Boolean).join(' · ')||region||'';   // geographic origin for the Origin/farm field
   return{name,origin,fields};
 }
+// ---------- AI label reading (Claude or Gemini vision, optional, bring-your-own-key) ----------
+function aiProvider(){try{return localStorage.getItem('rc_aiprov')==='google'?'google':'anthropic';}catch(e){return'anthropic';}}
+function aiKeyFor(p){try{return (localStorage.getItem(p==='google'?'rc_gkey':'rc_aikey')||'').trim();}catch(e){return'';}}
+function aiKey(){return aiKeyFor(aiProvider());}          // key for the currently-selected provider
+function aiProxy(){try{return (localStorage.getItem('rc_aiproxy')||'').trim().replace(/\/+$/,'');}catch(e){return'';}}
+function aiEnabled(){return !!(aiProxy()||aiKey());}      // AI available via a proxy Worker or a direct key
+const AI_LABEL_SCHEMA={type:'object',additionalProperties:false,
+  required:['name','origin','weightGrams','notes'],
+  properties:{
+    name:{type:'string',description:'Concise bean name: origin + estate/region + process if present, in the label\'s own language.'},
+    origin:{type:'string',description:'Country and/or region. Empty string if not shown.'},
+    weightGrams:{type:'number',description:'Net weight the buyer receives, in grams, ONLY from an explicit retail/net weight. 0 if none.'},
+    notes:{type:'string',description:'Tidy multi-line summary, one "Field: value" per line.'}
+  }};
+const AI_LABEL_PROMPT=
+'You are reading a photo of a GREEN (unroasted) coffee label or product spec sheet. It may be in English, Chinese, or another language.\n'+
+'Extract the details into the JSON schema:\n'+
+'- name: a concise bean name (origin + estate/region + process if present), in the label\'s own language.\n'+
+'- origin: country and/or region.\n'+
+'- weightGrams: the net weight of the bag the buyer receives, in grams, ONLY if the label states an explicit retail/net weight (e.g. "250g", "1kg net"). Do NOT use a wholesale sack size (e.g. "60kg/袋"), a tiered price row (e.g. "5KG"), or density ("840g/L"). If there is no clear net weight, use 0.\n'+
+'- notes: a tidy multi-line summary — one "Field: value" per line — for whichever of these appear: Variety, Region, Country, Altitude, Density, Moisture, Defect rate, Process, Grade, Suggested roast, Cupping notes. Keep values in their original language. Omit any field not on the label.\n'+
+'Return only the structured JSON.';
+function fileToScaledDataUrl(file,maxDim){                       // downscale before upload: smaller = cheaper tokens, under size limits
+  return new Promise((resolve,reject)=>{
+    const img=new Image(),url=URL.createObjectURL(file);
+    img.onload=()=>{let w=img.naturalWidth,h=img.naturalHeight;
+      const s=Math.min(1,maxDim/Math.max(w,h||1));w=Math.max(1,Math.round(w*s));h=Math.max(1,Math.round(h*s));
+      const c=document.createElement('canvas');c.width=w;c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      URL.revokeObjectURL(url);
+      try{resolve(c.toDataURL('image/jpeg',0.85));}catch(e){reject(e);}};
+    img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('could not read image'));};
+    img.src=url;
+  });
+}
+// Gemini uses an OpenAPI-style schema (uppercase types) and its own response shape.
+const GEMINI_LABEL_SCHEMA={type:'OBJECT',
+  properties:{name:{type:'STRING'},origin:{type:'STRING'},weightGrams:{type:'NUMBER'},notes:{type:'STRING'}},
+  required:['name','origin','weightGrams','notes'],
+  propertyOrdering:['name','origin','weightGrams','notes']};
+async function aiExtractLabel(base64,mediaType){          // dispatch to the selected provider
+  return aiProvider()==='google'?geminiExtractLabel(base64,mediaType):anthropicExtractLabel(base64,mediaType);
+}
+async function anthropicExtractLabel(base64,mediaType){
+  const body={model:'claude-opus-4-8',max_tokens:2048,
+    messages:[{role:'user',content:[
+      {type:'image',source:{type:'base64',media_type:mediaType,data:base64}},
+      {type:'text',text:AI_LABEL_PROMPT}]}],
+    output_config:{format:{type:'json_schema',schema:AI_LABEL_SCHEMA}}};
+  const proxy=aiProxy();                                  // proxy Worker injects the key; direct call sends it from the browser
+  const url=proxy?proxy+'/anthropic':'https://api.anthropic.com/v1/messages';
+  const headers=proxy?{'content-type':'application/json'}
+    :{'content-type':'application/json','x-api-key':aiKeyFor('anthropic'),
+      'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'};
+  const r=await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});
+  if(!r.ok){let msg='HTTP '+r.status;try{const e=await r.json();if(e&&e.error&&e.error.message)msg+=' — '+e.error.message;}catch(_){}throw new Error(msg);}
+  const data=await r.json();
+  if(data.stop_reason==='refusal')throw new Error('request was declined');
+  const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').trim();
+  if(!txt)throw new Error('empty response');
+  return JSON.parse(txt);
+}
+async function geminiExtractLabel(base64,mediaType){
+  const body={contents:[{parts:[
+      {inline_data:{mime_type:mediaType,data:base64}},
+      {text:AI_LABEL_PROMPT}]}],
+    generationConfig:{responseMimeType:'application/json',responseSchema:GEMINI_LABEL_SCHEMA}};
+  const proxy=aiProxy();                                  // proxy Worker injects the key; direct call sends it from the browser
+  const url=proxy?proxy+'/gemini':'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+  const headers=proxy?{'content-type':'application/json'}:{'content-type':'application/json','x-goog-api-key':aiKeyFor('google')};
+  const r=await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});
+  if(!r.ok){let msg='HTTP '+r.status;try{const e=await r.json();if(e&&e.error&&e.error.message)msg+=' — '+e.error.message;}catch(_){}throw new Error(msg);}
+  const data=await r.json();
+  const cand=(data.candidates||[])[0];
+  if(!cand){const pf=data.promptFeedback;throw new Error(pf&&pf.blockReason?('blocked: '+pf.blockReason):'no response');}
+  const txt=((cand.content&&cand.content.parts)||[]).map(p=>p.text||'').join('').trim();
+  if(!txt)throw new Error('empty response'+(cand.finishReason?' ('+cand.finishReason+')':''));
+  return JSON.parse(txt);
+}
+async function aiReadLabel(file){
+  const btn=$('btnPhotoLabel');
+  btn.disabled=true;btn.textContent='🤖 Reading with AI…';
+  try{
+    const durl=await fileToScaledDataUrl(file,2000);
+    const comma=durl.indexOf(','),meta=durl.slice(0,comma),b64=durl.slice(comma+1);
+    const mediaType=(meta.match(/data:(.*?);/)||[])[1]||'image/jpeg';
+    const out=await aiExtractLabel(b64,mediaType);
+    editInventoryItem(-1);                                       // fresh form, then pre-fill from the label
+    $('invName').value=((out.name||'')+'').slice(0,100);
+    if(out.origin)$('invOrigin').value=(out.origin+'').slice(0,100);
+    const w=+out.weightGrams;if(Number.isFinite(w)&&w>0)$('invWeight').value=Math.round(w);
+    $('invNotes').value=((out.notes||'')+'').slice(0,1500);
+    $('invName').focus();
+    log('🤖 '+(aiProvider()==='google'?'Gemini':'Claude')+' read the label — review & Save.');
+  }finally{btn.disabled=false;btn.textContent='📷 Photo label (OCR)';}
+}
+// Dispatcher: use Claude when a key is set (fall back to on-device OCR on error), else Tesseract.
 async function recognizePhotoLabel(file){
+  if(aiEnabled()){
+    try{await aiReadLabel(file);return;}
+    catch(e){log('❌ AI read failed: '+e.message+' — falling back to on-device OCR');alert('AI read failed ('+e.message+'). Falling back to on-device OCR.');}
+  }
+  await tesseractReadLabel(file);
+}
+async function tesseractReadLabel(file){
   let worker=null;
   try{
     $('btnPhotoLabel').disabled=true;
@@ -2114,6 +2240,11 @@ async function recognizePhotoLabel(file){
     $('btnPhotoLabel').textContent='📷 Photo label (OCR)';
   }
 }
+function loadAiKeyField(){$('aiKey').value=aiKeyFor($('aiProvider').value);}                                       // show the selected provider's stored key
+$('aiProvider').addEventListener('change',()=>{try{localStorage.setItem('rc_aiprov',$('aiProvider').value);}catch(e){}loadAiKeyField();});
+$('aiKey').addEventListener('input',()=>{const k=$('aiProvider').value==='google'?'rc_gkey':'rc_aikey';                // local only — never cloud-synced
+  try{localStorage.setItem(k,$('aiKey').value.trim());}catch(e){}});
+$('aiProxy').addEventListener('input',()=>{try{localStorage.setItem('rc_aiproxy',$('aiProxy').value.trim());}catch(e){}});
 $('btnPhotoLabel').addEventListener('click',()=>$('inventoryPhotoInput').click());
 $('inventoryPhotoInput').addEventListener('change',e=>{
   const file=e.target.files[0];
@@ -2146,6 +2277,9 @@ try{const bc=JSON.parse(localStorage.getItem('rc_batch')||'null');         // re
   if(bc){if(bc.min)$('batchMin').value=bc.min;if(bc.max)$('batchMax').value=bc.max;}}catch(e){}
 refreshInventoryList();
 renderBatchResult();
+try{const pv=localStorage.getItem('rc_aiprov');if(pv)$('aiProvider').value=pv;}catch(e){}
+try{const px=localStorage.getItem('rc_aiproxy');if(px)$('aiProxy').value=px;}catch(e){}
+loadAiKeyField();
 try{const iu=localStorage.getItem('rc_invuse')||'';                        // restore the bean picked in the Roast session panel
   if(iu){$('invUseSel').value=iu;if($('invUseSel').value===iu)invUse.itemId=iu;}}catch(e){}
 if(cloudConfigured()){cloudStatus('Connecting…');cloudSyncNow();}
