@@ -374,8 +374,24 @@
       <button id="btnPhotoLabel" class="blue">📷 Photo label (OCR)</button>
     </div>
     <input type="file" id="inventoryPhotoInput" accept="image/*" style="display:none" capture="environment">
+    <div class="row" style="align-items:center;gap:6px;margin:2px 0 10px">
+      <span class="small"><b>Batch size</b></span>
+      <input id="batchMin" type="number" min="1" value="100" style="width:66px"><span class="small">–</span>
+      <input id="batchMax" type="number" min="1" value="200" style="width:66px"><span class="small">g per roast — used to plan splits below.</span>
+    </div>
     <div id="inventoryList" style="margin-top:10px"></div>
     <div id="inventoryEmpty" class="small" style="color:var(--dim);margin-top:10px">No beans in inventory yet.</div>
+    <details style="margin-top:12px">
+      <summary>⚖️ Batch planner</summary>
+      <div style="margin-top:8px">
+        <div class="row" style="align-items:center;gap:6px;margin-bottom:8px">
+          <span class="small">Green to split</span>
+          <select id="batchBean" style="flex:1;min-width:120px"><option value="">— enter weight —</option></select>
+          <input id="batchWeight" type="number" min="0" inputmode="decimal" placeholder="g" style="width:90px">
+        </div>
+        <div id="batchResult" class="small" style="line-height:1.6"></div>
+      </div>
+    </details>
   </div>
 
   <div id="inventoryModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:1000;padding:12px;overflow:auto">
@@ -1813,6 +1829,7 @@ function loadInventory(){try{return JSON.parse(localStorage.getItem(INV_KEY)||'[
 function saveInventory(a){try{localStorage.setItem(INV_KEY,JSON.stringify(a));}catch(e){alert('Storage full.');}cloudSchedulePush();}
 function refreshInventoryList(){
   refreshInvUseSel();                                // keep the Roast session bean picker in step
+  refreshBatchBean();                                // and the batch-planner bean picker
   const inv=loadInventory();
   const list=$('inventoryList');
   const empty=$('inventoryEmpty');
@@ -1828,6 +1845,7 @@ function refreshInventoryList(){
     const html='<div style="display:flex;justify-content:space-between;margin-bottom:6px"><div><b>'+escapeHtml(item.name||'Unknown')+'</b>'+(item.origin?' · <span class="small" style="color:var(--dim)">'+escapeHtml(item.origin)+'</span>':'')+'</div>'
       +'<div style="text-align:right;white-space:nowrap"><button data-inv-edit="'+i+'" style="padding:4px 9px;font-size:12px;margin-right:4px">Edit</button><button data-inv-dup="'+i+'" style="padding:4px 9px;font-size:12px;margin-right:4px">Dup</button><button data-inv-del="'+i+'" class="danger" style="padding:4px 9px;font-size:12px">Del</button></div></div>'
       +'<div class="kv"><span>Available</span><b'+(totalGrams<=0?' style="color:var(--danger)"':'')+'>'+totalGrams.toFixed(1)+' g'+(totalGrams<=0?' — out of stock':'')+'</b></div>'
+      +batchHint(totalGrams)
       +(item.notes?'<div class="small" style="color:var(--dim);margin-top:6px">'+escapeHtml(item.notes).replace(/\n/g,'<br>')+'</div>':'');
     card.innerHTML=html;
     list.appendChild(card);
@@ -1856,6 +1874,58 @@ function duplicateInventoryItem(idx){                 // pre-fill the form from 
   $('invName').focus();$('invName').select();
   log('Bean duplicated into the form — tweak the differing fields and Save.');
 }
+// ---------- Batch planner ----------
+// Split an available green weight into equal batches that each fall within the
+// roaster's min–max range, so there's no awkward leftover. Fewest batches =
+// largest even batch ≤ max.
+const trimN=n=>(Math.round(n*10)/10).toString();
+function batchMin(){return Math.max(1,+$('batchMin').value||100);}
+function batchMax(){return Math.max(batchMin(),+$('batchMax').value||200);}
+function batchPlan(avail,min,max){
+  avail=+avail;
+  if(!(avail>0)||!(min>0)||!(max>=min))return null;
+  const n=Math.max(1,Math.ceil(avail/max));           // fewest batches so each ≤ max
+  const size=avail/n;
+  const full=Math.floor(avail/max),rem=avail-full*max; // max-size alternative + leftover
+  return{avail,min,max,n,size,belowMin:size<min-1e-6,full,rem};
+}
+function batchHint(avail){                             // compact per-card line using the saved range
+  const p=batchPlan(avail,batchMin(),batchMax());
+  if(!p||avail<=0)return'';
+  const txt=p.belowMin?('1 small batch of '+trimN(avail)+' g (below '+p.min+' g min)')
+    :(p.n+' × '+trimN(p.size)+' g');
+  return'<div class="kv"><span>Batches</span><b>'+txt+'</b></div>';
+}
+function refreshBatchBean(){
+  const s=$('batchBean'),cur=s.value;
+  s.innerHTML='<option value="">— enter weight —</option>';
+  loadInventory().forEach(it=>{const o=document.createElement('option');o.value=it.id;
+    o.textContent=it.name+' · '+(it.weight||0).toFixed(0)+' g';s.appendChild(o);});
+  s.value=cur;if(s.value!==cur)s.value='';
+}
+function renderBatchResult(){
+  const min=batchMin(),max=batchMax(),w=+$('batchWeight').value||0,el=$('batchResult');
+  if(!el)return;
+  if(!(w>0)){el.innerHTML='Enter a weight (or pick a bean) to see a suggested split.';return;}
+  const p=batchPlan(w,min,max);
+  if(p.belowMin){el.innerHTML='<b>'+trimN(w)+' g</b> is below your <b>'+min+' g</b> minimum — roast it as one small batch.';return;}
+  const rows=['✅ <b>'+p.n+' × '+trimN(p.size)+' g</b> — even split, nothing left over.'];
+  if(p.full>=1&&p.rem>0.05)                            // show the naive max-size split for comparison
+    rows.push('<span style="color:var(--dim)">vs max-size: '+p.full+' × '+max+' g + <b>'+trimN(p.rem)+' g</b> left over'+(p.rem<min?' (too small to roast)':'')+'.</span>');
+  const opts=[];const nMin=Math.ceil(w/max),nMax=Math.floor(w/min);
+  for(let n=nMin;n<=nMax&&n<=nMin+4;n++){const s=w/n;if(s>=min-1e-6&&s<=max+1e-6)opts.push(n+' × '+trimN(Math.round(s*10)/10)+' g');}
+  if(opts.length>1)rows.push('<span style="color:var(--dim)">Other even splits: '+opts.slice(1).join(' · ')+'</span>');
+  el.innerHTML=rows.join('<br>');
+}
+function saveBatchCfg(){try{localStorage.setItem('rc_batch',JSON.stringify({min:batchMin(),max:batchMax()}));}catch(e){}}
+$('batchMin').addEventListener('input',()=>{saveBatchCfg();renderBatchResult();refreshInventoryList();});
+$('batchMax').addEventListener('input',()=>{saveBatchCfg();renderBatchResult();refreshInventoryList();});
+$('batchWeight').addEventListener('input',renderBatchResult);
+$('batchBean').addEventListener('change',()=>{
+  const it=loadInventory().find(x=>x.id===$('batchBean').value);
+  if(it)$('batchWeight').value=it.weight||0;
+  renderBatchResult();
+});
 function editInventoryItem(idx){
   const inv=loadInventory();
   currentInventoryEdit=(idx>=0&&idx<inv.length)?idx:null;
@@ -2046,7 +2116,10 @@ try{const ep=JSON.parse(localStorage.getItem('rc_etrun')||'null');
     if(ep.endBt)$('etEndBt').value=ep.endBt;
     if(ep.id){$('etSel').value=ep.id;if($('etSel').value===ep.id)applyEtRef();}}}catch(e){}
 drawChart();
+try{const bc=JSON.parse(localStorage.getItem('rc_batch')||'null');         // restore the roaster's batch range
+  if(bc){if(bc.min)$('batchMin').value=bc.min;if(bc.max)$('batchMax').value=bc.max;}}catch(e){}
 refreshInventoryList();
+renderBatchResult();
 try{const iu=localStorage.getItem('rc_invuse')||'';                        // restore the bean picked in the Roast session panel
   if(iu){$('invUseSel').value=iu;if($('invUseSel').value===iu)invUse.itemId=iu;}}catch(e){}
 if(cloudConfigured()){cloudStatus('Connecting…');cloudSyncNow();}
