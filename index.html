@@ -271,6 +271,11 @@
     </div>
     <div class="small" style="margin-top:8px" id="evTimes">Press <b>Charge</b> when beans go in to start the timer. <b>Drop</b> also turns the heater off (the fan keeps its current speed). When a running profile reaches its last point, the heater switches off automatically.</div>
     <hr>
+    <div class="row" style="margin-bottom:4px;align-items:center">
+      <span class="small"><b>Bean from inventory</b></span>
+      <select id="invUseSel" style="flex:1;min-width:160px"><option value="">— not tracked —</option></select>
+    </div>
+    <div class="small" style="margin-bottom:8px">Pick the green you're roasting — at <b>Drop</b> the <b>Green g</b> below is deducted from that bean's stock automatically (editing Green g after the drop adjusts it).</div>
     <div class="row">
       <div style="flex:2.2;min-width:170px"><div class="small" style="margin-bottom:3px">Bean / batch details</div><input id="beanInfo" type="text" placeholder="e.g. Timor Hybrid washed, crop 2025"></div>
       <div style="flex:1;min-width:86px"><div class="small" style="margin-bottom:3px">Green g</div><input id="wIn" type="number" min="0" inputmode="decimal"></div>
@@ -1342,6 +1347,7 @@ $('heaterW').addEventListener('change',()=>{
 
 // ---------- Roast timer + events ----------
 $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;events.dry=events.fc=events.drop=null;
+  invUse.dropped=false;invUse.deducted=0;         // new batch: fresh inventory-deduction session
   liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.armed=false;alarms.temp=alarms.crash=alarms.flick=false;alarms.minRor=null;bgIdx=0;
   if(connectMs){                                   // drop pre-charge telemetry and make Charge the chart's zero point
     const base=(chargeMs-connectMs)/1000;
@@ -1359,6 +1365,7 @@ $('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-c
     setTimeout(()=>send('OT1,0'),250);
     log('DROP — heater off (fan unchanged)');}
   autoSaveRoast();
+  invUse.dropped=true;applyInvDeduction();        // take the batch's green weight out of the selected bean's stock
   renderStatsCard(roastStats(),+$('wIn').value,+$('wOut').value);
   resetRoastView();}});
 function resetRoastView(){                         // fresh chart for the next batch (the roast was just auto-saved)
@@ -1378,7 +1385,8 @@ function updateLoss(){
   syncAutoSaved();
   if(chargeMs&&events.drop!=null)renderStatsCard(roastStats(),a,b);
 }
-$('wIn').addEventListener('input',updateLoss);$('wOut').addEventListener('input',updateLoss);
+$('wIn').addEventListener('input',()=>{updateLoss();if(invUse.dropped)applyInvDeduction();});  // weight typed after Drop still hits the inventory
+$('wOut').addEventListener('input',updateLoss);
 function renderEvents(){
   const parts=[];for(const kl of [['dry','Dry End'],['fc','First Crack'],['drop','Drop']])if(events[kl[0]]!=null)parts.push(kl[1]+' '+fmt(events[kl[0]]));
   $('evTimes').innerHTML=parts.length?parts.join(' · '):'Timer running…';
@@ -1655,7 +1663,7 @@ function refreshRoastSelect(){const a=loadLogs();
 function buildRoastRec(name){
   return{id:'r'+Date.now(),name,date:new Date().toISOString(),mtime:Date.now(),
     chargeT:(chargeMs&&connectMs)?+(((chargeMs-connectMs)/1000).toFixed(1)):null,stats:roastStats(),
-    bean:$('beanInfo').value.trim(),weightIn:+$('wIn').value||null,weightOut:+$('wOut').value||null,
+    bean:$('beanInfo').value.trim(),invId:invUse.itemId||null,weightIn:+$('wIn').value||null,weightOut:+$('wOut').value||null,
     samples:samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv})),
     events:Object.assign({},events)};
 }
@@ -1749,16 +1757,18 @@ function applyRemote(blob){                                                     
   const profSel=$('profSelect').value,roastSel=$('roastSelect').value,etSel=$('etSel').value;
   const mp=mergeStores(loadProfilesStore(),blob.profiles,tombs);
   const ml=mergeStores(loadLogs(),blob.logs,tombs);
-  try{localStorage.setItem(PROF_KEY,JSON.stringify(mp));localStorage.setItem(LOG_KEY,JSON.stringify(ml));}catch(e){}
+  const mi=mergeStores(loadInventory(),blob.inventory,tombs);
+  try{localStorage.setItem(PROF_KEY,JSON.stringify(mp));localStorage.setItem(LOG_KEY,JSON.stringify(ml));localStorage.setItem(INV_KEY,JSON.stringify(mi));}catch(e){}
   saveTombs(tombs);
   refreshProfileSelect(mp.some(p=>p.id===profSel)?profSel:'');
   $('roastSelect').value=roastSel;$('etSel').value=etSel;refreshRoastSelect();
+  refreshInventoryList();
   drawChart();
 }
 async function cloudPush(retry){
   if(!cloudConfigured()||cloud.pushing)return;cloud.pushing=true;
   try{
-    const body={base:cloud.rev,profiles:loadProfilesStore(),logs:loadLogs(),tombs:loadTombs()};
+    const body={base:cloud.rev,profiles:loadProfilesStore(),logs:loadLogs(),inventory:loadInventory(),tombs:loadTombs()};
     const r=await fetch(cloudUrl(),{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
     if(r.status===409){const cur=await r.json();cloud.rev=cur.rev||0;applyRemote(cur);
       if(!retry){cloud.pushing=false;return cloudPush(true);}throw new Error('conflict');}
@@ -1803,6 +1813,7 @@ let currentInventoryEdit=null;
 function loadInventory(){try{return JSON.parse(localStorage.getItem(INV_KEY)||'[]');}catch(e){return[];}}
 function saveInventory(a){try{localStorage.setItem(INV_KEY,JSON.stringify(a));}catch(e){alert('Storage full.');}cloudSchedulePush();}
 function refreshInventoryList(){
+  refreshInvUseSel();                                // keep the Roast session bean picker in step
   const inv=loadInventory();
   const list=$('inventoryList');
   const empty=$('inventoryEmpty');
@@ -1817,7 +1828,7 @@ function refreshInventoryList(){
     const totalGrams=item.weight||0;
     const html='<div style="display:flex;justify-content:space-between;margin-bottom:6px"><div><b>'+escapeHtml(item.name||'Unknown')+'</b>'+(item.origin?' · <span class="small" style="color:var(--dim)">'+escapeHtml(item.origin)+'</span>':'')+'</div>'
       +'<div style="text-align:right"><button data-inv-edit="'+i+'" style="padding:4px 9px;font-size:12px;margin-right:4px">Edit</button><button data-inv-del="'+i+'" class="danger" style="padding:4px 9px;font-size:12px">Del</button></div></div>'
-      +'<div class="kv"><span>Available</span><b>'+totalGrams.toFixed(1)+' g</b></div>'
+      +'<div class="kv"><span>Available</span><b'+(totalGrams<=0?' style="color:var(--danger)"':'')+'>'+totalGrams.toFixed(1)+' g'+(totalGrams<=0?' — out of stock':'')+'</b></div>'
       +(item.roastLevel?'<div class="kv"><span>Roast level</span><b style="text-transform:capitalize">'+escapeHtml(item.roastLevel)+'</b></div>':'')
       +(item.notes?'<div class="small" style="color:var(--dim);margin-top:6px">'+escapeHtml(item.notes).replace(/\n/g,'<br>')+'</div>':'');
     card.innerHTML=html;
@@ -1828,6 +1839,7 @@ function refreshInventoryList(){
     const idx=+e.target.dataset.invDel;
     if(confirm('Delete this bean from inventory?')){
       const a=loadInventory();
+      if(a[idx]&&a[idx].id)cloudTomb(a[idx].id);     // propagate the deletion to synced devices
       a.splice(idx,1);
       saveInventory(a);
       refreshInventoryList();
@@ -1837,7 +1849,7 @@ function refreshInventoryList(){
 }
 function editInventoryItem(idx){
   const inv=loadInventory();
-  currentInventoryEdit=idx<inv.length?idx:null;
+  currentInventoryEdit=(idx>=0&&idx<inv.length)?idx:null;
   const item=currentInventoryEdit!=null?inv[currentInventoryEdit]:{name:'',origin:'',weight:0,roastLevel:'',notes:'',date:new Date().toISOString()};
   $('invName').value=item.name||'';
   $('invOrigin').value=item.origin||'';
@@ -1855,6 +1867,7 @@ $('invCancel').addEventListener('click',closeInventoryModal);
 $('invSave').addEventListener('click',()=>{
   const name=$('invName').value.trim();
   if(!name){alert('Enter a bean name.');return;}
+  const isEdit=currentInventoryEdit!=null;
   const inv=loadInventory();
   const item={
     id:'i'+(currentInventoryEdit!=null?inv[currentInventoryEdit].id?.slice(1):Date.now()),
@@ -1863,7 +1876,8 @@ $('invSave').addEventListener('click',()=>{
     weight:parseFloat($('invWeight').value)||0,
     roastLevel:$('invRoastLevel').value,
     notes:$('invNotes').value.trim(),
-    date:currentInventoryEdit!=null&&inv[currentInventoryEdit]?inv[currentInventoryEdit].date:new Date().toISOString()
+    date:currentInventoryEdit!=null&&inv[currentInventoryEdit]?inv[currentInventoryEdit].date:new Date().toISOString(),
+    mtime:Date.now()
   };
   if(currentInventoryEdit!=null){
     inv[currentInventoryEdit]=item;
@@ -1873,7 +1887,48 @@ $('invSave').addEventListener('click',()=>{
   saveInventory(inv);
   refreshInventoryList();
   closeInventoryModal();
-  log(currentInventoryEdit!=null?'Inventory item updated':'Inventory item added: '+name);
+  log(isEdit?'Inventory item updated: '+name:'Inventory item added: '+name);
+});
+
+// ---------- Roast session ↔ inventory link ----------
+// Pick a bean in the Roast session panel; at Drop the batch's Green g is
+// deducted from that bean's stock. Typing/correcting Green g after the drop
+// re-adjusts the same deduction (never double-counts), and switching the
+// selected bean after the drop moves the grams to the right bean.
+let invUse={itemId:'',dropped:false,deducted:0};
+function refreshInvUseSel(){
+  const s=$('invUseSel'),cur=s.value;
+  s.innerHTML='<option value="">— not tracked —</option>';
+  loadInventory().forEach(it=>{const o=document.createElement('option');o.value=it.id;
+    o.textContent=it.name+' · '+(it.weight||0).toFixed(0)+' g left';s.appendChild(o);});
+  s.value=cur;if(s.value!==cur)s.value='';
+}
+function adjustInvWeight(id,delta){                 // delta>0 returns grams to stock, delta<0 takes them out
+  if(!id||!delta)return null;
+  const inv=loadInventory(),item=inv.find(x=>x.id===id);
+  if(!item)return null;
+  item.weight=Math.max(0,+(((item.weight||0)+delta).toFixed(1)));
+  item.mtime=Date.now();
+  saveInventory(inv);refreshInventoryList();
+  return item;
+}
+function applyInvDeduction(){
+  if(!invUse.itemId)return;
+  const g=Math.max(0,+$('wIn').value||0);
+  const delta=g-invUse.deducted;                    // only the change since the last deduction
+  if(!delta)return;
+  const item=adjustInvWeight(invUse.itemId,-delta);
+  if(!item)return;
+  invUse.deducted=g;
+  log('📦 Inventory — '+item.name+': −'+g+' g green, '+item.weight.toFixed(0)+' g left'+(item.weight<=0?' ⚠️ OUT OF STOCK':''));
+}
+$('invUseSel').addEventListener('change',()=>{
+  if(invUse.deducted>0){adjustInvWeight(invUse.itemId,invUse.deducted);invUse.deducted=0;}   // switching bean after Drop: put the grams back first
+  invUse.itemId=$('invUseSel').value;
+  try{localStorage.setItem('rc_invuse',invUse.itemId);}catch(e){}
+  const item=loadInventory().find(x=>x.id===invUse.itemId);
+  if(item){$('beanInfo').value=item.name+(item.origin?' — '+item.origin:'');syncAutoSaved();}
+  if(invUse.dropped)applyInvDeduction();
 });
 async function recognizePhotoLabel(file){
   try{
@@ -1886,9 +1941,14 @@ async function recognizePhotoLabel(file){
     await worker.terminate();
     if(!text){alert('No text found in the image.');return;}
     log('OCR extracted: '+text.slice(0,100)+(text.length>100?'…':''));
-    $('invName').value=text.split('\n')[0].trim().slice(0,100);
-    $('inventoryModal').style.display='block';
-    currentInventoryEdit=null;
+    const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);
+    editInventoryItem(-1);                             // fresh form, then pre-fill from the label
+    $('invName').value=(lines[0]||'').slice(0,100);
+    if(lines[1])$('invOrigin').value=lines[1].slice(0,100);
+    const wm=text.match(/(\d+(?:[.,]\d+)?)\s*(kg|kilo|g|gr|grams?)\b/i);   // bag weight, e.g. "1 kg" / "500g"
+    if(wm){const n=parseFloat(wm[1].replace(',','.'));
+      if(Number.isFinite(n))$('invWeight').value=/^k/i.test(wm[2])?Math.round(n*1000):Math.round(n);}
+    $('invNotes').value=('Label OCR:\n'+text).slice(0,500);
     $('invOrigin').focus();
   }catch(err){
     log('❌ OCR error: '+err.message);
@@ -1927,6 +1987,8 @@ try{const ep=JSON.parse(localStorage.getItem('rc_etrun')||'null');
     if(ep.id){$('etSel').value=ep.id;if($('etSel').value===ep.id)applyEtRef();}}}catch(e){}
 drawChart();
 refreshInventoryList();
+try{const iu=localStorage.getItem('rc_invuse')||'';                        // restore the bean picked in the Roast session panel
+  if(iu){$('invUseSel').value=iu;if($('invUseSel').value===iu)invUse.itemId=iu;}}catch(e){}
 if(cloudConfigured()){cloudStatus('Connecting…');cloudSyncNow();}
 </script>
 </body>

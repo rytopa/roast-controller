@@ -6,7 +6,7 @@
 // URL into the app's Cloud sync panel.
 //
 // One KV value per sync code holds the whole dataset:
-//   { v:1, rev:<int>, profiles:[...], logs:[...], tombs:{id:mtime} }
+//   { v:1, rev:<int>, profiles:[...], logs:[...], inventory:[...], tombs:{id:mtime} }
 // The code is a bearer secret: whoever has it can read and write that dataset.
 
 const MAX_BYTES = 2_000_000;                 // ~2 MB body cap
@@ -17,7 +17,7 @@ const CORS = {
   'Access-Control-Allow-Headers': 'content-type',
   'Access-Control-Max-Age': '86400',
 };
-const EMPTY = { v: 1, rev: 0, profiles: [], logs: [], tombs: {} };
+const EMPTY = { v: 1, rev: 0, profiles: [], logs: [], inventory: [], tombs: {} };
 
 function json(obj, status) {
   return new Response(JSON.stringify(obj), {
@@ -63,6 +63,7 @@ export default {
           rev: cur.rev + 1,
           profiles: Array.isArray(body.profiles) ? body.profiles : [],
           logs: Array.isArray(body.logs) ? body.logs : [],
+          inventory: Array.isArray(body.inventory) ? body.inventory : [],
           tombs: (body.tombs && typeof body.tombs === 'object') ? body.tombs : {},
         };
         await env.SYNC.put(key, JSON.stringify(next));
