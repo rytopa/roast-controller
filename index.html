@@ -276,6 +276,10 @@
       <select id="invUseSel" style="flex:1;min-width:160px"><option value="">— not tracked —</option></select>
     </div>
     <div class="small" style="margin-bottom:8px">Pick the green you're roasting — at <b>Drop</b> the <b>Green g</b> below is deducted from that bean's stock automatically (editing Green g after the drop adjusts it).</div>
+    <div id="invBatchRow" class="row" style="display:none;align-items:center;gap:6px;margin-bottom:8px">
+      <button id="invUseBatch" class="blue" style="padding:6px 11px;font-size:12.5px">Use 200 g</button>
+      <span class="small" id="invBatchNote"></span>
+    </div>
     <div class="row">
       <div style="flex:2.2;min-width:170px"><div class="small" style="margin-bottom:3px">Bean / batch details</div><input id="beanInfo" type="text" placeholder="e.g. Timor Hybrid washed, crop 2025"></div>
       <div style="flex:1;min-width:86px"><div class="small" style="margin-bottom:3px">Green g</div><input id="wIn" type="number" min="0" inputmode="decimal"></div>
@@ -1830,6 +1834,7 @@ function saveInventory(a){try{localStorage.setItem(INV_KEY,JSON.stringify(a));}c
 function refreshInventoryList(){
   refreshInvUseSel();                                // keep the Roast session bean picker in step
   refreshBatchBean();                                // and the batch-planner bean picker
+  updateInvBatchSuggestion();                        // and the suggested-batch button
   const inv=loadInventory();
   const list=$('inventoryList');
   const empty=$('inventoryEmpty');
@@ -2006,6 +2011,27 @@ $('invUseSel').addEventListener('change',()=>{
   const item=loadInventory().find(x=>x.id===invUse.itemId);
   if(item){$('beanInfo').value=item.name+(item.origin?' — '+item.origin:'');syncAutoSaved();}
   if(invUse.dropped)applyInvDeduction();
+  updateInvBatchSuggestion();
+});
+// Suggest one balanced batch for the selected bean, and let one tap load it into Green g.
+function updateInvBatchSuggestion(){
+  const row=$('invBatchRow');if(!row)return;
+  const it=loadInventory().find(x=>x.id===$('invUseSel').value);
+  const p=it&&it.weight>0?batchPlan(it.weight,batchMin(),batchMax()):null;
+  if(!p){row.style.display='none';return;}
+  const size=p.belowMin?it.weight:Math.round(p.size*10)/10;
+  row.style.display='flex';
+  $('invUseBatch').textContent='Use '+trimN(size)+' g';
+  $('invUseBatch').dataset.size=size;
+  $('invBatchNote').innerHTML=p.belowMin
+    ?'('+trimN(it.weight)+' g left — below your '+p.min+' g min)'
+    :'(1 of '+p.n+' × '+trimN(p.size)+' g · '+trimN(it.weight)+' g left)';
+}
+$('invUseBatch').addEventListener('click',()=>{
+  const size=+$('invUseBatch').dataset.size;if(!(size>0))return;
+  $('wIn').value=trimN(size);
+  $('wIn').dispatchEvent(new Event('input'));         // runs updateLoss (+ deduction if already dropped)
+  log('Green g set to one batch: '+trimN(size)+' g');
 });
 // Pull the common green-coffee spec fields out of OCR text. Each field is
 // anchored to BOTH its Chinese and English labels: on these sheets the value
