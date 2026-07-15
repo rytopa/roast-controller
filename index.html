@@ -1171,6 +1171,8 @@ function beepReady(){
     o.frequency.value=880;g.gain.value=.15;o.start();o.stop(ac.currentTime+1.2);o.onended=()=>ac.close();}catch(e){}
   if(navigator.vibrate)navigator.vibrate([200,100,200,100,500]);
 }
+function saveBbpCfg(){try{localStorage.setItem('rc_bbp',JSON.stringify({cool:$('bbpCool').value,charge:$('bbpCharge').value,fan:$('bbpFan').value}));}catch(e){}}
+['bbpCool','bbpCharge','bbpFan'].forEach(id=>$(id).addEventListener('change',saveBbpCfg));
 $('bbpStart').addEventListener('click',()=>{bbp?stopBBP('cancelled'):startBBP();});
 async function startBBP(){
   if(!writeChar){alert('Connect the roaster first.');return;}
@@ -1194,8 +1196,19 @@ async function startBBP(){
       airLine=fans.length?'Table fan '+Math.round(fans[0])+'% → '+Math.round(fans[fans.length-1])+'%':'per-point table fan';}
     else airLine='—';
   }
+  let dropTemp=null,totalTime=null;
+  if(etArmed){
+    dropTemp='BT '+Math.max(120,Math.min(250,+$('etEndBt').value||(etRef&&etRef.endBt)||210))+' °C';
+    if(etRef)totalTime='~'+fmt(etRef.endE)+' (reference length)';
+  }else if(haveProfile){
+    const lp=pts[pts.length-1];
+    dropTemp=Math.round(lp.sv)+' °C (last-point target)';
+    totalTime=fmt(lp.t);
+  }
   const summary=['Start the between-batch cycle?','',
     (etArmed?'Run:  ':'Profile:  ')+runLine,
+    'Drop temp:  '+(dropTemp||'—'),
+    'Total roast time:  '+(totalTime||'—'),
     'Roast air flow:  '+airLine,
     'Charge-ramp fan:  '+fanLow+'%',
     'Cool to '+coolTo+'° → charge '+chargeT+'°','',
@@ -2275,6 +2288,8 @@ try{const ep=JSON.parse(localStorage.getItem('rc_etrun')||'null');
 drawChart();
 try{const bc=JSON.parse(localStorage.getItem('rc_batch')||'null');         // restore the roaster's batch range
   if(bc){if(bc.min)$('batchMin').value=bc.min;if(bc.max)$('batchMax').value=bc.max;}}catch(e){}
+try{const bb=JSON.parse(localStorage.getItem('rc_bbp')||'null');           // restore between-batch cool/charge/fan settings
+  if(bb){if(bb.cool)$('bbpCool').value=bb.cool;if(bb.charge)$('bbpCharge').value=bb.charge;if(bb.fan)$('bbpFan').value=bb.fan;}}catch(e){}
 refreshInventoryList();
 renderBatchResult();
 try{const pv=localStorage.getItem('rc_aiprov');if(pv)$('aiProvider').value=pv;}catch(e){}
