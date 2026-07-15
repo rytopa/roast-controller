@@ -252,7 +252,7 @@
         <div style="flex:1;min-width:70px"><div class="small" style="margin-bottom:3px">Slew %/4 s</div><input id="etSlew" type="number" min="2" max="50" value="4"></div>
         <div style="flex:1;min-width:70px"><div class="small" style="margin-bottom:3px">ET max °C</div><input id="etMax" type="number" min="150" max="260" value="240"></div>
       </div>
-      <div class="small" style="margin-top:6px">Heater = reference heater % + Kp·error + Ki·∫error − Kd·(dET/dt), clamped 0–100 and slew-limited. Within ±2° of target the integrator pauses (P still acts); when the error changes sign the integrator halves. Moves under 2% are never sent — the reference feedforward does the work and the heater stays quiet. Telemetry stale &gt;8 s or ET ≥ max ⇒ heater cut.</div>
+      <div class="small" style="margin-top:6px">Heater = reference heater % + Kp·error + Ki·∫error − Kd·(dET/dt), clamped 0–100 and slew-limited. Within ±2° of target the integrator pauses (P still acts); when the error changes sign the integrator halves. Adjustments are many-but-small: down-moves use the slew, but the heater rises <b>above the reference plan</b> only 1% at a time — mid-roast, power should mostly fall. Telemetry stale &gt;8 s or ET ≥ max ⇒ heater cut.</div>
     </details>
   </div>
 
@@ -1029,7 +1029,6 @@ function finishProfile(){                          // natural end of the curve: 
 // ---------- ET-track run: software PID following a captured exhaust-temp curve ----------
 let etRun=null,etRef=null;
 const ET_DEADBAND=2;                                   // °C around target where the integrator pauses (P still acts)
-const ET_MIN_STEP=2;                                   // % — smaller heater moves aren't sent: as few power adjustments as possible
 function smoothSeries(samps,keys,winS){                // centred moving average over winS seconds
   const out=samps.map(s=>Object.assign({},s));
   if(!winS)return out;
@@ -1185,8 +1184,9 @@ function etTick(){
     etRun.integ=Math.max(-iCap,Math.min(iCap,etRun.integ));
     etRun.trim=Math.max(-20,Math.min(20,kp*err+ki*etRun.integ+dTerm));  // P always acts (≤1% inside the deadband) — a stale trim never freezes in
     let want=Math.max(0,Math.min(100,base+(etRun.trim||0)));
-    want=Math.round(Math.max(etRun.lastOut-slew,Math.min(etRun.lastOut+slew,want)));
-    if(Math.abs(want-etRun.lastOut)>=ET_MIN_STEP){send('OT1,'+want);etRun.lastOut=want;}   // sub-step dithers are never sent — the heater stays quiet
+    const up=etRun.lastOut<base?slew:1;                             // catch up to the reference plan at full rate; rise above it only in 1% creeps —
+    want=Math.round(Math.max(etRun.lastOut-slew,Math.min(etRun.lastOut+up,want)));   // mid-roast, power should fall: many small moves, no big jumps up
+    if(want!==etRun.lastOut){send('OT1,'+want);etRun.lastOut=want;}
     out=etRun.lastOut;
   }
   if(!fanOverride){let fv=Math.round(refAt(etRef,e,'fan')??NaN);    // replay the reference fan
