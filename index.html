@@ -252,7 +252,7 @@
         <div style="flex:1;min-width:70px"><div class="small" style="margin-bottom:3px">Slew %/4 s</div><input id="etSlew" type="number" min="2" max="50" value="4"></div>
         <div style="flex:1;min-width:70px"><div class="small" style="margin-bottom:3px">ET max °C</div><input id="etMax" type="number" min="150" max="260" value="240"></div>
       </div>
-      <div class="small" style="margin-top:6px">Heater = reference heater % + Kp·error + Ki·∫error − Kd·(dET/dt), clamped 0–100 and slew-limited. Within ±2° of target the trim holds (deadband — no hunting). Telemetry stale &gt;8 s or ET ≥ max ⇒ heater cut.</div>
+      <div class="small" style="margin-top:6px">Heater = reference heater % + Kp·error + Ki·∫error − Kd·(dET/dt), clamped 0–100 and slew-limited. Within ±2° of target the integrator pauses (P still acts); when the error changes sign the integrator halves. Telemetry stale &gt;8 s or ET ≥ max ⇒ heater cut.</div>
     </details>
   </div>
 
@@ -1028,7 +1028,7 @@ function finishProfile(){                          // natural end of the curve: 
 
 // ---------- ET-track run: software PID following a captured exhaust-temp curve ----------
 let etRun=null,etRef=null;
-const ET_DEADBAND=2;                                   // °C around target where the trim holds instead of chasing
+const ET_DEADBAND=2;                                   // °C around target where the integrator pauses (P still acts)
 function smoothSeries(samps,keys,winS){                // centred moving average over winS seconds
   const out=samps.map(s=>Object.assign({},s));
   if(!winS)return out;
@@ -1171,16 +1171,18 @@ function etTick(){
   // exhaust's response); safety checks above stay at 2 s. Derivative defaults OFF: with the
   // measurement-filter lag it acted a quarter-cycle late and fed the oscillation.
   if(etRun.soakPct==null&&etRun.tickN%2===0){
-    if(Math.abs(err)>ET_DEADBAND){                                  // near target the trim holds — no hunting around zero error
-      const etPrev=etMean(s.t-12,s.t-6);
-      const dTerm=(kd>0&&etPrev!=null)?-kd*(etNow-etPrev)/6:0;
+    if(etRun.lastErr!=null&&err*etRun.lastErr<0)etRun.integ*=0.5;   // error flipped sign (e.g. the FC heat draw): dump stale wind-up fast
+    etRun.lastErr=err;
+    const etPrev=etMean(s.t-12,s.t-6);
+    const dTerm=(kd>0&&etPrev!=null)?-kd*(etNow-etPrev)/6:0;
+    if(Math.abs(err)>ET_DEADBAND){                                  // deadband gates the integrator only: noise near target doesn't wind it up
       const unsat=(etRun.lastOut>0&&etRun.lastOut<100)||(etRun.lastOut<=0&&err>0)||(etRun.lastOut>=100&&err<0);
       if(unsat)etRun.integ+=err*4;                                  // anti-windup: only integrate when it can act
       if(err<-15)etRun.integ*=0.7;                                  // bleed on big overshoot
-      const iCap=15/Math.max(ki,1e-6);
-      etRun.integ=Math.max(-iCap,Math.min(iCap,etRun.integ));
-      etRun.trim=Math.max(-20,Math.min(20,kp*err+ki*etRun.integ+dTerm));  // the reference heater is roughly right — the PID only trims around it
     }
+    const iCap=15/Math.max(ki,1e-6);
+    etRun.integ=Math.max(-iCap,Math.min(iCap,etRun.integ));
+    etRun.trim=Math.max(-20,Math.min(20,kp*err+ki*etRun.integ+dTerm));  // P always acts (≤1% inside the deadband) — a stale trim never freezes in
     out=Math.max(0,Math.min(100,base+(etRun.trim||0)));
     out=Math.round(Math.max(etRun.lastOut-slew,Math.min(etRun.lastOut+slew,out)));
     if(out!==etRun.lastOut){send('OT1,'+out);etRun.lastOut=out;}
