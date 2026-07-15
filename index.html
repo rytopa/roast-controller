@@ -265,6 +265,7 @@
       <button id="ppGen" class="blue">⚙ Generate</button>
     </div>
     <textarea id="ppText" rows="9" spellcheck="false" style="width:100%;font-family:ui-monospace,monospace" placeholder="one step per line:  time  heater%  [fan%]&#10;0:00 30 60&#10;0:45 78&#10;3:10 74&#10;…&#10;9:40 0   ← last line: heater off (end of schedule)"></textarea>
+    <canvas id="ppCv" style="width:100%;height:170px;display:block;margin:6px 0 2px"></canvas>
     <div class="small" id="ppSummary" style="margin:4px 0 8px"></div>
     <div class="row" style="margin-bottom:8px;align-items:center">
       <span class="small"><b>Drop at BT</b></span><input id="ppEndBt" type="number" min="150" max="250" style="width:80px"><span class="small">°C — safety net: the run ends (heater off) when the bean temp reaches this, even mid-schedule.</span>
@@ -1063,25 +1064,27 @@ function smoothSeries(samps,keys,winS){                // centred moving average
   }
   return out;
 }
-function buildEtRef(){
-  const id=$('etSel').value;if(!id)return null;
-  const rec=loadLogs().find(r=>r.id===id);
-  if(!rec||!rec.samples||rec.samples.length<10)return null;
-  const base=bgBaseOf(rec);
-  const ev=rec.events||{};
-  // The target curve ends at the reference's drop — the marked event, else the max-BT moment (recordings
-  // often run on through the cool-down, which must not be smoothed into the target's final rise).
+function roastDropInfo(rec){                           // where a recorded roast ends: the marked Drop event, else the max-BT
+  const base=bgBaseOf(rec),ev=rec.events||{};          // moment (recordings often run on through the cool-down)
   let dropT=null,endBt=null;
   if(ev.drop!=null){dropT=base+ev.drop;
     let bd=1e9;for(const q of rec.samples){if(q.bt==null||Number.isNaN(q.bt))continue;const d=Math.abs(q.t-dropT);if(d<bd){bd=d;endBt=q.bt;}}if(bd>10)endBt=null;}
   if(endBt==null)for(const q of rec.samples){const b=q.bt;if(b!=null&&!Number.isNaN(b)&&(endBt==null||b>=endBt)){endBt=b;if(ev.drop==null)dropT=q.t;}}
+  return{base,dropT,endBt};
+}
+function buildEtRef(){
+  const id=$('etSel').value;if(!id)return null;
+  const rec=loadLogs().find(r=>r.id===id);
+  if(!rec||!rec.samples||rec.samples.length<10)return null;
+  // The target curve ends at the reference's drop point — the cool-down must not be smoothed into its final rise.
+  const{base,dropT,endBt}=roastDropInfo(rec);
   const win=+$('etSmooth').value||0;
   const roast=dropT!=null?rec.samples.filter(s=>s.t<=dropT):rec.samples;
   const sm=smoothSeries(roast.length>=10?roast:rec.samples,['et','heat'],win);   // smoothed AFTER the cut: the end temp is reached, not averaged away
   let endT=null;for(let i=sm.length-1;i>=0;i--){if(sm[i].et!=null&&!Number.isNaN(sm[i].et)){endT=sm[i].t;break;}}
   if(endT==null||endT-base<30)return null;
   const display=smoothSeries(rec.samples,['et','heat'],win);                     // full recording (incl. cool-down) for the chart background
-  return{name:rec.name,samples:sm,display,events:ev,base,endE:endT-base,endBt:endBt!=null?Math.round(endBt):null,_i:0};
+  return{name:rec.name,samples:sm,display,events:rec.events||{},base,endE:endT-base,endBt:endBt!=null?Math.round(endBt):null,_i:0};
 }
 function refAt(ref,e,key){                             // interpolate the reference at e seconds after its charge
   const t=ref.base+e,ss=ref.samples;
@@ -1247,18 +1250,64 @@ function ppSummaryDraw(){
     ($('ppText').value.trim()?'⚠ schedule not valid — one "time heater% [fan%]" per line':'');
 }
 function savePProfCfg(){try{localStorage.setItem('rc_pprof',JSON.stringify({text:$('ppText').value,endBt:$('ppEndBt').value,arm:$('ppArm').checked,step:$('ppStep').value,src:$('ppSrc').value}));}catch(e){}}
-$('ppText').addEventListener('change',()=>{ppSummaryDraw();savePProfCfg();});
+$('ppText').addEventListener('change',()=>{ppSummaryDraw();savePProfCfg();drawPProf();});
 ['ppEndBt','ppStep','ppSrc'].forEach(id=>$(id).addEventListener('change',savePProfCfg));
+$('ppSrc').addEventListener('change',drawPProf);
 $('ppArm').addEventListener('change',savePProfCfg);
+function drawPProf(){                                  // schedule (step lines) plotted over the source roast's real heater/fan
+  const cv=$('ppCv');if(!cv)return;
+  const ctx=cv.getContext('2d'),dpr=window.devicePixelRatio||1;
+  const W=cv.clientWidth,H=cv.clientHeight;if(!W)return;
+  if(cv.width!==Math.round(W*dpr)){cv.width=W*dpr;cv.height=H*dpr;}
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
+  const P=pal(),steps=ppSteps();
+  const rec=loadLogs().find(r=>r.id===$('ppSrc').value);
+  let src=null,srcEnd=0;
+  if(rec&&rec.samples&&rec.samples.length>=10){
+    const{base,dropT}=roastDropInfo(rec);
+    src=rec.samples.filter(s=>s.t>=base&&(dropT==null||s.t<=dropT)&&s.heat!=null&&!Number.isNaN(s.heat)).map(s=>({e:s.t-base,heat:s.heat,fan:s.fan}));
+    if(src.length)srcEnd=src[src.length-1].e;else src=null;
+  }
+  if(!steps&&!src)return;
+  const tMax=Math.max(steps?steps[steps.length-1].t:0,srcEnd,60);
+  const pL=30,pR=6,pT=8,pB=16,pw=W-pL-pR,ph=H-pT-pB;
+  const X=e=>pL+e/tMax*pw,Y=v=>pT+(1-v/100)*ph;
+  ctx.strokeStyle=P.grid;ctx.fillStyle=P.label;ctx.lineWidth=1;ctx.font='10px system-ui';
+  for(let v=0;v<=100;v+=25){const y=Y(v);ctx.beginPath();ctx.moveTo(pL,y);ctx.lineTo(W-pR,y);ctx.stroke();ctx.fillText(v+'%',2,y+3);}
+  const xStep=tMax>900?120:60;
+  for(let s=0;s<=tMax;s+=xStep){const x=X(s);ctx.beginPath();ctx.moveTo(x,pT);ctx.lineTo(x,H-pB);ctx.stroke();ctx.fillText((s/60)+'m',x-4,H-4);}
+  if(src){                                             // the original roast, faded
+    ctx.globalAlpha=.45;let st=false;
+    ctx.strokeStyle=P.fan;ctx.lineWidth=1.2;ctx.beginPath();
+    for(const q of src){if(q.fan==null||Number.isNaN(q.fan))continue;const x=X(q.e),y=Y(q.fan);st?ctx.lineTo(x,y):(ctx.moveTo(x,y),st=true);}
+    if(st)ctx.stroke();
+    ctx.strokeStyle=P.heat;ctx.lineWidth=1.4;ctx.beginPath();st=false;
+    for(const q of src){const x=X(q.e),y=Y(q.heat);st?ctx.lineTo(x,y):(ctx.moveTo(x,y),st=true);}
+    ctx.stroke();ctx.globalAlpha=1;
+  }
+  if(steps){                                           // the schedule, as the exact steps it will run
+    const end=steps[steps.length-1].t;
+    ctx.strokeStyle=P.fan;ctx.lineWidth=1.6;ctx.setLineDash([4,3]);ctx.beginPath();
+    let st=false,lf=null;
+    for(const q of steps){if(q.fan==null)continue;const x=X(q.t);
+      if(st)ctx.lineTo(x,Y(lf));const y=Y(q.fan);st?ctx.lineTo(x,y):(ctx.moveTo(x,y),st=true);lf=q.fan;}
+    if(st){ctx.lineTo(X(end),Y(lf));ctx.stroke();}
+    ctx.setLineDash([]);
+    ctx.strokeStyle=P.heat;ctx.lineWidth=2.2;ctx.beginPath();
+    st=false;let lh=null;
+    for(const q of steps){const x=X(q.t);if(st)ctx.lineTo(x,Y(lh));const y=Y(q.heat);st?ctx.lineTo(x,y):(ctx.moveTo(x,y),st=true);lh=q.heat;}
+    ctx.stroke();
+  }
+  ctx.font='600 10px system-ui';
+  ctx.fillStyle=P.heat;ctx.fillText('▬ schedule',pL+4,pT+10);
+  if(src){ctx.globalAlpha=.6;ctx.fillText('— source heater',pL+72,pT+10);ctx.globalAlpha=1;}
+  ctx.fillStyle=P.fan;ctx.fillText('┅ fan',pL+(src?170:72),pT+10);
+}
 $('ppGen').addEventListener('click',()=>{
   const id=$('ppSrc').value;if(!id){alert('Pick a source roast first.');return;}
   const rec=loadLogs().find(r=>r.id===id);
   if(!rec||!rec.samples||rec.samples.length<10){alert('That roast has no usable data.');return;}
-  const base=bgBaseOf(rec),ev=rec.events||{};
-  let dropT=null,endBt=null;                           // same drop-point logic as the ET reference
-  if(ev.drop!=null){dropT=base+ev.drop;
-    let bd=1e9;for(const q of rec.samples){if(q.bt==null||Number.isNaN(q.bt))continue;const d=Math.abs(q.t-dropT);if(d<bd){bd=d;endBt=q.bt;}}if(bd>10)endBt=null;}
-  if(endBt==null)for(const q of rec.samples){const b=q.bt;if(b!=null&&!Number.isNaN(b)&&(endBt==null||b>=endBt)){endBt=b;if(ev.drop==null)dropT=q.t;}}
+  const{base,dropT,endBt}=roastDropInfo(rec);          // same drop-point logic as the ET reference
   const roast=(dropT!=null?rec.samples.filter(s=>s.t<=dropT):rec.samples).filter(s=>s.t>=base&&s.heat!=null&&!Number.isNaN(s.heat));
   if(roast.length<10){alert('Too little heater data between charge and drop in that roast.');return;}
   const sm=smoothSeries(roast,['heat','fan'],20);
@@ -1286,7 +1335,7 @@ $('ppGen').addEventListener('click',()=>{
   lines.push(fmt(Math.max(endE,lastT+2))+' 0');        // end of schedule: heater off
   $('ppText').value=lines.join('\n');
   if(endBt!=null)$('ppEndBt').value=Math.max(150,Math.min(250,Math.round(endBt)));
-  ppSummaryDraw();savePProfCfg();
+  ppSummaryDraw();savePProfCfg();drawPProf();
   log('Power profile generated from "'+rec.name+'": '+lines.length+' steps, ends '+fmt(endE)+(endBt!=null?', drop at BT '+Math.round(endBt)+'°':''));
 });
 $('ppRunBtn').addEventListener('click',()=>{pprof?stopPProf('stopped by user'):startPProf();});
@@ -1672,7 +1721,7 @@ function applyTheme(day){
   themeDay=day;document.body.classList.toggle('day',day);
   $('themeBtn').textContent=day?'🌙':'☀️';
   try{localStorage.setItem('rc_theme',day?'day':'night');}catch(e){}
-  drawChart();drawProfEditor();
+  drawChart();drawProfEditor();drawPProf();
 }
 $('themeBtn').addEventListener('click',()=>applyTheme(!themeDay));
 
@@ -1883,7 +1932,7 @@ function requestChartDraw(){if(chartRaf)return;chartRaf=true;requestAnimationFra
  cc.addEventListener('pointermove',setH);
  cc.addEventListener('pointerdown',setH);
  cc.addEventListener('pointerleave',()=>{chartHover=null;requestChartDraw();});}
-window.addEventListener('resize',()=>{drawChart();drawProfEditor();});
+window.addEventListener('resize',()=>{drawChart();drawProfEditor();drawPProf();});
 setInterval(()=>{if(connectMs){updateTimer();updateLiveBar();}},1000);
 
 // ---------- Data: CSV + saved roasts ----------
@@ -2506,7 +2555,7 @@ try{const pp=JSON.parse(localStorage.getItem('rc_pprof')||'null');          // r
   if(pp){if(pp.text)$('ppText').value=pp.text;if(pp.endBt)$('ppEndBt').value=pp.endBt;
     if(pp.step)$('ppStep').value=pp.step;$('ppArm').checked=!!pp.arm;
     if(pp.src){$('ppSrc').value=pp.src;}
-    ppSummaryDraw();}}catch(e){}
+    ppSummaryDraw();drawPProf();}}catch(e){}
 refreshInventoryList();
 renderBatchResult();
 try{const pv=localStorage.getItem('rc_aiprov');if(pv)$('aiProvider').value=pv;}catch(e){}
