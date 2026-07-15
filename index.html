@@ -242,7 +242,7 @@
     </div>
     <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="etArm"><span><b>Arm for auto-charge</b> — the bean-drop detection starts this ET-track run instead of the normal profile, and the reference shows as the chart background.</span></label>
     <button id="etRunBtn" class="green" style="width:100%">▶ Start ET-track run</button>
-    <div class="small" id="etStatus" style="margin-top:7px">Replays a captured roast by its <b>exhaust temp</b>: pick a saved roast, and the app follows its ET curve — feedforward from the reference's recorded heater % plus PID trim on the ET error — while replaying its fan. <b>Smooth</b> cleans the captured line before it becomes the target.</div>
+    <div class="small" id="etStatus" style="margin-top:7px">Replays a captured roast by its <b>exhaust temp</b>: pick a saved roast, and the app follows its ET curve — feedforward from the reference's recorded heater % plus PID trim on the ET error — while replaying its fan. <b>Smooth</b> cleans the captured line before it becomes the target — heavier smoothing means fewer heat adjustments. The target is cut at the reference's drop point and keeps its true end temp, however heavy the smoothing.</div>
     <details>
       <summary>Control tuning (advanced)</summary>
       <div class="row" style="margin-top:8px">
@@ -1029,15 +1029,17 @@ function finishProfile(){                          // natural end of the curve: 
 // ---------- ET-track run: software PID following a captured exhaust-temp curve ----------
 let etRun=null,etRef=null;
 const ET_DEADBAND=2;                                   // °C around target where the integrator pauses (P still acts)
-function smoothSeries(samps,keys,winS){                // centred moving average over winS seconds
-  const out=samps.map(s=>Object.assign({},s));
-  if(!winS)return out;
+function smoothSeries(samps,keys,winS){                // centred moving average over winS seconds; the window shrinks near the
+  const out=samps.map(s=>Object.assign({},s));         // ends, so the curve keeps its true start and end values
+  if(!winS||!samps.length)return out;
+  const t0=samps[0].t,tN=samps[samps.length-1].t;
   for(let i=0;i<samps.length;i++){
     const t=samps[i].t;
+    const half=Math.max(0,Math.min(winS/2,t-t0,tN-t));
     for(const k of keys){
       let sum=0,n=0;
       for(let j=0;j<samps.length;j++){const v=samps[j][k];
-        if(Math.abs(samps[j].t-t)<=winS/2&&v!=null&&!Number.isNaN(v)){sum+=v;n++;}}
+        if(Math.abs(samps[j].t-t)<=half&&v!=null&&!Number.isNaN(v)){sum+=v;n++;}}
       if(n)out[i][k]=+(sum/n).toFixed(2);
     }
   }
@@ -1047,16 +1049,21 @@ function buildEtRef(){
   const id=$('etSel').value;if(!id)return null;
   const rec=loadLogs().find(r=>r.id===id);
   if(!rec||!rec.samples||rec.samples.length<10)return null;
-  const sm=smoothSeries(rec.samples,['et','heat'],+$('etSmooth').value||0);
   const base=bgBaseOf(rec);
+  const ev=rec.events||{};
+  // The target curve ends at the reference's drop — the marked event, else the max-BT moment (recordings
+  // often run on through the cool-down, which must not be smoothed into the target's final rise).
+  let dropT=null,endBt=null;
+  if(ev.drop!=null){dropT=base+ev.drop;
+    let bd=1e9;for(const q of rec.samples){if(q.bt==null||Number.isNaN(q.bt))continue;const d=Math.abs(q.t-dropT);if(d<bd){bd=d;endBt=q.bt;}}if(bd>10)endBt=null;}
+  if(endBt==null)for(const q of rec.samples){const b=q.bt;if(b!=null&&!Number.isNaN(b)&&(endBt==null||b>=endBt)){endBt=b;if(ev.drop==null)dropT=q.t;}}
+  const win=+$('etSmooth').value||0;
+  const roast=dropT!=null?rec.samples.filter(s=>s.t<=dropT):rec.samples;
+  const sm=smoothSeries(roast.length>=10?roast:rec.samples,['et','heat'],win);   // smoothed AFTER the cut: the end temp is reached, not averaged away
   let endT=null;for(let i=sm.length-1;i>=0;i--){if(sm[i].et!=null&&!Number.isNaN(sm[i].et)){endT=sm[i].t;break;}}
   if(endT==null||endT-base<30)return null;
-  const ev=rec.events||{};                                            // ending BT = BT at the reference's drop (or max BT — the recording
-  let endBt=null;                                                     // may run on through the cool-down, so "last BT" would be far too low)
-  const dropT=ev.drop!=null?base+ev.drop:null;
-  if(dropT!=null){let bd=1e9;for(const q of rec.samples){if(q.bt==null||Number.isNaN(q.bt))continue;const d=Math.abs(q.t-dropT);if(d<bd){bd=d;endBt=q.bt;}}if(bd>10)endBt=null;}
-  if(endBt==null)for(const q of rec.samples){const b=q.bt;if(b!=null&&!Number.isNaN(b)&&(endBt==null||b>endBt))endBt=b;}
-  return{name:rec.name,samples:sm,events:ev,base,endE:endT-base,endBt:endBt!=null?Math.round(endBt):null,_i:0};
+  const display=smoothSeries(rec.samples,['et','heat'],win);                     // full recording (incl. cool-down) for the chart background
+  return{name:rec.name,samples:sm,display,events:ev,base,endE:endT-base,endBt:endBt!=null?Math.round(endBt):null,_i:0};
 }
 function refAt(ref,e,key){                             // interpolate the reference at e seconds after its charge
   const t=ref.base+e,ss=ref.samples;
@@ -1073,7 +1080,7 @@ function refAt(ref,e,key){                             // interpolate the refere
 function applyEtRef(){
   etRef=buildEtRef();
   if(etRef){
-    bg={name:etRef.name+' (ET ref)',samples:etRef.samples,events:etRef.events,base:etRef.base};bgIdx=0;
+    bg={name:etRef.name+' (ET ref)',samples:etRef.display||etRef.samples,events:etRef.events,base:etRef.base};bgIdx=0;
     $('bgName').textContent='BG: '+etRef.name+' (ET ref)';$('btnBgClear').style.display='';
     if(etRef.endBt!=null)$('etEndBt').value=Math.max(150,Math.min(250,etRef.endBt));   // prefill the drop-at-BT from the reference, kept in the field's range
   }
