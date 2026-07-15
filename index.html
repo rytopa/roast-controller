@@ -271,7 +271,7 @@
     </div>
     <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="ppArm"><span><b>Arm for auto-charge</b> — the bean-drop detection runs this power schedule (takes priority over ET-track and the normal profile).</span></label>
     <button id="ppRunBtn" class="green" style="width:100%">▶ Run power profile</button>
-    <div class="small" id="ppStatus" style="margin-top:7px"><b>Generate</b> distills a saved roast's recorded heater curve into fixed power steps: the roast then runs purely on this schedule — your charge soak first, then the steps, <b>zero mid-roast adjustments</b>. Edit the lines freely; the schedule is saved in this browser.</div>
+    <div class="small" id="ppStatus" style="margin-top:7px"><b>Generate</b> distills a saved roast's recorded heater curve into fixed power steps: the roast then runs purely on this schedule — your charge soak first, then the steps, <b>zero mid-roast adjustments</b>. The generated schedule rises once to its peak, then <b>only ever lowers the heat</b> (source wobbles are flattened). Edit the lines freely; the schedule is saved in this browser.</div>
   </div>
 
   <div class="panel">
@@ -1263,7 +1263,7 @@ $('ppGen').addEventListener('click',()=>{
   if(roast.length<10){alert('Too little heater data between charge and drop in that roast.');return;}
   const sm=smoothSeries(roast,['heat','fan'],20);
   const stepPct=Math.max(1,Math.min(10,Math.round(+$('ppStep').value)||2));
-  const lines=[];let curH=null,curF=null,lastT=-1e9;
+  const raw=[];let curH=null,curF=null,lastT=-1e9;
   for(const q of sm){
     const e=Math.round(q.t-base),h=Math.round(q.heat);
     const f=(q.fan!=null&&!Number.isNaN(q.fan))?Math.round(q.fan/5)*5:null;
@@ -1271,8 +1271,16 @@ $('ppGen').addEventListener('click',()=>{
     const fMove=f!=null&&(curF==null||Math.abs(f-curF)>=5);
     if((hMove||fMove)&&(curH==null||e-lastT>=8)){      // a new step needs a >= step% (or 5% fan) change, at most every 8 s
       curH=h;if(f!=null)curF=f;lastT=e;
-      lines.push(fmt(e)+' '+curH+(curF!=null?' '+curF:''));
+      raw.push({t:e,heat:curH,fan:curF});
     }
+  }
+  let pk=0;for(let i=1;i<raw.length;i++)if(raw[i].heat>raw[pk].heat)pk=i;   // heat is lowered as the roast progresses: power climbs
+  for(let i=1;i<=pk;i++)raw[i].heat=Math.max(raw[i].heat,raw[i-1].heat);    // monotonically to its peak,
+  for(let i=pk+1;i<raw.length;i++)raw[i].heat=Math.min(raw[i].heat,raw[i-1].heat);   // then only ever steps down
+  const lines=[];let ph=null,pf=null;
+  for(const st of raw){
+    if(st.heat===ph&&st.fan===pf)continue;             // clamping can flatten source wobbles into repeats — emit each level once
+    lines.push(fmt(st.t)+' '+st.heat+(st.fan!=null?' '+st.fan:''));ph=st.heat;pf=st.fan;
   }
   const endE=Math.round(sm[sm.length-1].t-base);
   lines.push(fmt(Math.max(endE,lastT+2))+' 0');        // end of schedule: heater off
