@@ -1051,11 +1051,11 @@ function buildEtRef(){
   const base=bgBaseOf(rec);
   let endT=null;for(let i=sm.length-1;i>=0;i--){if(sm[i].et!=null&&!Number.isNaN(sm[i].et)){endT=sm[i].t;break;}}
   if(endT==null||endT-base<30)return null;
-  const ev=rec.events||{};                                            // ending BT = BT at the reference's drop (or last valid BT)
-  let endBt=null;
+  const ev=rec.events||{};                                            // ending BT = BT at the reference's drop (or max BT — the recording
+  let endBt=null;                                                     // may run on through the cool-down, so "last BT" would be far too low)
   const dropT=ev.drop!=null?base+ev.drop:null;
   if(dropT!=null){let bd=1e9;for(const q of rec.samples){if(q.bt==null||Number.isNaN(q.bt))continue;const d=Math.abs(q.t-dropT);if(d<bd){bd=d;endBt=q.bt;}}if(bd>10)endBt=null;}
-  if(endBt==null)for(let i=rec.samples.length-1;i>=0;i--){const b=rec.samples[i].bt;if(b!=null&&!Number.isNaN(b)){endBt=b;break;}}
+  if(endBt==null)for(const q of rec.samples){const b=q.bt;if(b!=null&&!Number.isNaN(b)&&(endBt==null||b>endBt))endBt=b;}
   return{name:rec.name,samples:sm,events:ev,base,endE:endT-base,endBt:endBt!=null?Math.round(endBt):null,_i:0};
 }
 function refAt(ref,e,key){                             // interpolate the reference at e seconds after its charge
@@ -1075,7 +1075,7 @@ function applyEtRef(){
   if(etRef){
     bg={name:etRef.name+' (ET ref)',samples:etRef.samples,events:etRef.events,base:etRef.base};bgIdx=0;
     $('bgName').textContent='BG: '+etRef.name+' (ET ref)';$('btnBgClear').style.display='';
-    if(etRef.endBt!=null)$('etEndBt').value=etRef.endBt;              // prefill the drop-at-BT from the reference
+    if(etRef.endBt!=null)$('etEndBt').value=Math.max(150,Math.min(250,etRef.endBt));   // prefill the drop-at-BT from the reference, kept in the field's range
   }
   drawChart();saveEtPrefs();
 }
