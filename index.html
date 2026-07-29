@@ -942,7 +942,20 @@ function interpAt(pts,e){
     return{sv:a.sv+(b.sv-a.sv)*f,fan:(a.fan!=null&&b.fan!=null)?a.fan+(b.fan-a.fan)*f:(a.fan!=null?a.fan:b.fan)};}}
   return{sv:last.sv,fan:last.fan};
 }
-$('profRun').addEventListener('click',()=>{profile?stopProfile():startProfile();});
+// Roast-start guard: the fan plan must be a conscious choice — if Auto fan isn't
+// ticked, ask before the roast starts (Cancel aborts so it can be set first).
+// Deliberately NOT inside startProfile: auto-charge calls that at the bean-drop
+// moment, when a blocking dialog would be dangerous — the auto path is guarded
+// up front in startBBP instead.
+function confirmAutoFan(){
+  if(uiAutoFan())return true;
+  const hasPtFan=getPoints().some(p=>p.fan!=null);
+  return confirm('⚠️ Auto fan is OFF.\n\n'
+    +(hasPtFan?'The fan will follow the per-point fan column in the points table instead.'
+              :'There is NO fan schedule — the fan stays where it is and must be driven by hand.')
+    +'\n\nStart anyway?\n(Cancel to go back and tick Auto fan — start/mid/end % and shape.)');
+}
+$('profRun').addEventListener('click',()=>{profile?stopProfile():(confirmAutoFan()&&startProfile());});
 function chargeSoak(){                                     // open-loop heater steps after charge (roast clock); the control loop takes over after the last step
   const v=(id,d)=>{const x=+$(id).value;return $(id).value!==''&&Number.isFinite(x)?x:d;};
   const t1=Math.max(5,Math.min(120,Math.round(v('soakT1',30))));
@@ -1465,6 +1478,7 @@ async function startBBP(){
     dropTemp=Math.round(lp.sv)+' °C (last-point target)';
     totalTime=fmt(lp.t);
   }
+  if(auto&&!ppArmedSteps&&!etArmed&&haveProfile&&!confirmAutoFan())return;   // fan choice happens now — not at the bean drop
   const summary=['Start the between-batch cycle?','',
     ((ppArmedSteps||etArmed)?'Run:  ':'Profile:  ')+runLine,
     'Drop temp:  '+(dropTemp||'—'),
