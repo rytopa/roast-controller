@@ -170,8 +170,7 @@
         <button id="fanOvrResume" style="padding:4px 9px;font-size:12px;margin-left:6px">Resume profile fan</button>
         <button id="fanOvrRebase" style="padding:4px 9px;font-size:12px;margin-left:6px">Resume — shift curve to my fan</button></div>
       <div class="row" style="margin-top:8px;gap:6px;align-items:center">
-        <label class="ck" style="margin:0"><input type="checkbox" id="alarmRor" checked><span>RoR crash / flick warnings</span></label>
-        <span class="small">· Alert at BT</span><input id="alarmTemp" type="number" min="0" max="260" placeholder="e.g. 195" style="width:84px"><span class="small">°C</span>
+        <span class="small">Alert at BT</span><input id="alarmTemp" type="number" min="0" max="260" placeholder="e.g. 195" style="width:84px"><span class="small">°C</span>
         <span class="small">· RoR window</span><input id="rorWin" type="number" min="5" max="60" value="15" style="width:64px"><span class="small">s</span>
         <span class="small">· RoR smooth</span><select id="rorSmooth" style="width:auto"><option value="0">off</option><option value="10" selected>light</option><option value="20">medium</option><option value="40">heavy</option></select>
       </div>
@@ -496,7 +495,7 @@ const btHist=[];           // {ms,bt} for RoR
 const events={charge:null,dry:null,fc:null,drop:null};
 const liveCross={de:null,fc:null};                 // BT crossings of the DE/FC temps this roast
 const liveTP={min:null,t:null,armed:false};        // post-charge turning point: don't trust the hot-probe reading until BT bottoms out; t = elapsed s of the BT minimum
-const alarms={temp:false,crash:false,flick:false,minRor:null};
+const alarms={temp:false};
 let bg=null,bgIdx=0;                               // background roast overlay
 
 function setState(t,on){const s=$('state');s.textContent=t;s.className='pill '+(on?'on':'off');}
@@ -1630,18 +1629,12 @@ function liveTrack(bt,ror){
     $('bgDelta').innerHTML=b!=null?'· vs BG <b style="color:var(--text)">'+((bt-b)>=0?'+':'')+(bt-b).toFixed(1)+'°</b>':'';}
   if(events.drop==null&&ror!=null&&ror>0.5&&bt<fcT)$('etaInfo').textContent='FC in ~'+fmt((fcT-bt)/ror*60)+' ·';
   else $('etaInfo').textContent='';
-  if(liveTP.armed)checkAlarms(bt,ror,e);
+  if(liveTP.armed)checkAlarms(bt);
 }
-function checkAlarms(bt,ror,e){
+function checkAlarms(bt){
   if(events.drop!=null)return;
   const at=+$('alarmTemp').value;
   if(at>0&&bt>=at&&!alarms.temp){alarms.temp=true;fireAlarm('🔔 BT reached '+at+' °C');}
-  if(!$('alarmRor').checked||ror==null)return;
-  const de=events.dry!=null?events.dry:liveCross.de,fc=events.fc!=null?events.fc:liveCross.fc;
-  if(fc!=null){
-    alarms.minRor=alarms.minRor==null?ror:Math.min(alarms.minRor,ror);
-    if(!alarms.flick&&ror>=alarms.minRor+3){alarms.flick=true;fireAlarm('⚠️ RoR flick — rate rising after FC ('+ror+' °C/min)');}
-  }else if(de!=null&&e>de+20&&!alarms.crash&&ror<3){alarms.crash=true;fireAlarm('⚠️ RoR crash — '+ror+' °C/min mid-roast');}
 }
 function fireAlarm(msg){
   const b=$('alarmBanner');b.textContent=msg;b.style.display='block';
@@ -1752,7 +1745,7 @@ $('heaterW').addEventListener('change',()=>{
 // ---------- Roast timer + events ----------
 $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;events.dry=events.fc=events.drop=null;
   invUse.dropped=false;invUse.deducted=0;         // new batch: fresh inventory-deduction session
-  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=alarms.crash=alarms.flick=false;alarms.minRor=null;bgIdx=0;
+  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=false;bgIdx=0;
   if(connectMs){                                   // drop pre-charge telemetry and make Charge the chart's zero point
     const base=(chargeMs-connectMs)/1000;
     const keep=samples.filter(s=>s.t>=base).map(s=>Object.assign({},s,{t:+((s.t-base).toFixed(1))}));
@@ -1761,7 +1754,7 @@ $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;
     $('rowCount').textContent=samples.length+' samples';}
   $('statsCard').style.display='none';$('alarmBanner').style.display='none';updateLiveBar();renderEvents();drawChart();log('CHARGE');});
 $('evDry').addEventListener('click',()=>{if(chargeMs){events.dry=(Date.now()-chargeMs)/1000;renderEvents();}});
-$('evFc').addEventListener('click',()=>{if(chargeMs){events.fc=(Date.now()-chargeMs)/1000;alarms.minRor=null;renderEvents();}});
+$('evFc').addEventListener('click',()=>{if(chargeMs){events.fc=(Date.now()-chargeMs)/1000;renderEvents();}});
 $('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-chargeMs)/1000;renderEvents();
   if(writeChar&&$('enableControl').checked){                       // end of roast: heater off; fan left as-is (a blast would eject the beans)
     stopRamp();stopProfile();stopEtRun('drop',true);stopPProf('drop',true);
@@ -1776,7 +1769,7 @@ function resetRoastView(){                         // fresh chart for the next b
   samples.length=0;btHist.length=0;rxBuffer='';
   Object.assign(events,{charge:null,dry:null,fc:null,drop:null});
   chargeMs=null;if(connectMs)connectMs=Date.now(); // rebase the time axis
-  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=alarms.crash=alarms.flick=false;alarms.minRor=null;bgIdx=0;
+  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=false;bgIdx=0;
   curSV=null;$('tSv').textContent='—';
   $('rowCount').textContent='0 samples';
   $('evTimes').innerHTML='Roast saved &amp; chart reset — press <b>Charge</b> for the next batch (or Load the saved roast to review it).';
