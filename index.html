@@ -196,6 +196,7 @@
     </div>
     <div class="small" style="margin-bottom:8px">Fixed heater power right after <b>Charge</b> (open loop, PID off) — then the control loop takes over. Applies to profile runs <b>and ET-track runs</b> started at charge. Saved in this browser.</div>
     <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="bbpAuto" checked><span><b>Auto-charge</b> — when the beans drop (BT plunges), mark Charge and start the profile loaded in the designer automatically. <b>No need to press ▶ Run profile</b> — the whole roast runs from this one button.</span></label>
+    <div id="bbpPreview" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 11px;margin-bottom:8px"></div>
     <button id="bbpStart" class="blue" style="width:100%">🔄 Start between-batch cycle</button>
     <div id="bbpStatus" class="small" style="margin-top:7px">Cools the machine (fan 100%, heater off) to the cool-to temp, then ramps gradually to your charge temp over <b>1 min</b> at the charge fan speed, holds it <b>30 s</b>, and lights up when it's time to drop the beans.</div>
     <div id="bbpLight" class="droplight" style="display:none">⬇ DROP BEANS NOW</div>
@@ -649,7 +650,7 @@ function renderPoints(){
     if(k==='t')renderPoints(); else drawChart();
   }));
   box.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',e=>{editPts.splice(+e.target.dataset.del,1);renderPoints();}));
-  drawChart();drawProfEditor();renderPhaseBar();
+  drawChart();drawProfEditor();renderPhaseBar();bbpPreviewDraw();
 }
 
 // ---------- Phase bar (Dry / Maillard / Development from the plan) ----------
@@ -926,7 +927,7 @@ function uiAutoFan(){
     pct:Math.max(5,Math.min(100,mp)),
     temp:Math.max(105,Math.min(240,parseInt($('fanMidC').value,10)||160))};
   return af;}
-const redrawFan=()=>{drawChart();drawProfEditor();};
+const redrawFan=()=>{drawChart();drawProfEditor();bbpPreviewDraw();};
 $('fanAuto').addEventListener('change',redrawFan);
 $('fanStart').addEventListener('change',redrawFan);
 $('fanMid').addEventListener('change',redrawFan);
@@ -1440,6 +1441,32 @@ function beepReady(){
 function saveBbpCfg(){try{localStorage.setItem('rc_bbp',JSON.stringify({cool:$('bbpCool').value,charge:$('bbpCharge').value,fan:$('bbpFan').value}));}catch(e){}}
 ['bbpCool','bbpCharge','bbpFan'].forEach(id=>$(id).addEventListener('change',saveBbpCfg));
 $('bbpStart').addEventListener('click',()=>{bbp?stopBBP('cancelled'):startBBP();});
+// What will actually run at the bean drop — shown live in the between-batch panel
+// so there's no guessing between the designer profile and an armed ET-track /
+// power-schedule replay of a previous roast.
+function bbpPreviewDraw(){
+  const el=$('bbpPreview');if(!el)return;
+  const lbl='<span class="small" style="color:var(--dim)">At bean drop this will run:</span><br>';
+  if(!$('bbpAuto').checked){el.innerHTML=lbl+'<b>nothing (Auto-charge is off)</b><div class="small">you start the roast by hand after dropping the beans</div>';return;}
+  const pts=getPoints(),haveProfile=pts.length>=2,pname=$('profName').value.trim();
+  const ppArmedSteps=$('ppArm').checked?ppSteps():null;
+  const etArmed=!ppArmedSteps&&$('etArm').checked&&!!(etRef||$('etSel').value);
+  if(ppArmedSteps){
+    el.innerHTML=lbl+'<b>⚡ Power profile (open loop)</b><div class="small">'+ppArmedSteps.length+' fixed steps · '+fmt(ppArmedSteps[ppArmedSteps.length-1].t)+' · drop at BT '+Math.max(120,Math.min(250,+$('ppEndBt').value||210))+'°</div>';
+  }else if(etArmed){
+    const n=etRef?etRef.name:($('etSel').selectedOptions[0]?$('etSel').selectedOptions[0].textContent.trim():'selected reference');
+    el.innerHTML=lbl+'<b>🔁 ET-track replay — '+escapeHtml(n)+'</b><div class="small">follows that roast’s recorded exhaust curve · drop at BT '+Math.max(120,Math.min(250,+$('etEndBt').value||(etRef&&etRef.endBt)||210))+'°</div>';
+  }else if(haveProfile){
+    const lp=pts[pts.length-1],af=uiAutoFan();
+    el.innerHTML=lbl+'<b>📈 Profile — '+escapeHtml(pname||'(unnamed — the curve in the designer below)')+'</b><div class="small">'
+      +fmt(lp.t)+' → '+Math.round(lp.sv)+' °C · '
+      +(af?('auto fan '+af.start+(af.mid?' → '+af.mid.pct:'')+' → '+af.end+'% ('+af.mode+')'):'⚠ auto fan OFF — fan from the points table / by hand')+'</div>';
+  }else{
+    el.innerHTML=lbl+'<b>⚠ no profile loaded</b><div class="small">load or build one in the Profile designer below before charging</div>';
+  }
+}
+['bbpAuto','etArm','ppArm','etSel','ppEndBt','etEndBt'].forEach(id=>$(id).addEventListener('change',bbpPreviewDraw));
+$('profName').addEventListener('input',bbpPreviewDraw);
 async function startBBP(){
   if(!writeChar){alert('Connect the roaster first.');return;}
   if(!$('enableControl').checked){alert('Tick "Enable control" next to the chart first.');return;}
@@ -2612,6 +2639,7 @@ function applyAdvMode(){
   $('ppPanel').style.display=on?'':'none';
   if(!on){$('etArm').checked=false;
     if($('ppArm').checked){$('ppArm').checked=false;savePProfCfg();}}
+  bbpPreviewDraw();
 }
 $('advMode').addEventListener('change',()=>{try{localStorage.setItem('rc_adv',$('advMode').checked?'1':'0');}catch(e){}applyAdvMode();});
 try{$('advMode').checked=localStorage.getItem('rc_adv')==='1';}catch(e){}
