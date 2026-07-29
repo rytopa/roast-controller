@@ -1965,9 +1965,12 @@ function drawChart(){
        const label=fmt(b-a)+' ('+Math.round((b-a)/total*100)+'%)';
        if(x1-x0>52){ctx.fillStyle=txt;ctx.fillText(label,x0+4,stripY+14);}}
      ctx.font='10px system-ui';}}
-  // ---- hover crosshair ----
-  if(chartHover!=null&&chartHover>=pL&&chartHover<=W-pR){
-    const hx=chartHover,ht=(hx-pL)/pw*tMax;
+  // ---- crosshair + info box: at the pointer when hovering, else docked to the live
+  //      edge during a roast so it moves along with the newest sample ----
+  let hoverX=chartHover;
+  if(hoverX==null&&chargeMs&&events.drop==null&&samples.length)hoverX=X(samples[samples.length-1].t);
+  if(hoverX!=null&&hoverX>=pL&&hoverX<=W-pR){
+    const hx=hoverX,ht=(hx-pL)/pw*tMax;
     ctx.strokeStyle=P.cross;ctx.setLineDash([2,3]);ctx.lineWidth=1;
     ctx.beginPath();ctx.moveTo(hx,tpY);ctx.lineTo(hx,cpY+cpH);ctx.stroke();ctx.setLineDash([]);
     // nearest sample
