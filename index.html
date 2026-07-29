@@ -303,7 +303,9 @@
     <div class="small" id="ppStatus" style="margin-top:7px"><b>Generate</b> distills a saved roast's recorded heater curve into fixed power steps: the roast then runs purely on this schedule — your charge soak first, then the steps, <b>zero mid-roast adjustments</b>. The generated schedule rises once to its peak, then <b>only ever lowers the heat</b> — wobbles are <b>averaged, not clipped</b>, so it delivers the <b>same total heat (Σ %·min)</b> as the source; the line under the plot shows the comparison (live as you edit). Edit the lines freely; the schedule is saved in this browser.</div>
   </div>
 
-  <div class="panel">
+  <!-- Roast session panel hidden per user request: the elements stay in the DOM because the
+       machinery still uses them (auto-charge clicks #evCharge; drop/auto-save read the weights). -->
+  <div class="panel" style="display:none">
     <h2>Roast session</h2>
     <div class="evt">
       <button id="evCharge" class="primary">▶ Charge</button>
