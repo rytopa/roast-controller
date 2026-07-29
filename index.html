@@ -73,7 +73,6 @@
   .banner{border-radius:10px;padding:9px 11px;font-size:12.5px;margin-bottom:10px;border:1px solid}
   .banner.warn{background:#2a2410;border-color:#5a4d1a;color:#f2df9e}
   .banner.err{background:#2c1512;border-color:#5a2a22;color:#f2b3a8}
-  #emergency{width:100%;font-size:16px;padding:15px;margin-top:4px}
   #log{background:var(--canvas);border:1px solid var(--line);border-radius:9px;padding:7px;height:120px;overflow:auto;
     font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;white-space:pre-wrap;color:#cfc4b2}
   details{margin-top:8px} summary{cursor:pointer;color:var(--dim);font-size:13px}
@@ -98,7 +97,7 @@
   <div id="supportBanner" class="banner err" style="display:none">
     <b>Web Bluetooth isn't available.</b> Use <b>Chrome</b> or Edge on Android or Windows/macOS/Linux, Bluetooth on. iOS Safari is unsupported.
   </div>
-  <div class="banner warn">⚠️ Controls drive a <b>real heating element</b>. They stay locked until you enable them. Keep the fan on, don't leave it unattended, use <b>HEATER OFF</b> if anything looks wrong.</div>
+  <div class="banner warn">⚠️ Controls drive a <b>real heating element</b>. They stay locked until you enable them. Keep the fan on, don't leave it unattended, use <b>Heater Off</b> if anything looks wrong.</div>
 
   <div class="panel">
     <h2>Connection</h2>
@@ -163,7 +162,7 @@
         <button id="cFanP5">+5</button>
         <button id="btnCFan" class="blue">Set fan</button>
         <button id="cFan0">Fan 0</button>
-        <button id="cPow0" class="danger">Power 0</button>
+        <button id="cPow0" class="danger">Heater Off</button>
         <label class="ck" style="margin:0"><input type="checkbox" id="enableControl"><span class="small"><b style="color:var(--warn)">Enable control</b> — commands real heater/fan hardware</span></label>
       </div>
       <div class="small" style="margin-top:6px">a manual change during a profile roast pauses the automated fan — options to resume appear below</div>
@@ -176,7 +175,6 @@
         <span class="small">· RoR smooth</span><select id="rorSmooth" style="width:auto"><option value="0">off</option><option value="10" selected>light</option><option value="20">medium</option><option value="40">heavy</option></select>
       </div>
       <div id="alarmBanner" class="banner err" style="display:none;margin:8px 0 0"></div>
-      <button id="emergency" class="danger" disabled>■ HEATER OFF (stop)</button>
     </div>
   </div>
 
@@ -219,7 +217,7 @@
       <button id="pcLock" style="padding:5px 11px;font-size:12.5px">🔒 Graph locked — tap to edit</button>
     </div>
     <canvas id="profCanvas" style="height:200px;touch-action:none;margin-bottom:6px"></canvas>
-    <div class="small" style="margin-bottom:8px">✏️ Unlock the graph, then <b>drag points</b> to shape the curve · <b>press empty space</b> to add a point · <b>double-tap a point</b> to delete. Dashed pink = the RoR each segment implies (0–30 °C/min) · dashed grey = fan % (right scale; auto-fan curve or the table's fan values). Fine-tune times/temps and set fan % in the table.</div>
+    <div class="small" style="margin-bottom:8px">✏️ Unlock the graph, then <b>drag points</b> to shape the curve · <b>press empty space</b> to add a point · <b>double-tap a point</b> to delete. Dashed pink = the RoR each segment implies (0–30 °C/min) · dashed grey = fan % (right scale; auto-fan curve or the table's fan values). With Auto fan off, <b>drag the square fan handles</b> (0–100 %) to shape the fan — hollow = unset, <b>double-tap</b> one to clear it. Fine-tune times/temps and set fan % in the table.</div>
     <details id="profDetails" style="margin-bottom:8px">
       <summary class="small" style="cursor:pointer;font-weight:600">Details — phases, points table</summary>
       <div style="margin-top:8px">
@@ -237,6 +235,7 @@
       <input type="number" id="fanStart" min="10" max="100" value="60" style="width:70px"><span class="small">%</span>
       <span class="small">· mid</span><input type="number" id="fanMid" min="5" max="100" placeholder="opt" style="width:66px"><span class="small">% at</span>
       <input type="number" id="fanMidC" min="105" max="240" placeholder="160" style="width:66px"><span class="small">°C</span>
+      <button id="fanMidClr" title="Mid off — clear the middle point" style="padding:5px 9px;font-size:12px">✕ mid</button>
       <span class="small">· end</span><input type="number" id="fanEnd" min="5" max="100" value="42" style="width:66px"><span class="small">%</span>
       <select id="fanMode" style="width:auto;flex:1;min-width:180px">
         <option value="knee">Gentle to 160 °C, then faster</option>
@@ -256,7 +255,7 @@
 
   <div class="panel" id="etPanel">
     <h2>ET-track roast (experimental)</h2>
-    <div class="banner warn" style="margin-bottom:8px">⚠️ Drives the heater <b>directly in manual mode</b> (firmware PID off) with a software control loop. Stay at the machine — <b>HEATER OFF</b> always works.</div>
+    <div class="banner warn" style="margin-bottom:8px">⚠️ Drives the heater <b>directly in manual mode</b> (firmware PID off) with a software control loop. Stay at the machine — <b>Heater Off</b> always works.</div>
     <div class="row" style="margin-bottom:8px">
       <select id="etSel" style="flex:1;min-width:150px"><option value="">— pick a reference roast —</option></select>
       <select id="etSmooth" style="width:auto">
@@ -287,7 +286,7 @@
 
   <div class="panel" id="ppPanel">
     <h2>Power profile (open loop)</h2>
-    <div class="banner warn" style="margin-bottom:8px">⚠️ Drives the heater <b>directly in manual mode</b> on a fixed schedule — no temperature feedback at all. Stay at the machine — <b>HEATER OFF</b> always works.</div>
+    <div class="banner warn" style="margin-bottom:8px">⚠️ Drives the heater <b>directly in manual mode</b> on a fixed schedule — no temperature feedback at all. Stay at the machine — <b>Heater Off</b> always works.</div>
     <div class="row" style="margin-bottom:8px;align-items:center">
       <select id="ppSrc" style="flex:1;min-width:150px"><option value="">— pick a source roast —</option></select>
       <span class="small">step ≥</span><input id="ppStep" type="number" min="1" max="10" value="2" style="width:60px"><span class="small">%</span>
@@ -503,12 +502,12 @@ $('btnConnect').addEventListener('click',async()=>{
     notifyChar.addEventListener('characteristicvaluechanged',onNotify);
     connectMs=Date.now();
     setState('connected',true);
-    $('btnConnect').disabled=true;$('btnDisconnect').disabled=false;$('emergency').disabled=!w;
+    $('btnConnect').disabled=true;$('btnDisconnect').disabled=false;
     log('✅ Connected.');
   }catch(err){log('❌ '+err.message);setState('disconnected',false);}
 });
 $('btnDisconnect').addEventListener('click',()=>{if(device&&device.gatt.connected)device.gatt.disconnect();});
-function onDisc(){setState('disconnected',false);$('btnConnect').disabled=false;$('btnDisconnect').disabled=true;$('emergency').disabled=true;notifyChar=writeChar=null;stopRamp();stopProfile();stopBBP('disconnected',true);stopEtRun('disconnected',true);stopPProf('disconnected',true);pidEngaged=false;setPidPill();log('Disconnected.');}
+function onDisc(){setState('disconnected',false);$('btnConnect').disabled=false;$('btnDisconnect').disabled=true;notifyChar=writeChar=null;stopRamp();stopProfile();stopBBP('disconnected',true);stopEtRun('disconnected',true);stopPProf('disconnected',true);pidEngaged=false;setPidPill();log('Disconnected.');}
 
 // ---------- Telemetry ----------
 function onNotify(e){
@@ -626,9 +625,10 @@ $('cFanM5').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()-5);})
 $('cFanP5').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()+5);});
 $('btnCFan').addEventListener('click',()=>{if(fanCtlOk())manualFan($('cFanVal').value);});
 $('cFan0').addEventListener('click',()=>{if(fanCtlOk())manualFan(0);});
-$('cPow0').addEventListener('click',()=>{if(fanCtlOk())heaterOff();});
+// Heater Off is the stop button — gated on connection only, NOT the Enable-control
+// tick: an emergency cut must never be blocked by a checkbox.
+$('cPow0').addEventListener('click',()=>{if(!writeChar){alert('Connect the roaster first.');return;}heaterOff();});
 async function heaterOff(){stopRamp();stopProfile();stopBBP('emergency',true);stopEtRun('emergency',true);stopPProf('emergency',true);await send('PID,OFF ');pidEngaged=false;setPidPill();setTimeout(()=>send('OT1,0'),300);}
-$('emergency').addEventListener('click',heaterOff);
 function stopRamp(){if(ramp){clearInterval(ramp.tid);ramp=null;}}
 
 // ---------- Profile designer + playback ----------
@@ -735,9 +735,16 @@ function drawProfEditor(){
      else{const fp=gp.filter(p=>p.fan!=null);
        if(fp.length){ctx.beginPath();let st=false;
          for(const p of fp){const x=X(p.t),y=Y2(p.fan);if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}
-         ctx.stroke();
-         ctx.setLineDash([]);ctx.fillStyle=P.fan;
-         fp.forEach(p=>{ctx.beginPath();ctx.arc(X(p.t),Y2(p.fan),3,0,7);ctx.fill();});}}
+         ctx.stroke();}
+       ctx.setLineDash([]);
+       // square drag handles on the fan lane, one per profile point: filled = the table
+       // has a fan value there, hollow = unset (grab one to set it; double-tap clears)
+       editPts.forEach((p,i)=>{if(p.sv===''||p.sv==null)return;
+         const set=p.fan!==''&&p.fan!=null,v=fanDispVal(i);
+         const x=X(+p.t||0),y=Y2(v),s=(pcDrag&&pcDrag.fan&&pcDrag.i===i)?5:4;
+         ctx.beginPath();ctx.rect(x-s,y-s,2*s,2*s);
+         if(set){ctx.fillStyle=(s===5)?P.ptSel:P.fan;ctx.fill();ctx.strokeStyle=P.ptStroke;ctx.lineWidth=1.2;ctx.stroke();}
+         else{ctx.strokeStyle=P.fan;ctx.lineWidth=1.4;ctx.stroke();}});}
      ctx.setLineDash([]);}}
   if(pts.length>=2){ctx.strokeStyle=P.planRor;ctx.setLineDash([3,3]);ctx.lineWidth=1.4;ctx.beginPath();   // implied RoR: smooth 60s-window slope curve, from the 2nd point
     const t0=pts[1].t,t1=pts[pts.length-1].t;let st=false;
@@ -757,8 +764,18 @@ function drawProfEditor(){
     ctx.strokeStyle=P.ptStroke;ctx.lineWidth=1.5;ctx.stroke();});
   if(pcDrag&&editPts[pcDrag.i]){const p=editPts[pcDrag.i];
     ctx.fillStyle=P.text;ctx.font='600 13px system-ui';
-    ctx.fillText(fmt(+p.t||0)+' · '+Math.round(+p.sv||0)+' °C',pL+8,pT+14);}
+    ctx.fillText(fmt(+p.t||0)+' · '+(pcDrag.fan?('fan '+fanDispVal(pcDrag.i)+'%'):(Math.round(+p.sv||0)+' °C')),pL+8,pT+14);}
 }
+function fanDispVal(i){                            // the fan % a point's handle sits at: its own value, else interpolated from the set ones, else 50
+  const p=editPts[i];
+  if(p.fan!==''&&p.fan!=null&&!Number.isNaN(+p.fan))return Math.max(0,Math.min(100,Math.round(+p.fan)));
+  const q=interpAt(getPoints(),+p.t||0);
+  return(q&&q.fan!=null)?Math.max(0,Math.min(100,Math.round(q.fan))):50;
+}
+function pcHitFan(x,y){if(uiAutoFan())return null;const g=pcGeom;let best=null,bd=14;
+  editPts.forEach((p,i)=>{if(p.sv===''||p.sv==null)return;
+    const px=g.pL+(+p.t||0)/g.tMax*g.pw,py=g.pT+(1-fanDispVal(i)/100)*g.ph;
+    const d=Math.hypot(px-x,py-y);if(d<bd){bd=d;best=i;}});return best;}
 function pcXY(ev){const r=pcv.getBoundingClientRect();return{x:ev.clientX-r.left,y:ev.clientY-r.top};}
 function pcToData(x,y){const g=pcGeom;
   const t=Math.round(Math.max(0,Math.min(g.tMax,(x-g.pL)/g.pw*g.tMax))/5)*5;
@@ -769,7 +786,9 @@ function pcHit(x,y){const g=pcGeom;let best=null,bd=16;
 pcv.addEventListener('pointerdown',ev=>{
   if(pcLocked||!pcGeom)return;ev.preventDefault();pcv.setPointerCapture(ev.pointerId);
   const{x,y}=pcXY(ev);let i=pcHit(x,y);
-  if(i==null){const d=pcToData(x,y);
+  if(i==null){const fi=pcHitFan(x,y);                              // no temp point near — a fan handle?
+    if(fi!=null){pcDrag={i:fi,fan:true};drawProfEditor();return;}
+    const d=pcToData(x,y);
     let at=editPts.findIndex(p=>(+p.t||0)>d.t);if(at<0)at=editPts.length;
     editPts.splice(at,0,{t:d.t,sv:d.sv,fan:''});i=at;}
   pcDrag={i};drawProfEditor();
@@ -777,6 +796,9 @@ pcv.addEventListener('pointerdown',ev=>{
 pcv.addEventListener('pointermove',ev=>{
   if(!pcDrag||!pcGeom)return;
   const{x,y}=pcXY(ev),d=pcToData(x,y),i=pcDrag.i;
+  if(pcDrag.fan){const g=pcGeom;                                   // fan handle: vertical only, confined 0–100
+    editPts[i].fan=Math.round(Math.max(0,Math.min(100,(1-(y-g.pT)/g.ph)*100)));
+    drawProfEditor();return;}
   const lo=i>0?(+editPts[i-1].t||0)+5:0;
   const hi=i<editPts.length-1?(+editPts[i+1].t||0)-5:d.t;
   editPts[i].t=Math.max(lo,Math.min(hi,d.t));
@@ -787,7 +809,9 @@ const pcEnd=()=>{if(!pcDrag)return;pcDrag=null;renderPoints();};
 pcv.addEventListener('pointerup',pcEnd);pcv.addEventListener('pointercancel',pcEnd);
 pcv.addEventListener('dblclick',ev=>{
   if(pcLocked||!pcGeom)return;const{x,y}=pcXY(ev),i=pcHit(x,y);
-  if(i!=null&&editPts.length>2){editPts.splice(i,1);pcDrag=null;renderPoints();}
+  if(i!=null&&editPts.length>2){editPts.splice(i,1);pcDrag=null;renderPoints();return;}
+  const fi=pcHitFan(x,y);                                          // double-tap a fan handle: clear that point's fan value
+  if(fi!=null&&editPts[fi].fan!==''&&editPts[fi].fan!=null){editPts[fi].fan='';pcDrag=null;renderPoints();}
 });
 function getPoints(){
   return editPts.filter(p=>p.t!=null&&p.sv!==''&&p.sv!=null)
@@ -922,8 +946,8 @@ function uiAutoFan(){
     start:Math.max(10,Math.min(100,parseInt($('fanStart').value,10)||60)),
     end:Math.max(5,Math.min(100,parseInt($('fanEnd').value,10)||42)),
     mode:FAN_MODES.includes($('fanMode').value)?$('fanMode').value:'knee'};
-  const mp=parseInt($('fanMid').value,10);                        // blank mid % = no middle point
-  if($('fanMid').value!==''&&Number.isFinite(mp))af.mid={
+  const mp=parseInt($('fanMid').value,10);                        // blank or 0 mid % = no middle point
+  if($('fanMid').value!==''&&Number.isFinite(mp)&&mp>0)af.mid={
     pct:Math.max(5,Math.min(100,mp)),
     temp:Math.max(105,Math.min(240,parseInt($('fanMidC').value,10)||160))};
   return af;}
@@ -931,6 +955,7 @@ const redrawFan=()=>{drawChart();drawProfEditor();bbpPreviewDraw();};
 $('fanAuto').addEventListener('change',redrawFan);
 $('fanStart').addEventListener('change',redrawFan);
 $('fanMid').addEventListener('change',redrawFan);
+$('fanMidClr').addEventListener('click',()=>{$('fanMid').value='';$('fanMidC').value='';redrawFan();});
 $('fanMidC').addEventListener('change',redrawFan);
 $('fanEnd').addEventListener('change',redrawFan);
 $('fanMode').addEventListener('change',redrawFan);
