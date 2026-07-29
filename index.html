@@ -52,12 +52,14 @@
     .liverail .tiles{grid-template-columns:1fr;gap:6px}
     .liverail .tile{text-align:left;padding:7px 11px}
     .liverail .tile .v{font-size:30px}
+    .liverail .tile.bt .v,.liverail .tile.et .v{font-size:38px}
     #chart{height:440px}
   }
   .tile{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:9px 6px;text-align:center}
   .tile .v{font-size:23px;font-weight:700;font-variant-numeric:tabular-nums}
   .tile .u{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.04em;margin-top:1px}
   .tile.bt .v{color:var(--bt)} .tile.et .v{color:var(--et)} .tile.ror .v{color:var(--ror)} .tile.sv .v{color:var(--sv)}
+  .tile.bt{border-bottom:3px solid var(--bt)} .tile.et{border-bottom:3px solid var(--et)}
   .kv{font-size:12px;color:var(--dim);display:flex;justify-content:space-between;gap:10px;padding:1px 0}
   .kv b{color:var(--text);font-weight:600;word-break:break-all;text-align:right}
   .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
@@ -122,10 +124,11 @@
   <div class="stage">
     <div class="panel liverail">
       <h2>Live</h2>
-      <div class="row" style="justify-content:space-between;margin-bottom:8px">
-        <div class="small">Roast time <b id="tTimer" style="color:var(--text);font-size:15px">0:00</b></div>
+      <div class="row" style="justify-content:space-between;margin-bottom:4px">
+        <div class="small">Roast time</div>
         <span id="pidPill" class="pill off">PID off</span>
       </div>
+      <div id="tTimer" style="font-size:40px;font-weight:800;line-height:1.05;color:var(--text);font-variant-numeric:tabular-nums;margin-bottom:8px">0:00</div>
       <div class="tiles">
         <div class="tile bt"><div class="v" id="tBt">—</div><div class="u">Bean °C</div></div>
         <div class="tile et"><div class="v" id="tEt">—</div><div class="u">ET °C</div></div>
@@ -134,6 +137,8 @@
         <div class="tile"><div class="v" id="tHeat">—</div><div class="u">Heater %</div></div>
         <div class="tile"><div class="v" id="tFan">—</div><div class="u">Fan %</div></div>
       </div>
+      <div class="small" style="margin-top:8px">Previous event</div>
+      <div id="evPrev" style="font-size:22px;font-weight:700;color:var(--text);line-height:1.15">—</div>
       <div id="liveBar" style="display:none;height:26px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin-top:8px;font-size:11px;font-weight:700"></div>
       <div class="small" style="margin-top:8px"><span id="bgDelta"></span> <span id="etaInfo"></span> <span id="tDev"></span></div>
     </div>
@@ -483,7 +488,7 @@ const samples=[];          // {t,bt,et,heat,fan,sv,raw}
 const btHist=[];           // {ms,bt} for RoR
 const events={charge:null,dry:null,fc:null,drop:null};
 const liveCross={de:null,fc:null};                 // BT crossings of the DE/FC temps this roast
-const liveTP={min:null,armed:false};               // post-charge turning point: don't trust the hot-probe reading until BT bottoms out
+const liveTP={min:null,t:null,armed:false};        // post-charge turning point: don't trust the hot-probe reading until BT bottoms out; t = elapsed s of the BT minimum
 const alarms={temp:false,crash:false,flick:false,minRor:null};
 let bg=null,bgIdx=0;                               // background roast overlay
 
@@ -1602,7 +1607,7 @@ function liveTrack(bt,ror){
   const e=(Date.now()-chargeMs)/1000;
   const deT=+$('phDE').value||160,fcT=Math.max(deT,+$('phFC').value||200);
   if(!liveTP.armed){                               // right after charge the probe still reads the hot roaster (often >DE temp),
-    if(liveTP.min==null||bt<liveTP.min)liveTP.min=bt;   // which would stamp DE at 0:00 and false-fire the RoR-crash alarm —
+    if(liveTP.min==null||bt<liveTP.min){liveTP.min=bt;liveTP.t=e;}   // which would stamp DE at 0:00 and false-fire the RoR-crash alarm —
     if((liveTP.min<deT&&bt>=liveTP.min+3)||e>=90)liveTP.armed=true;   // wait for the turning point (or 90 s) before trusting crossings/alarms
   }
   if(liveTP.armed){
@@ -1637,10 +1642,26 @@ function segHTML(label,secs,total,col,txt){
   const pct=Math.round(secs/Math.max(1,total)*100);
   return '<div style="flex:'+(secs/Math.max(1,total))+' 1 0;background:'+col+';color:'+txt+';display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;min-width:0">'+label+' '+pct+'% · '+fmt(secs)+'</div>';
 }
+function liveTpMark(){                             // confirmed turning point: BT bottomed out below the DE temp and climbed again
+  return(liveTP.armed&&liveTP.t!=null&&liveTP.min!=null&&liveTP.min<(+$('phDE').value||160))?{t:liveTP.t,bt:liveTP.min}:null;
+}
+function roastEventList(){                         // [name, elapsed s] of this roast's milestones, marked or auto-detected
+  const l=[];if(!chargeMs)return l;
+  l.push(['Charge',0]);
+  const tp=liveTpMark();if(tp)l.push(['Turning point',tp.t]);
+  const de=events.dry!=null?events.dry:liveCross.de;if(de!=null)l.push(['Dry end',de]);
+  const fc=events.fc!=null?events.fc:liveCross.fc;if(fc!=null)l.push(['First crack',fc]);
+  if(events.drop!=null)l.push(['Drop',events.drop]);
+  return l.sort((a,b)=>a[1]-b[1]);
+}
 function updateLiveBar(){
   const el=$('liveBar');
-  if(!chargeMs){el.style.display='none';return;}
+  if(!chargeMs){el.style.display='none';$('evPrev').textContent='—';return;}
   const now=events.drop!=null?events.drop:(Date.now()-chargeMs)/1000;
+  const evl=roastEventList().filter(x=>x[1]<=now);
+  $('evPrev').textContent=evl.length?evl[evl.length-1][0]:'—';
+  const fcE=events.fc!=null?events.fc:liveCross.fc;
+  if(fcE!=null&&now>fcE)$('tDev').innerHTML='Development <b style="color:var(--text)">'+fmt(now-fcE)+' ('+(100*(now-fcE)/now).toFixed(1)+'%)</b>';
   if(now<5){el.style.display='none';return;}
   const de=events.dry!=null?events.dry:liveCross.de,fc=events.fc!=null?events.fc:liveCross.fc;
   const dry=de!=null?Math.min(de,now):now;
@@ -1720,7 +1741,7 @@ $('heaterW').addEventListener('change',()=>{
 // ---------- Roast timer + events ----------
 $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;events.dry=events.fc=events.drop=null;
   invUse.dropped=false;invUse.deducted=0;         // new batch: fresh inventory-deduction session
-  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.armed=false;alarms.temp=alarms.crash=alarms.flick=false;alarms.minRor=null;bgIdx=0;
+  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=alarms.crash=alarms.flick=false;alarms.minRor=null;bgIdx=0;
   if(connectMs){                                   // drop pre-charge telemetry and make Charge the chart's zero point
     const base=(chargeMs-connectMs)/1000;
     const keep=samples.filter(s=>s.t>=base).map(s=>Object.assign({},s,{t:+((s.t-base).toFixed(1))}));
@@ -1744,7 +1765,7 @@ function resetRoastView(){                         // fresh chart for the next b
   samples.length=0;btHist.length=0;rxBuffer='';
   Object.assign(events,{charge:null,dry:null,fc:null,drop:null});
   chargeMs=null;if(connectMs)connectMs=Date.now(); // rebase the time axis
-  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.armed=false;alarms.temp=alarms.crash=alarms.flick=false;alarms.minRor=null;bgIdx=0;
+  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=alarms.crash=alarms.flick=false;alarms.minRor=null;bgIdx=0;
   curSV=null;$('tSv').textContent='—';
   $('rowCount').textContent='0 samples';
   $('evTimes').innerHTML='Roast saved &amp; chart reset — press <b>Charge</b> for the next batch (or Load the saved roast to review it).';
@@ -1762,8 +1783,8 @@ $('wOut').addEventListener('input',updateLoss);
 function renderEvents(){
   const parts=[];for(const kl of [['dry','Dry End'],['fc','First Crack'],['drop','Drop']])if(events[kl[0]]!=null)parts.push(kl[1]+' '+fmt(events[kl[0]]));
   $('evTimes').innerHTML=parts.length?parts.join(' · '):'Timer running…';
-  if(events.fc!=null&&events.drop!=null&&events.drop>events.fc){const dev=(events.drop-events.fc),pct=Math.round(dev/events.drop*100);$('tDev').innerHTML='Development <b style="color:var(--text)">'+fmt(dev)+' ('+pct+'%)</b>';}
-  else $('tDev').textContent='';
+  if(events.fc!=null&&events.drop!=null&&events.drop>events.fc){const dev=(events.drop-events.fc),pct=(dev/events.drop*100).toFixed(1);$('tDev').innerHTML='Development <b style="color:var(--text)">'+fmt(dev)+' ('+pct+'%)</b>';}
+  else if(events.fc==null&&liveCross.fc==null)$('tDev').textContent='';
 }
 
 // ---------- Theme ----------
@@ -1902,17 +1923,21 @@ function drawChart(){
         ctx.moveTo(X(lastS.t),Y(lastS.bt));
         ctx.lineTo(X(Math.min(tMax,lastS.t+60)),Y(Math.max(0,Math.min(260,lastS.bt+r*Math.min(60,tMax-lastS.t)/60))));
         ctx.stroke();ctx.setLineDash([]);}}}
-  // ---- event markers: full-height lines with temp labels ----
+  // ---- event markers: full-height lines with rotated name + temp labels (ROEST-style);
+  //      includes the auto-detected turning point and DE/FC crossings, not just marked events ----
   const btAtT=t=>{let best=null,bd=1e9;for(const s of samples){if(s.bt==null||Number.isNaN(s.bt))continue;const d=Math.abs(s.t-t);if(d<bd){bd=d;best=s.bt;}}return bd<6?best:null;};
-  if(chargeMs&&connectMs){const base=(chargeMs-connectMs)/1000;
-    ctx.font='600 10px system-ui';
-    for(const ecl of [['charge',P.ev.charge,'C'],['dry',P.ev.dry,'DE'],['fc',P.ev.fc,'FC'],['drop',P.ev.drop,'DR']]){
-      if(events[ecl[0]]!=null){const x=X(base+events[ecl[0]]);
-        ctx.strokeStyle=ecl[1];ctx.setLineDash([3,3]);
-        ctx.beginPath();ctx.moveTo(x,tpY);ctx.lineTo(x,cpY+cpH);ctx.stroke();ctx.setLineDash([]);
-        const b=btAtT(base+events[ecl[0]]);
-        ctx.fillStyle=ecl[1];ctx.fillText(ecl[2]+(b!=null?' '+Math.round(b)+'\u00b0':''),Math.min(x+3,W-pR-38),tpY+10);}}
-    ctx.font='10px system-ui';}
+  if(chargeMs&&connectMs){const base=(chargeMs-connectMs)/1000,tp=liveTpMark();
+    const cols={'Charge':P.ev.charge,'Turning point':P.ev.charge,'Dry end':P.ev.dry,'First crack':P.ev.fc,'Drop':P.ev.drop};
+    ctx.font='600 10.5px system-ui';ctx.lineWidth=1.5;
+    for(const[name,t] of roastEventList()){
+      const x=X(base+t),col=cols[name]||P.ev.charge;
+      ctx.strokeStyle=col;ctx.globalAlpha=.8;
+      ctx.beginPath();ctx.moveTo(x,tpY);ctx.lineTo(x,cpY+cpH);ctx.stroke();ctx.globalAlpha=1;
+      const b=(name==='Turning point'&&tp)?tp.bt:btAtT(base+t);
+      ctx.fillStyle=col;
+      ctx.save();ctx.translate(x+14>W-pR?x-11:x+3,tpY+4);ctx.rotate(Math.PI/2);   // flip the label left of the line near the right edge
+      ctx.fillText(name+(b!=null?' ('+b.toFixed(1)+'\u00b0C)':''),0,0);ctx.restore();}
+    ctx.lineWidth=1;ctx.font='10px system-ui';}
   // ---- phase strip ----
   {ctx.fillStyle=P.grid;ctx.globalAlpha=.5;ctx.fillRect(pL,stripY,pw,stripH);ctx.globalAlpha=1;
    let spans=null;
@@ -1964,26 +1989,34 @@ function drawChart(){
       if(q)rows1.push([P.sv,'Plan '+Math.round(q.sv)+'\u00b0']);
     }
     if(bgv!=null)rows1.push([P.bt,'BG BT '+bgv.toFixed(1)+'\u00b0']);
+    const baseH=(chargeMs&&connectMs)?(chargeMs-connectMs)/1000:0,rt=ht-baseH;   // roast time at the hovered moment
+    if(chargeMs&&connectMs){const fcH=events.fc!=null?events.fc:liveCross.fc;
+      if(fcH!=null&&rt>fcH)rows1.push([P.ev.fc,'Dev '+fmt(rt-fcH)+' ('+(100*(rt-fcH)/rt).toFixed(1)+'%)']);}
     ctx.font='600 11px system-ui';
-    const drawRows=(rows,y0)=>{
-      let y=y0;
-      for(const[col,txt] of rows){
-        const w=ctx.measureText(txt).width+18;
-        const bx=(hx+8+w>W-pR)?hx-8-w:hx+8;
-        ctx.fillStyle=P.badgeBg;ctx.beginPath();
-        ctx.roundRect?ctx.roundRect(bx,y,w,16,4):ctx.rect(bx,y,w,16);ctx.fill();
-        ctx.fillStyle=col;ctx.beginPath();ctx.arc(bx+8,y+8,3,0,7);ctx.fill();
-        ctx.fillStyle=P.badgeText;ctx.fillText(txt,bx+14,y+12);
-        y+=19;}
-    };
-    drawRows(rows1,tpY+16);
-    drawRows(rows2,cpY+3);
-    const tl='Time: '+fmt(Math.max(0,ht));
-    const tw=ctx.measureText(tl).width+12;
-    const tx=Math.min(Math.max(hx-tw/2,pL),W-pR-tw);
-    ctx.fillStyle=P.badgeBg;ctx.beginPath();
-    ctx.roundRect?ctx.roundRect(tx,tpY+tpH+2,tw,13,3):ctx.rect(tx,tpY+tpH+2,tw,13);ctx.fill();
-    ctx.fillStyle=P.badgeText;ctx.fillText(tl,tx+6,tpY+tpH+12);
+    // one grouped info box (ROEST-style) in the temps pane: time on top, then values
+    {const title='Time: '+(rt<0?'\u2212':'')+fmt(Math.abs(rt));
+     let bw=ctx.measureText(title).width;
+     for(const r of rows1)bw=Math.max(bw,ctx.measureText(r[1]).width+14);
+     bw+=16;
+     const bh=20+rows1.length*17;
+     const bx=(hx+10+bw>W-pR)?hx-10-bw:hx+10;
+     ctx.fillStyle=P.badgeBg;ctx.beginPath();
+     ctx.roundRect?ctx.roundRect(bx,tpY+8,bw,bh,6):ctx.rect(bx,tpY+8,bw,bh);ctx.fill();
+     ctx.strokeStyle=P.grid;ctx.lineWidth=1;ctx.stroke();
+     ctx.fillStyle=P.badgeText;ctx.fillText(title,bx+8,tpY+21);
+     let y=tpY+26;
+     for(const[col,txt] of rows1){
+       ctx.fillStyle=col;ctx.beginPath();ctx.arc(bx+11,y+6,3,0,7);ctx.fill();
+       ctx.fillStyle=P.badgeText;ctx.fillText(txt,bx+18,y+10);y+=17;}}
+    {let y=cpY+3;                                                    // controls pane keeps small badges
+     for(const[col,txt] of rows2){
+       const w=ctx.measureText(txt).width+18;
+       const bx=(hx+8+w>W-pR)?hx-8-w:hx+8;
+       ctx.fillStyle=P.badgeBg;ctx.beginPath();
+       ctx.roundRect?ctx.roundRect(bx,y,w,16,4):ctx.rect(bx,y,w,16);ctx.fill();
+       ctx.fillStyle=col;ctx.beginPath();ctx.arc(bx+8,y+8,3,0,7);ctx.fill();
+       ctx.fillStyle=P.badgeText;ctx.fillText(txt,bx+14,y+12);
+       y+=19;}}
     ctx.font='10px system-ui';
   }
 }
