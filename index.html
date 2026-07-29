@@ -250,7 +250,9 @@
     <button id="profRun" class="green" style="width:100%">▶ Run profile</button>
   </div>
 
-  <div class="panel">
+  <label class="ck" style="margin:2px 4px 10px"><input type="checkbox" id="advMode"><span class="small"><b>Advanced mode</b> — show the ET-track and power-profile (open-loop) roast tools</span></label>
+
+  <div class="panel" id="etPanel">
     <h2>ET-track roast (experimental)</h2>
     <div class="banner warn" style="margin-bottom:8px">⚠️ Drives the heater <b>directly in manual mode</b> (firmware PID off) with a software control loop. Stay at the machine — <b>HEATER OFF</b> always works.</div>
     <div class="row" style="margin-bottom:8px">
@@ -281,7 +283,7 @@
     </details>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="ppPanel">
     <h2>Power profile (open loop)</h2>
     <div class="banner warn" style="margin-bottom:8px">⚠️ Drives the heater <b>directly in manual mode</b> on a fixed schedule — no temperature feedback at all. Stay at the machine — <b>HEATER OFF</b> always works.</div>
     <div class="row" style="margin-bottom:8px;align-items:center">
@@ -2663,6 +2665,18 @@ try{const pp=JSON.parse(localStorage.getItem('rc_pprof')||'null');          // r
     if(pp.step)$('ppStep').value=pp.step;$('ppArm').checked=!!pp.arm;
     if(pp.src){$('ppSrc').value=pp.src;}
     ppSummaryDraw();drawPProf();}}catch(e){}
+// Advanced mode: the ET-track and power-profile panels stay hidden unless enabled;
+// hiding them also disarms their auto-charge checkboxes so nothing runs invisibly.
+function applyAdvMode(){
+  const on=$('advMode').checked;
+  $('etPanel').style.display=on?'':'none';
+  $('ppPanel').style.display=on?'':'none';
+  if(!on){$('etArm').checked=false;
+    if($('ppArm').checked){$('ppArm').checked=false;savePProfCfg();}}
+}
+$('advMode').addEventListener('change',()=>{try{localStorage.setItem('rc_adv',$('advMode').checked?'1':'0');}catch(e){}applyAdvMode();});
+try{$('advMode').checked=localStorage.getItem('rc_adv')==='1';}catch(e){}
+applyAdvMode();
 refreshInventoryList();
 renderBatchResult();
 try{const pv=localStorage.getItem('rc_aiprov');if(pv)$('aiProvider').value=pv;}catch(e){}
