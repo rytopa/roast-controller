@@ -180,6 +180,19 @@
   </div>
 
   <div class="panel">
+    <h2>Between batches / charge</h2>
+    <div class="row" style="margin-bottom:8px">
+      <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Cool to °C</div><input id="bbpCool" type="number" min="40" max="150" value="100"></div>
+      <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge temp °C</div><input id="bbpCharge" type="number" min="120" max="240" value="180"></div>
+      <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge fan %</div><input id="bbpFan" type="number" min="10" max="100" value="30"></div>
+    </div>
+    <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="bbpAuto" checked><span><b>Auto-charge</b> — when the beans drop (BT plunges), mark Charge and start the profile loaded in the designer automatically. <b>No need to press ▶ Run profile</b> — the whole roast runs from this one button.</span></label>
+    <button id="bbpStart" class="blue" style="width:100%">🔄 Start between-batch cycle</button>
+    <div id="bbpStatus" class="small" style="margin-top:7px">Cools the machine (fan 100%, heater off) to the cool-to temp, then ramps gradually to your charge temp over <b>1 min</b> at the charge fan speed, holds it <b>30 s</b>, and lights up when it's time to drop the beans.</div>
+    <div id="bbpLight" class="droplight" style="display:none">⬇ DROP BEANS NOW</div>
+  </div>
+
+  <div class="panel">
     <h2>Profile designer</h2>
     <div class="row" style="margin-bottom:8px">
       <select id="profSelect" style="flex:1;min-width:130px"><option value="">— New profile —</option></select>
@@ -280,19 +293,6 @@
     <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="ppArm"><span><b>Arm for auto-charge</b> — the bean-drop detection runs this power schedule (takes priority over ET-track and the normal profile).</span></label>
     <button id="ppRunBtn" class="green" style="width:100%">▶ Run power profile</button>
     <div class="small" id="ppStatus" style="margin-top:7px"><b>Generate</b> distills a saved roast's recorded heater curve into fixed power steps: the roast then runs purely on this schedule — your charge soak first, then the steps, <b>zero mid-roast adjustments</b>. The generated schedule rises once to its peak, then <b>only ever lowers the heat</b> — wobbles are <b>averaged, not clipped</b>, so it delivers the <b>same total heat (Σ %·min)</b> as the source; the line under the plot shows the comparison (live as you edit). Edit the lines freely; the schedule is saved in this browser.</div>
-  </div>
-
-  <div class="panel">
-    <h2>Between batches / charge</h2>
-    <div class="row" style="margin-bottom:8px">
-      <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Cool to °C</div><input id="bbpCool" type="number" min="40" max="150" value="100"></div>
-      <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge temp °C</div><input id="bbpCharge" type="number" min="120" max="240" value="180"></div>
-      <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge fan %</div><input id="bbpFan" type="number" min="10" max="100" value="30"></div>
-    </div>
-    <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="bbpAuto" checked><span><b>Auto-charge</b> — when the beans drop (BT plunges), mark Charge and start the profile loaded in the designer automatically. <b>No need to press ▶ Run profile</b> — the whole roast runs from this one button.</span></label>
-    <button id="bbpStart" class="blue" style="width:100%">🔄 Start between-batch cycle</button>
-    <div id="bbpStatus" class="small" style="margin-top:7px">Cools the machine (fan 100%, heater off) to the cool-to temp, then ramps gradually to your charge temp over <b>1 min</b> at the charge fan speed, holds it <b>30 s</b>, and lights up when it's time to drop the beans.</div>
-    <div id="bbpLight" class="droplight" style="display:none">⬇ DROP BEANS NOW</div>
   </div>
 
   <div class="panel">
