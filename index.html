@@ -164,18 +164,19 @@
         <button id="btnCFan" class="blue">Set fan</button>
         <button id="cFan0">Fan 0</button>
         <button id="cPow0" class="danger">Power 0</button>
-        <span class="small">a manual change during a profile roast pauses the automated fan — options to resume appear below</span>
+        <label class="ck" style="margin:0"><input type="checkbox" id="enableControl"><span class="small"><b style="color:var(--warn)">Enable control</b> — commands real heater/fan hardware</span></label>
       </div>
+      <div class="small" style="margin-top:6px">a manual change during a profile roast pauses the automated fan — options to resume appear below</div>
       <div id="fanOvrNote" class="small" style="display:none;color:var(--warn);margin-top:8px">✋ <b>Manual fan override</b> — the automated fan is paused for this roast (temperature control keeps running).
         <button id="fanOvrResume" style="padding:4px 9px;font-size:12px;margin-left:6px">Resume profile fan</button>
         <button id="fanOvrRebase" style="padding:4px 9px;font-size:12px;margin-left:6px">Resume — shift curve to my fan</button></div>
       <div class="row" style="margin-top:8px;gap:6px;align-items:center">
-        <label class="ck" style="margin:0"><input type="checkbox" id="alarmRor" checked><span>RoR crash / flick warnings</span></label>
-        <span class="small">· Alert at BT</span><input id="alarmTemp" type="number" min="0" max="260" placeholder="e.g. 195" style="width:84px"><span class="small">°C</span>
+        <span class="small">Alert at BT</span><input id="alarmTemp" type="number" min="0" max="260" placeholder="e.g. 195" style="width:84px"><span class="small">°C</span>
         <span class="small">· RoR window</span><input id="rorWin" type="number" min="5" max="60" value="15" style="width:64px"><span class="small">s</span>
         <span class="small">· RoR smooth</span><select id="rorSmooth" style="width:auto"><option value="0">off</option><option value="10" selected>light</option><option value="20">medium</option><option value="40">heavy</option></select>
       </div>
       <div id="alarmBanner" class="banner err" style="display:none;margin:8px 0 0"></div>
+      <button id="emergency" class="danger" disabled>■ HEATER OFF (stop)</button>
     </div>
   </div>
 
@@ -186,7 +187,16 @@
       <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge temp °C</div><input id="bbpCharge" type="number" min="120" max="240" value="180"></div>
       <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge fan %</div><input id="bbpFan" type="number" min="10" max="100" value="30"></div>
     </div>
+    <div class="row" style="margin:0 0 4px;align-items:center">
+      <span class="small"><b>Charge soak</b> — heater</span>
+      <input id="soakP1" type="number" min="0" max="100" value="30" style="width:66px"><span class="small">% until</span>
+      <input id="soakT1" type="number" min="5" max="120" value="30" style="width:66px"><span class="small">s, then</span>
+      <input id="soakP2" type="number" min="0" max="100" value="40" style="width:66px"><span class="small">% until</span>
+      <input id="soakT2" type="number" min="10" max="180" value="45" style="width:66px"><span class="small">s</span>
+    </div>
+    <div class="small" style="margin-bottom:8px">Fixed heater power right after <b>Charge</b> (open loop, PID off) — then the control loop takes over. Applies to profile runs <b>and ET-track runs</b> started at charge. Saved in this browser.</div>
     <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="bbpAuto" checked><span><b>Auto-charge</b> — when the beans drop (BT plunges), mark Charge and start the profile loaded in the designer automatically. <b>No need to press ▶ Run profile</b> — the whole roast runs from this one button.</span></label>
+    <div id="bbpPreview" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 11px;margin-bottom:8px"></div>
     <button id="bbpStart" class="blue" style="width:100%">🔄 Start between-batch cycle</button>
     <div id="bbpStatus" class="small" style="margin-top:7px">Cools the machine (fan 100%, heater off) to the cool-to temp, then ramps gradually to your charge temp over <b>1 min</b> at the charge fan speed, holds it <b>30 s</b>, and lights up when it's time to drop the beans.</div>
     <div id="bbpLight" class="droplight" style="display:none">⬇ DROP BEANS NOW</div>
@@ -211,7 +221,7 @@
     <canvas id="profCanvas" style="height:200px;touch-action:none;margin-bottom:6px"></canvas>
     <div class="small" style="margin-bottom:8px">✏️ Unlock the graph, then <b>drag points</b> to shape the curve · <b>press empty space</b> to add a point · <b>double-tap a point</b> to delete. Dashed pink = the RoR each segment implies (0–30 °C/min) · dashed grey = fan % (right scale; auto-fan curve or the table's fan values). Fine-tune times/temps and set fan % in the table.</div>
     <details id="profDetails" style="margin-bottom:8px">
-      <summary class="small" style="cursor:pointer;font-weight:600">Details — phases, points table, auto fan</summary>
+      <summary class="small" style="cursor:pointer;font-weight:600">Details — phases, points table</summary>
       <div style="margin-top:8px">
     <div class="row" style="gap:6px;align-items:center;margin-bottom:6px">
       <span class="small"><b>Phases</b> — DE at</span><input id="phDE" type="number" min="100" max="200" value="160" style="width:64px"><span class="small">°C · FC at</span><input id="phFC" type="number" min="150" max="240" value="200" style="width:64px"><span class="small">°C</span>
@@ -220,6 +230,8 @@
     <div class="small" id="rorInfo" style="margin-bottom:12px"></div>
     <div class="ptbl"><span class="hd">Time m:ss</span><span class="hd">Target °C</span><span class="hd">Fan % (opt)</span><span></span></div>
     <div id="ptPoints"></div>
+      </div>
+    </details>
     <div class="row" style="margin:8px 0 6px;align-items:center">
       <label class="ck" style="margin:0"><input type="checkbox" id="fanAuto"><span><b>Auto fan</b> — start</span></label>
       <input type="number" id="fanStart" min="10" max="100" value="60" style="width:70px"><span class="small">%</span>
@@ -234,19 +246,9 @@
       </select>
     </div>
     <div class="small" style="margin-bottom:10px">Ticked, auto fan <b>replaces the per-point fan column</b> for the run. It follows the <i>measured bean temp</i>, going from your <b>start&nbsp;%</b> down to your <b>end&nbsp;%</b> (e.g. 60&nbsp;→&nbsp;42) by the profile's end temperature, applied in the selected shape. <b>Steps</b> uses the DE/FC temps from the Phases row above. Fill in the optional <b>mid&nbsp;%</b> to add a middle point at that bean temp — the fan then runs straight lines start&nbsp;→&nbsp;mid&nbsp;→&nbsp;end (mid above both makes a pyramid, e.g. 60&nbsp;→&nbsp;80&nbsp;→&nbsp;42) and the shape picker is ignored. The dashed grey line on the chart previews it.</div>
-      </div>
-    </details>
-    <div class="row" style="margin:8px 0 10px"><button id="profAddRow">+ Add point</button><button id="profSave" class="green">Save profile</button><button id="profImport">Import JSON</button><button id="profExport">Export JSON</button></div>
+    <div class="row" style="margin:8px 0 10px"><button id="profSave" class="green">Save profile</button><button id="profImport">Import JSON</button><button id="profExport">Export JSON</button></div>
     <input type="file" id="profFile" accept=".json,application/json" style="display:none">
     <div class="small" style="margin-bottom:10px">Build a target-temperature curve: <b>time from Charge → target °C</b>, with optional fan %. When you Run it, the app ramps the PID setpoint smoothly along the curve (leave fan blank to control the fan by hand). Saved in this browser. <b>Import JSON</b> loads a profile file — e.g. one generated by an AI assistant (format in the README); review it, then Save.</div>
-    <div class="row" style="margin:0 0 4px;align-items:center">
-      <span class="small"><b>Charge soak</b> — heater</span>
-      <input id="soakP1" type="number" min="0" max="100" value="30" style="width:66px"><span class="small">% until</span>
-      <input id="soakT1" type="number" min="5" max="120" value="30" style="width:66px"><span class="small">s, then</span>
-      <input id="soakP2" type="number" min="0" max="100" value="40" style="width:66px"><span class="small">% until</span>
-      <input id="soakT2" type="number" min="10" max="180" value="45" style="width:66px"><span class="small">s</span>
-    </div>
-    <div class="small" style="margin-bottom:10px">Fixed heater power right after <b>Charge</b> (open loop, PID off) — then the control loop takes over. Applies to profile runs <b>and ET-track runs</b> started at charge. Saved in this browser.</div>
     <button id="profRun" class="green" style="width:100%">▶ Run profile</button>
   </div>
 
@@ -302,7 +304,9 @@
     <div class="small" id="ppStatus" style="margin-top:7px"><b>Generate</b> distills a saved roast's recorded heater curve into fixed power steps: the roast then runs purely on this schedule — your charge soak first, then the steps, <b>zero mid-roast adjustments</b>. The generated schedule rises once to its peak, then <b>only ever lowers the heat</b> — wobbles are <b>averaged, not clipped</b>, so it delivers the <b>same total heat (Σ %·min)</b> as the source; the line under the plot shows the comparison (live as you edit). Edit the lines freely; the schedule is saved in this browser.</div>
   </div>
 
-  <div class="panel">
+  <!-- Roast session panel hidden per user request: the elements stay in the DOM because the
+       machinery still uses them (auto-charge clicks #evCharge; drop/auto-save read the weights). -->
+  <div class="panel" style="display:none">
     <h2>Roast session</h2>
     <div class="evt">
       <button id="evCharge" class="primary">▶ Charge</button>
@@ -331,44 +335,6 @@
       <span class="small">Heater rating</span><input id="heaterW" type="number" min="0" placeholder="e.g. 1500" style="width:96px"><span class="small">W — optional, for the kWh estimate in the roast summary.</span>
     </div>
     <div id="statsCard" class="small" style="display:none;margin-top:10px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 11px"></div>
-  </div>
-
-  <div class="panel">
-    <h2>Control</h2>
-    <label class="ck" style="margin-bottom:12px"><input type="checkbox" id="enableControl"><span><b style="color:var(--warn)">Enable control.</b> I understand this commands real heater/fan hardware.</span></label>
-    <div id="controls" style="opacity:.4;pointer-events:none">
-      <div class="row" style="margin-bottom:6px">
-        <button data-raw="IO3,0">Fan 0</button><button data-raw="IO3,30">Fan 30</button>
-        <button data-raw="IO3,50">Fan 50</button><button data-raw="IO3,70">Fan 70</button>
-        <button id="fanMinus">−5</button><button id="fanPlus">+5</button>
-        <input type="number" id="fanVal" min="0" max="100" value="50" style="width:70px"><button id="btnFan" class="blue">Set fan</button>
-      </div>
-      <div class="small" style="margin-bottom:12px">Fan must be running before the heater will fire. Adjusting the fan by hand during a profile roast takes over the fan for the rest of the roast.</div>
-      <hr>
-      <div class="ctl-row">
-        <span class="small">Target °C</span>
-        <input type="number" id="svVal" min="0" max="260" value="150">
-        <button id="btnSv" class="green">Set target</button>
-      </div>
-      <div class="ctl-row">
-        <span class="small">Ramp to</span>
-        <div class="row" style="flex-wrap:nowrap">
-          <input type="number" id="rampTo" min="0" max="260" value="200" placeholder="°C">
-          <span class="small" style="white-space:nowrap">@</span>
-          <input type="number" id="rampRate" min="1" max="60" value="15" placeholder="°C/min">
-        </div>
-        <button id="btnRamp" class="green">Start ramp</button>
-      </div>
-      <div class="small" style="margin-bottom:6px">Manual heating. For a full roast curve use the <b>Profile designer</b> above. Ramping the target avoids overshoot.</div>
-      <details>
-        <summary>Advanced (manual power / PID)</summary>
-        <div style="margin-top:8px">
-          <div class="ctl-row"><span class="small">Heater % (PID off only)</span><input type="number" id="ot1Val" min="0" max="100" value="0"><button id="btnOt1">Set OT1</button></div>
-          <div class="row"><button data-raw="PID,ON ">PID ON</button><button data-raw="PID,OFF ">PID OFF</button></div>
-        </div>
-      </details>
-    </div>
-    <button id="emergency" class="danger" disabled>■ HEATER OFF (stop)</button>
   </div>
 
   <div class="panel">
@@ -496,7 +462,7 @@ const btHist=[];           // {ms,bt} for RoR
 const events={charge:null,dry:null,fc:null,drop:null};
 const liveCross={de:null,fc:null};                 // BT crossings of the DE/FC temps this roast
 const liveTP={min:null,t:null,armed:false};        // post-charge turning point: don't trust the hot-probe reading until BT bottoms out; t = elapsed s of the BT minimum
-const alarms={temp:false,crash:false,flick:false,minRor:null};
+const alarms={temp:false};
 let bg=null,bgIdx=0;                               // background roast overlay
 
 function setState(t,on){const s=$('state');s.textContent=t;s.className='pill '+(on?'on':'off');}
@@ -507,7 +473,6 @@ if(!navigator.bluetooth){$('supportBanner').style.display='block';$('btnConnect'
 function rorWinS(){return Math.max(5,Math.min(60,+document.getElementById('rorWin').value||15));}
 function rorSmoothS(){return Math.max(0,Math.min(60,+document.getElementById('rorSmooth').value||0));}
 
-$('enableControl').addEventListener('change',e=>{const on=e.target.checked&&writeChar;$('controls').style.opacity=on?'1':'.4';$('controls').style.pointerEvents=on?'auto':'none';});
 
 // ---------- Connect ----------
 $('btnConnect').addEventListener('click',async()=>{
@@ -539,7 +504,6 @@ $('btnConnect').addEventListener('click',async()=>{
     connectMs=Date.now();
     setState('connected',true);
     $('btnConnect').disabled=true;$('btnDisconnect').disabled=false;$('emergency').disabled=!w;
-    if($('enableControl').checked)$('enableControl').dispatchEvent(new Event('change'));
     log('✅ Connected.');
   }catch(err){log('❌ '+err.message);setState('disconnected',false);}
 });
@@ -629,8 +593,8 @@ function clampPct(v){v=parseInt(v,10);return Number.isNaN(v)?0:Math.max(0,Math.m
 // Manual fan override: any hand adjustment during a profile roast pauses the
 // profile's fan commands for the rest of the roast (PID curve keeps running).
 let fanOverride=false;
-function curFan(){for(let i=samples.length-1;i>=0;i--){const f=samples[i].fan;if(f!=null&&!Number.isNaN(f))return f;}return clampPct($('fanVal').value);}
-function manualFan(v){v=clampPct(v);$('fanVal').value=v;$('cFanVal').value=v;send('IO3,'+v);markFanOverride();}
+function curFan(){for(let i=samples.length-1;i>=0;i--){const f=samples[i].fan;if(f!=null&&!Number.isNaN(f))return f;}return clampPct($('cFanVal').value);}
+function manualFan(v){v=clampPct(v);$('cFanVal').value=v;send('IO3,'+v);markFanOverride();}
 function markFanOverride(){if((profile||etRun)&&!fanOverride){fanOverride=true;$('fanOvrNote').style.display='';
   log('✋ Manual fan override — automated fan paused (temperature control keeps running)');}}
 function clearFanOverride(){fanOverride=false;$('fanOvrNote').style.display='none';}
@@ -638,7 +602,7 @@ $('fanOvrResume').addEventListener('click',()=>{clearFanOverride();if(profile)pr
 // "Shift curve to my fan": offset the whole air schedule so it passes through the hand-set
 // value (schedule said 60, beans needed 70 -> rest of the curve runs +10), then resume it.
 $('fanOvrRebase').addEventListener('click',()=>{
-  const cur=clampPct($('fanVal').value);                 // the value the hand adjustment landed on (manualFan keeps it in sync)
+  const cur=clampPct($('cFanVal').value);                // the value the hand adjustment landed on (manualFan keeps it in sync)
   let sched=null;                                        // what the automation would command right now, unshifted
   if(profile){
     const pts=profile.points,af=profile.autoFan;
@@ -656,47 +620,16 @@ $('fanOvrRebase').addEventListener('click',()=>{
   log('Air curve shifted '+(ofs>=0?'+':'')+ofs+'% (through '+cur+'%) — automated fan resumed');
   drawChart();
 });
-$('fanMinus').addEventListener('click',()=>manualFan(curFan()-5));
-$('fanPlus').addEventListener('click',()=>manualFan(curFan()+5));
-
-document.querySelectorAll('[data-raw]').forEach(b=>b.addEventListener('click',()=>{
-  const raw=b.dataset.raw;
-  if(raw.startsWith('IO3,'))manualFan(raw.slice(4));
-  else send(raw);
-}));
-$('btnFan').addEventListener('click',()=>manualFan($('fanVal').value));
-// Fan row next to the chart — same manualFan path as the Control panel, but this row isn't
-// inside the enable-gated #controls container, so gate each click explicitly.
+// Fan row next to the chart — every click is gated on the Enable control tick in the same row.
 function fanCtlOk(){if(!writeChar||!$('enableControl').checked){alert('Connect the roaster and tick "Enable control" first.');return false;}return true;}
 $('cFanM5').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()-5);});
 $('cFanP5').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()+5);});
 $('btnCFan').addEventListener('click',()=>{if(fanCtlOk())manualFan($('cFanVal').value);});
 $('cFan0').addEventListener('click',()=>{if(fanCtlOk())manualFan(0);});
 $('cPow0').addEventListener('click',()=>{if(fanCtlOk())heaterOff();});
-$('btnSv').addEventListener('click',async()=>{stopRamp();stopProfile();stopEtRun('manual setpoint',true);stopPProf('manual setpoint',true);const v=+$('svVal').value;if(pidEngaged)setSV(v);else await engagePID(v);});
-$('btnOt1').addEventListener('click',()=>send('OT1,'+clampPct($('ot1Val').value)));
 async function heaterOff(){stopRamp();stopProfile();stopBBP('emergency',true);stopEtRun('emergency',true);stopPProf('emergency',true);await send('PID,OFF ');pidEngaged=false;setPidPill();setTimeout(()=>send('OT1,0'),300);}
 $('emergency').addEventListener('click',heaterOff);
-document.querySelectorAll('[data-raw="PID,OFF "]').forEach(b=>b.addEventListener('click',()=>{pidEngaged=false;setPidPill();}));
-document.querySelectorAll('[data-raw="PID,ON "]').forEach(b=>b.addEventListener('click',()=>{pidEngaged=true;setPidPill();}));
-
-// ---------- Manual ramp ----------
-$('btnRamp').addEventListener('click',()=>{ramp?stopRamp():startRamp();});
-async function startRamp(){
-  stopProfile();stopEtRun('ramp started',true);stopPProf('ramp started',true);
-  const target=+$('rampTo').value, rate=Math.max(1,+$('rampRate').value);
-  const startSV=curSV!=null?curSV:(samples.length?Math.round(samples[samples.length-1].bt):30);
-  if(!pidEngaged)await engagePID(startSV); else setSV(startSV);
-  ramp={target,rate,tid:setInterval(()=>{
-    const step=rate*(2/60);
-    const nv=target>=curSV?Math.min(target,curSV+step):Math.max(target,curSV-step);
-    setSV(nv);
-    if(nv===target)stopRamp();
-  },2000)};
-  $('btnRamp').textContent='Stop ramp';$('btnRamp').classList.add('danger');
-  log('Ramp → '+target+'°C @ '+rate+'°C/min');
-}
-function stopRamp(){if(ramp){clearInterval(ramp.tid);ramp=null;}const b=$('btnRamp');if(b){b.textContent='Start ramp';b.classList.remove('danger');}}
+function stopRamp(){if(ramp){clearInterval(ramp.tid);ramp=null;}}
 
 // ---------- Profile designer + playback ----------
 let editPts=[{t:0,sv:150,fan:50},{t:300,sv:185,fan:''},{t:600,sv:205,fan:''}];
@@ -717,7 +650,7 @@ function renderPoints(){
     if(k==='t')renderPoints(); else drawChart();
   }));
   box.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',e=>{editPts.splice(+e.target.dataset.del,1);renderPoints();}));
-  drawChart();drawProfEditor();renderPhaseBar();
+  drawChart();drawProfEditor();renderPhaseBar();bbpPreviewDraw();
 }
 
 // ---------- Phase bar (Dry / Maillard / Development from the plan) ----------
@@ -861,7 +794,6 @@ function getPoints(){
     .map(p=>({t:+p.t,sv:+p.sv,fan:(p.fan===''||p.fan==null)?null:+p.fan}))
     .sort((a,b)=>a.t-b.t);
 }
-$('profAddRow').addEventListener('click',()=>{const last=editPts[editPts.length-1];editPts.push({t:(last?last.t:0)+120,sv:last?last.sv:190,fan:''});$('profDetails').open=true;renderPoints();});
 // the details block (phases / points table / auto fan) stays collapsed unless opened — remembered per browser
 try{$('profDetails').open=localStorage.getItem('rc_profdet')==='1';}catch(e){}
 $('profDetails').addEventListener('toggle',()=>{try{localStorage.setItem('rc_profdet',$('profDetails').open?'1':'0');}catch(e){}});
@@ -995,7 +927,7 @@ function uiAutoFan(){
     pct:Math.max(5,Math.min(100,mp)),
     temp:Math.max(105,Math.min(240,parseInt($('fanMidC').value,10)||160))};
   return af;}
-const redrawFan=()=>{drawChart();drawProfEditor();};
+const redrawFan=()=>{drawChart();drawProfEditor();bbpPreviewDraw();};
 $('fanAuto').addEventListener('change',redrawFan);
 $('fanStart').addEventListener('change',redrawFan);
 $('fanMid').addEventListener('change',redrawFan);
@@ -1011,7 +943,20 @@ function interpAt(pts,e){
     return{sv:a.sv+(b.sv-a.sv)*f,fan:(a.fan!=null&&b.fan!=null)?a.fan+(b.fan-a.fan)*f:(a.fan!=null?a.fan:b.fan)};}}
   return{sv:last.sv,fan:last.fan};
 }
-$('profRun').addEventListener('click',()=>{profile?stopProfile():startProfile();});
+// Roast-start guard: the fan plan must be a conscious choice — if Auto fan isn't
+// ticked, ask before the roast starts (Cancel aborts so it can be set first).
+// Deliberately NOT inside startProfile: auto-charge calls that at the bean-drop
+// moment, when a blocking dialog would be dangerous — the auto path is guarded
+// up front in startBBP instead.
+function confirmAutoFan(){
+  if(uiAutoFan())return true;
+  const hasPtFan=getPoints().some(p=>p.fan!=null);
+  return confirm('⚠️ Auto fan is OFF.\n\n'
+    +(hasPtFan?'The fan will follow the per-point fan column in the points table instead.'
+              :'There is NO fan schedule — the fan stays where it is and must be driven by hand.')
+    +'\n\nStart anyway?\n(Cancel to go back and tick Auto fan — start/mid/end % and shape.)');
+}
+$('profRun').addEventListener('click',()=>{profile?stopProfile():(confirmAutoFan()&&startProfile());});
 function chargeSoak(){                                     // open-loop heater steps after charge (roast clock); the control loop takes over after the last step
   const v=(id,d)=>{const x=+$(id).value;return $(id).value!==''&&Number.isFinite(x)?x:d;};
   const t1=Math.max(5,Math.min(120,Math.round(v('soakT1',30))));
@@ -1025,7 +970,7 @@ function saveSoakCfg(){try{localStorage.setItem('rc_soak',JSON.stringify({p1:$('
 async function startProfile(){
   const pts=getPoints();if(pts.length<2){alert('Add at least 2 points.');return;}
   if(!writeChar){alert('Connect the roaster first.');return;}
-  if(!$('enableControl').checked){alert('Tick "Enable control" in the Control panel first.');return;}
+  if(!$('enableControl').checked){alert('Tick "Enable control" next to the chart first.');return;}
   stopRamp();stopEtRun('profile started',true);stopPProf('profile started',true);clearFanOverride();
   const af=uiAutoFan(),endSv=Math.max(175,pts[pts.length-1].sv);
   const fan0=af?af.start:(pts[0].fan!=null?Math.round(pts[0].fan):40); send('IO3,'+fan0); await delay(300);
@@ -1157,7 +1102,7 @@ $('etArm').addEventListener('change',()=>{if($('etArm').checked&&!etRef&&!etRun)
 $('etRunBtn').addEventListener('click',()=>{etRun?stopEtRun('stopped by user'):startEtRun();});
 async function startEtRun(){
   if(!writeChar){alert('Connect the roaster first.');return;}
-  if(!$('enableControl').checked){alert('Tick "Enable control" in the Control panel first.');return;}
+  if(!$('enableControl').checked){alert('Tick "Enable control" next to the chart first.');return;}
   if(!etRef)applyEtRef();
   if(!etRef){alert('Pick a reference roast (with ET data) first.');return;}
   stopRamp();stopProfile();stopPProf('ET-track started',true);clearFanOverride();
@@ -1419,7 +1364,7 @@ $('ppGen').addEventListener('click',()=>{
 $('ppRunBtn').addEventListener('click',()=>{pprof?stopPProf('stopped by user'):startPProf();});
 async function startPProf(){
   if(!writeChar){alert('Connect the roaster first.');return;}
-  if(!$('enableControl').checked){alert('Tick "Enable control" in the Control panel first.');return;}
+  if(!$('enableControl').checked){alert('Tick "Enable control" next to the chart first.');return;}
   const steps=ppSteps();if(!steps){alert('The schedule isn\'t valid — one "time heater% [fan%]" per line, at least 2 lines.');return;}
   stopRamp();stopProfile();stopEtRun('power profile started',true);clearFanOverride();
   await send('PID,OFF ');pidEngaged=false;
@@ -1496,9 +1441,35 @@ function beepReady(){
 function saveBbpCfg(){try{localStorage.setItem('rc_bbp',JSON.stringify({cool:$('bbpCool').value,charge:$('bbpCharge').value,fan:$('bbpFan').value}));}catch(e){}}
 ['bbpCool','bbpCharge','bbpFan'].forEach(id=>$(id).addEventListener('change',saveBbpCfg));
 $('bbpStart').addEventListener('click',()=>{bbp?stopBBP('cancelled'):startBBP();});
+// What will actually run at the bean drop — shown live in the between-batch panel
+// so there's no guessing between the designer profile and an armed ET-track /
+// power-schedule replay of a previous roast.
+function bbpPreviewDraw(){
+  const el=$('bbpPreview');if(!el)return;
+  const lbl='<span class="small" style="color:var(--dim)">At bean drop this will run:</span><br>';
+  if(!$('bbpAuto').checked){el.innerHTML=lbl+'<b>nothing (Auto-charge is off)</b><div class="small">you start the roast by hand after dropping the beans</div>';return;}
+  const pts=getPoints(),haveProfile=pts.length>=2,pname=$('profName').value.trim();
+  const ppArmedSteps=$('ppArm').checked?ppSteps():null;
+  const etArmed=!ppArmedSteps&&$('etArm').checked&&!!(etRef||$('etSel').value);
+  if(ppArmedSteps){
+    el.innerHTML=lbl+'<b>⚡ Power profile (open loop)</b><div class="small">'+ppArmedSteps.length+' fixed steps · '+fmt(ppArmedSteps[ppArmedSteps.length-1].t)+' · drop at BT '+Math.max(120,Math.min(250,+$('ppEndBt').value||210))+'°</div>';
+  }else if(etArmed){
+    const n=etRef?etRef.name:($('etSel').selectedOptions[0]?$('etSel').selectedOptions[0].textContent.trim():'selected reference');
+    el.innerHTML=lbl+'<b>🔁 ET-track replay — '+escapeHtml(n)+'</b><div class="small">follows that roast’s recorded exhaust curve · drop at BT '+Math.max(120,Math.min(250,+$('etEndBt').value||(etRef&&etRef.endBt)||210))+'°</div>';
+  }else if(haveProfile){
+    const lp=pts[pts.length-1],af=uiAutoFan();
+    el.innerHTML=lbl+'<b>📈 Profile — '+escapeHtml(pname||'(unnamed — the curve in the designer below)')+'</b><div class="small">'
+      +fmt(lp.t)+' → '+Math.round(lp.sv)+' °C · '
+      +(af?('auto fan '+af.start+(af.mid?' → '+af.mid.pct:'')+' → '+af.end+'% ('+af.mode+')'):'⚠ auto fan OFF — fan from the points table / by hand')+'</div>';
+  }else{
+    el.innerHTML=lbl+'<b>⚠ no profile loaded</b><div class="small">load or build one in the Profile designer below before charging</div>';
+  }
+}
+['bbpAuto','etArm','ppArm','etSel','ppEndBt','etEndBt'].forEach(id=>$(id).addEventListener('change',bbpPreviewDraw));
+$('profName').addEventListener('input',bbpPreviewDraw);
 async function startBBP(){
   if(!writeChar){alert('Connect the roaster first.');return;}
-  if(!$('enableControl').checked){alert('Tick "Enable control" in the Control panel first.');return;}
+  if(!$('enableControl').checked){alert('Tick "Enable control" next to the chart first.');return;}
   const coolTo=Math.max(40,Math.min(150,+$('bbpCool').value||100));
   const chargeT=Math.max(coolTo+10,Math.min(240,+$('bbpCharge').value||180));
   const fanLow=Math.max(10,Math.min(100,+$('bbpFan').value||30));
@@ -1534,6 +1505,7 @@ async function startBBP(){
     dropTemp=Math.round(lp.sv)+' °C (last-point target)';
     totalTime=fmt(lp.t);
   }
+  if(auto&&!ppArmedSteps&&!etArmed&&haveProfile&&!confirmAutoFan())return;   // fan choice happens now — not at the bean drop
   const summary=['Start the between-batch cycle?','',
     ((ppArmedSteps||etArmed)?'Run:  ':'Profile:  ')+runLine,
     'Drop temp:  '+(dropTemp||'—'),
@@ -1630,18 +1602,12 @@ function liveTrack(bt,ror){
     $('bgDelta').innerHTML=b!=null?'· vs BG <b style="color:var(--text)">'+((bt-b)>=0?'+':'')+(bt-b).toFixed(1)+'°</b>':'';}
   if(events.drop==null&&ror!=null&&ror>0.5&&bt<fcT)$('etaInfo').textContent='FC in ~'+fmt((fcT-bt)/ror*60)+' ·';
   else $('etaInfo').textContent='';
-  if(liveTP.armed)checkAlarms(bt,ror,e);
+  if(liveTP.armed)checkAlarms(bt);
 }
-function checkAlarms(bt,ror,e){
+function checkAlarms(bt){
   if(events.drop!=null)return;
   const at=+$('alarmTemp').value;
   if(at>0&&bt>=at&&!alarms.temp){alarms.temp=true;fireAlarm('🔔 BT reached '+at+' °C');}
-  if(!$('alarmRor').checked||ror==null)return;
-  const de=events.dry!=null?events.dry:liveCross.de,fc=events.fc!=null?events.fc:liveCross.fc;
-  if(fc!=null){
-    alarms.minRor=alarms.minRor==null?ror:Math.min(alarms.minRor,ror);
-    if(!alarms.flick&&ror>=alarms.minRor+3){alarms.flick=true;fireAlarm('⚠️ RoR flick — rate rising after FC ('+ror+' °C/min)');}
-  }else if(de!=null&&e>de+20&&!alarms.crash&&ror<3){alarms.crash=true;fireAlarm('⚠️ RoR crash — '+ror+' °C/min mid-roast');}
 }
 function fireAlarm(msg){
   const b=$('alarmBanner');b.textContent=msg;b.style.display='block';
@@ -1752,7 +1718,7 @@ $('heaterW').addEventListener('change',()=>{
 // ---------- Roast timer + events ----------
 $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;events.dry=events.fc=events.drop=null;
   invUse.dropped=false;invUse.deducted=0;         // new batch: fresh inventory-deduction session
-  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=alarms.crash=alarms.flick=false;alarms.minRor=null;bgIdx=0;
+  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=false;bgIdx=0;
   if(connectMs){                                   // drop pre-charge telemetry and make Charge the chart's zero point
     const base=(chargeMs-connectMs)/1000;
     const keep=samples.filter(s=>s.t>=base).map(s=>Object.assign({},s,{t:+((s.t-base).toFixed(1))}));
@@ -1761,7 +1727,7 @@ $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;
     $('rowCount').textContent=samples.length+' samples';}
   $('statsCard').style.display='none';$('alarmBanner').style.display='none';updateLiveBar();renderEvents();drawChart();log('CHARGE');});
 $('evDry').addEventListener('click',()=>{if(chargeMs){events.dry=(Date.now()-chargeMs)/1000;renderEvents();}});
-$('evFc').addEventListener('click',()=>{if(chargeMs){events.fc=(Date.now()-chargeMs)/1000;alarms.minRor=null;renderEvents();}});
+$('evFc').addEventListener('click',()=>{if(chargeMs){events.fc=(Date.now()-chargeMs)/1000;renderEvents();}});
 $('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-chargeMs)/1000;renderEvents();
   if(writeChar&&$('enableControl').checked){                       // end of roast: heater off; fan left as-is (a blast would eject the beans)
     stopRamp();stopProfile();stopEtRun('drop',true);stopPProf('drop',true);
@@ -1776,7 +1742,7 @@ function resetRoastView(){                         // fresh chart for the next b
   samples.length=0;btHist.length=0;rxBuffer='';
   Object.assign(events,{charge:null,dry:null,fc:null,drop:null});
   chargeMs=null;if(connectMs)connectMs=Date.now(); // rebase the time axis
-  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=alarms.crash=alarms.flick=false;alarms.minRor=null;bgIdx=0;
+  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=false;bgIdx=0;
   curSV=null;$('tSv').textContent='—';
   $('rowCount').textContent='0 samples';
   $('evTimes').innerHTML='Roast saved &amp; chart reset — press <b>Charge</b> for the next batch (or Load the saved roast to review it).';
@@ -2673,6 +2639,7 @@ function applyAdvMode(){
   $('ppPanel').style.display=on?'':'none';
   if(!on){$('etArm').checked=false;
     if($('ppArm').checked){$('ppArm').checked=false;savePProfCfg();}}
+  bbpPreviewDraw();
 }
 $('advMode').addEventListener('change',()=>{try{localStorage.setItem('rc_adv',$('advMode').checked?'1':'0');}catch(e){}applyAdvMode();});
 try{$('advMode').checked=localStorage.getItem('rc_adv')==='1';}catch(e){}
