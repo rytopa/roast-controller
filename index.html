@@ -218,7 +218,7 @@
       <button id="pcLock" style="padding:5px 11px;font-size:12.5px">🔒 Graph locked — tap to edit</button>
     </div>
     <canvas id="profCanvas" style="height:200px;touch-action:none;margin-bottom:6px"></canvas>
-    <div class="small" style="margin-bottom:8px">✏️ Unlock the graph, then <b>drag points</b> to shape the curve · <b>press empty space</b> to add a point · <b>double-tap a point</b> to delete. Dashed pink = the RoR each segment implies (0–30 °C/min) · dashed grey = fan % (right scale; auto-fan curve or the table's fan values). With Auto fan off, the <b>🌡/💨 button</b> switches the graph between editing the temp curve and the fan curve — in <b>fan mode</b> just press or drag in a point's column to set its fan % (0–100), <b>double-tap</b> to clear it; the temp curve can't be disturbed. Fine-tune times/temps and set fan % in the table.</div>
+    <div class="small" style="margin-bottom:8px">✏️ Unlock the graph, then <b>drag points</b> to shape the curve · <b>press empty space</b> to add a point · <b>double-tap a point</b> to delete. Dashed pink = the RoR each segment implies (0–30 °C/min) · dashed grey = fan % (right scale; auto-fan curve or the table's fan values). With Auto fan off, the <b>🌡/💨 button</b> switches the graph between editing the temp curve and the fan curve — in <b>fan mode</b> just press or drag in a point's column to set its fan % (0–100), <b>press between points</b> to add a fan point there (it lands on the temp line, so the temp shape is unchanged), <b>double-tap</b> to clear; the temp curve can't be disturbed. Fine-tune times/temps and set fan % in the table.</div>
     <details id="profDetails" style="margin-bottom:8px">
       <summary class="small" style="cursor:pointer;font-weight:600">Details — phases, points table</summary>
       <div style="margin-top:8px">
@@ -800,8 +800,16 @@ function pcHit(x,y){const g=pcGeom;let best=null,bd=16;
 pcv.addEventListener('pointerdown',ev=>{
   if(pcLocked||!pcGeom)return;ev.preventDefault();pcv.setPointerCapture(ev.pointerId);
   const{x,y}=pcXY(ev);
-  if(pcEdit==='fan'){const fi=pcHitFanX(x);                        // fan mode: press/drag anywhere in a point's column; temps can't be disturbed
-    if(fi!=null){pcDrag={i:fi,fan:true};editPts[fi].fan=fanFromY(y);drawProfEditor();}
+  if(pcEdit==='fan'){const fi=pcHitFanX(x),g=pcGeom;               // fan mode: temps can't be disturbed
+    const nearX=fi!=null?Math.abs(g.pL+(+editPts[fi].t||0)/g.tMax*g.pw-x):1e9;
+    if(nearX<=20){pcDrag={i:fi,fan:true};editPts[fi].fan=fanFromY(y);drawProfEditor();return;}
+    // pressed between columns: add a fan point there — the row's target sits ON the
+    // interpolated temp line, so the temp curve's shape is unchanged
+    const d=pcToData(x,y),q=interpAt(getPoints(),d.t);
+    if(!q)return;
+    let at=editPts.findIndex(p=>(+p.t||0)>d.t);if(at<0)at=editPts.length;
+    editPts.splice(at,0,{t:d.t,sv:Math.round(q.sv),fan:fanFromY(y)});
+    pcDrag={i:at,fan:true};drawProfEditor();
     return;}
   let i=pcHit(x,y);
   if(i==null){const d=pcToData(x,y);
