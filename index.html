@@ -214,10 +214,11 @@
       <span class="small" style="padding-top:9px">Notes</span><textarea id="profNotes" rows="3" placeholder="short write-up: bean, roast level, what the curve is doing… (saved & exported with the profile)"></textarea>
     </div>
     <div class="row" style="justify-content:flex-end;margin-bottom:6px">
+      <button id="pcModeBtn" style="padding:5px 11px;font-size:12.5px;display:none">🌡 Editing temps — tap for fan</button>
       <button id="pcLock" style="padding:5px 11px;font-size:12.5px">🔒 Graph locked — tap to edit</button>
     </div>
     <canvas id="profCanvas" style="height:200px;touch-action:none;margin-bottom:6px"></canvas>
-    <div class="small" style="margin-bottom:8px">✏️ Unlock the graph, then <b>drag points</b> to shape the curve · <b>press empty space</b> to add a point · <b>double-tap a point</b> to delete. Dashed pink = the RoR each segment implies (0–30 °C/min) · dashed grey = fan % (right scale; auto-fan curve or the table's fan values). With Auto fan off, <b>drag the square fan handles</b> (0–100 %) to shape the fan — hollow = unset, <b>double-tap</b> one to clear it. Fine-tune times/temps and set fan % in the table.</div>
+    <div class="small" style="margin-bottom:8px">✏️ Unlock the graph, then <b>drag points</b> to shape the curve · <b>press empty space</b> to add a point · <b>double-tap a point</b> to delete. Dashed pink = the RoR each segment implies (0–30 °C/min) · dashed grey = fan % (right scale; auto-fan curve or the table's fan values). With Auto fan off, the <b>🌡/💨 button</b> switches the graph between editing the temp curve and the fan curve — in <b>fan mode</b> just press or drag in a point's column to set its fan % (0–100), <b>double-tap</b> to clear it; the temp curve can't be disturbed. Fine-tune times/temps and set fan % in the table.</div>
     <details id="profDetails" style="margin-bottom:8px">
       <summary class="small" style="cursor:pointer;font-weight:600">Details — phases, points table</summary>
       <div style="margin-top:8px">
@@ -702,14 +703,24 @@ try{const rs=localStorage.getItem('rc_rorsmooth');if(rs!=null)$('rorSmooth').val
 const pcv=$('profCanvas');let pcGeom=null,pcDrag=null;
 let pcLocked=true;                                 // locked by default: an accidental swipe must not bend the curve
 try{pcLocked=(localStorage.getItem('rc_pclock')??'1')==='1';}catch(e){}
+let pcEdit='temp';                                 // which curve the unlocked graph edits: 'temp' | 'fan' (fan only offered when Auto fan is off)
+function applyPcMode(){
+  const fanable=!pcLocked&&!uiAutoFan();
+  if(!fanable)pcEdit='temp';
+  $('pcModeBtn').style.display=fanable?'':'none';
+  $('pcModeBtn').textContent=pcEdit==='fan'?'💨 Editing fan — tap for temps':'🌡 Editing temps — tap for fan';
+  $('pcModeBtn').classList.toggle('blue',pcEdit==='fan');
+}
+$('pcModeBtn').addEventListener('click',()=>{pcEdit=pcEdit==='fan'?'temp':'fan';applyPcMode();drawProfEditor();});
 function applyPcLock(){
   $('pcLock').textContent=pcLocked?'🔒 Graph locked — tap to edit':'🔓 Editing on — tap to lock';
   $('pcLock').classList.toggle('green',!pcLocked);
   pcv.style.touchAction=pcLocked?'auto':'none';    // locked: swipes scroll the page as normal
   pcv.style.cursor=pcLocked?'default':'crosshair';
   pcv.style.opacity=pcLocked?'.85':'1';
+  applyPcMode();
 }
-$('pcLock').addEventListener('click',()=>{pcLocked=!pcLocked;try{localStorage.setItem('rc_pclock',pcLocked?'1':'0');}catch(e){}applyPcLock();});
+$('pcLock').addEventListener('click',()=>{pcLocked=!pcLocked;try{localStorage.setItem('rc_pclock',pcLocked?'1':'0');}catch(e){}applyPcLock();drawProfEditor();});
 applyPcLock();
 function drawProfEditor(){
   const ctx=pcv.getContext('2d'),dpr=window.devicePixelRatio||1;
@@ -727,7 +738,7 @@ function drawProfEditor(){
   for(let v=0;v<=100;v+=25){ctx.fillText(v+'%',W-pR+3,Y2(v)+3);}
   for(let s=0;s<=tMax;s+=60){const x=X(s);ctx.beginPath();ctx.moveTo(x,pT);ctx.lineTo(x,H-pB);ctx.stroke();ctx.fillText((s/60)+'m',x-4,H-4);}
   {const gp=getPoints(),paf=uiAutoFan();                             // fan overlay: auto-fan curve or per-point values
-   if(gp.length>=2){ctx.setLineDash([2,4]);ctx.strokeStyle=P.planFan;ctx.lineWidth=1.4;
+   if(gp.length>=2){ctx.setLineDash([2,4]);ctx.strokeStyle=P.planFan;ctx.lineWidth=pcEdit==='fan'?2.2:1.4;
      if(paf){const endSv=Math.max(175,gp[gp.length-1].sv);ctx.beginPath();let st=false;
        for(let e=gp[0].t;e<=gp[gp.length-1].t;e+=10){const q=interpAt(gp,e);
          const x=X(e),y=Y2(autoFanAt(q.sv,paf,endSv));if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}
@@ -741,9 +752,10 @@ function drawProfEditor(){
        // has a fan value there, hollow = unset (grab one to set it; double-tap clears)
        editPts.forEach((p,i)=>{if(p.sv===''||p.sv==null)return;
          const set=p.fan!==''&&p.fan!=null,v=fanDispVal(i);
-         const x=X(+p.t||0),y=Y2(v),s=(pcDrag&&pcDrag.fan&&pcDrag.i===i)?5:4;
+         const sel=pcDrag&&pcDrag.fan&&pcDrag.i===i;
+         const x=X(+p.t||0),y=Y2(v),s=sel?6:(pcEdit==='fan'?5:4);
          ctx.beginPath();ctx.rect(x-s,y-s,2*s,2*s);
-         if(set){ctx.fillStyle=(s===5)?P.ptSel:P.fan;ctx.fill();ctx.strokeStyle=P.ptStroke;ctx.lineWidth=1.2;ctx.stroke();}
+         if(set){ctx.fillStyle=sel?P.ptSel:P.fan;ctx.fill();ctx.strokeStyle=P.ptStroke;ctx.lineWidth=1.2;ctx.stroke();}
          else{ctx.strokeStyle=P.fan;ctx.lineWidth=1.4;ctx.stroke();}});}
      ctx.setLineDash([]);}}
   if(pts.length>=2){ctx.strokeStyle=P.planRor;ctx.setLineDash([3,3]);ctx.lineWidth=1.4;ctx.beginPath();   // implied RoR: smooth 60s-window slope curve, from the 2nd point
@@ -757,11 +769,13 @@ function drawProfEditor(){
     if(ri){ctx.fillStyle=P.planRor;ctx.font='600 11px system-ui';
       if(ri.intoFc!=null&&ri.tFC!=null)ctx.fillText(ri.intoFc.toFixed(1),Math.min(X(ri.tFC),W-pR-26)+3,Yr(Math.max(0,Math.min(30,ri.intoFc)))-5);
       if(ri.end!=null)ctx.fillText(ri.end.toFixed(1)+' →',Math.min(X(ri.t1),W-pR-34)+3,Yr(Math.max(0,Math.min(30,ri.end)))-5);}}
+  if(pcEdit==='fan'&&!pcLocked)ctx.globalAlpha=.45;                // fan mode: the temp curve fades back — it can't be edited
   ctx.strokeStyle=P.sv;ctx.lineWidth=2;ctx.beginPath();
   pts.forEach((p,i)=>{const x=X(p.t),y=Y(p.sv);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.stroke();
-  pts.forEach(p=>{const x=X(p.t),y=Y(p.sv),sel=pcDrag&&pcDrag.i===p.i;
+  pts.forEach(p=>{const x=X(p.t),y=Y(p.sv),sel=pcDrag&&!pcDrag.fan&&pcDrag.i===p.i;
     ctx.beginPath();ctx.arc(x,y,sel?7:5,0,7);ctx.fillStyle=sel?P.ptSel:P.sv;ctx.fill();
     ctx.strokeStyle=P.ptStroke;ctx.lineWidth=1.5;ctx.stroke();});
+  ctx.globalAlpha=1;
   if(pcDrag&&editPts[pcDrag.i]){const p=editPts[pcDrag.i];
     ctx.fillStyle=P.text;ctx.font='600 13px system-ui';
     ctx.fillText(fmt(+p.t||0)+' · '+(pcDrag.fan?('fan '+fanDispVal(pcDrag.i)+'%'):(Math.round(+p.sv||0)+' °C')),pL+8,pT+14);}
@@ -772,10 +786,10 @@ function fanDispVal(i){                            // the fan % a point's handle
   const q=interpAt(getPoints(),+p.t||0);
   return(q&&q.fan!=null)?Math.max(0,Math.min(100,Math.round(q.fan))):50;
 }
-function pcHitFan(x,y){if(uiAutoFan())return null;const g=pcGeom;let best=null,bd=14;
+function fanFromY(y){const g=pcGeom;return Math.round(Math.max(0,Math.min(100,(1-(y-g.pT)/g.ph)*100)));}
+function pcHitFanX(x){const g=pcGeom;let best=null,bd=1e9;        // fan mode grabs by column: nearest point on the x axis only
   editPts.forEach((p,i)=>{if(p.sv===''||p.sv==null)return;
-    const px=g.pL+(+p.t||0)/g.tMax*g.pw,py=g.pT+(1-fanDispVal(i)/100)*g.ph;
-    const d=Math.hypot(px-x,py-y);if(d<bd){bd=d;best=i;}});return best;}
+    const d=Math.abs(g.pL+(+p.t||0)/g.tMax*g.pw-x);if(d<bd){bd=d;best=i;}});return best;}
 function pcXY(ev){const r=pcv.getBoundingClientRect();return{x:ev.clientX-r.left,y:ev.clientY-r.top};}
 function pcToData(x,y){const g=pcGeom;
   const t=Math.round(Math.max(0,Math.min(g.tMax,(x-g.pL)/g.pw*g.tMax))/5)*5;
@@ -785,10 +799,12 @@ function pcHit(x,y){const g=pcGeom;let best=null,bd=16;
     const d=Math.hypot(px-x,py-y);if(d<bd){bd=d;best=i;}});return best;}
 pcv.addEventListener('pointerdown',ev=>{
   if(pcLocked||!pcGeom)return;ev.preventDefault();pcv.setPointerCapture(ev.pointerId);
-  const{x,y}=pcXY(ev);let i=pcHit(x,y);
-  if(i==null){const fi=pcHitFan(x,y);                              // no temp point near — a fan handle?
-    if(fi!=null){pcDrag={i:fi,fan:true};drawProfEditor();return;}
-    const d=pcToData(x,y);
+  const{x,y}=pcXY(ev);
+  if(pcEdit==='fan'){const fi=pcHitFanX(x);                        // fan mode: press/drag anywhere in a point's column; temps can't be disturbed
+    if(fi!=null){pcDrag={i:fi,fan:true};editPts[fi].fan=fanFromY(y);drawProfEditor();}
+    return;}
+  let i=pcHit(x,y);
+  if(i==null){const d=pcToData(x,y);
     let at=editPts.findIndex(p=>(+p.t||0)>d.t);if(at<0)at=editPts.length;
     editPts.splice(at,0,{t:d.t,sv:d.sv,fan:''});i=at;}
   pcDrag={i};drawProfEditor();
@@ -796,9 +812,7 @@ pcv.addEventListener('pointerdown',ev=>{
 pcv.addEventListener('pointermove',ev=>{
   if(!pcDrag||!pcGeom)return;
   const{x,y}=pcXY(ev),d=pcToData(x,y),i=pcDrag.i;
-  if(pcDrag.fan){const g=pcGeom;                                   // fan handle: vertical only, confined 0–100
-    editPts[i].fan=Math.round(Math.max(0,Math.min(100,(1-(y-g.pT)/g.ph)*100)));
-    drawProfEditor();return;}
+  if(pcDrag.fan){editPts[i].fan=fanFromY(y);drawProfEditor();return;}   // fan handle: vertical only, confined 0–100
   const lo=i>0?(+editPts[i-1].t||0)+5:0;
   const hi=i<editPts.length-1?(+editPts[i+1].t||0)-5:d.t;
   editPts[i].t=Math.max(lo,Math.min(hi,d.t));
@@ -808,10 +822,12 @@ pcv.addEventListener('pointermove',ev=>{
 const pcEnd=()=>{if(!pcDrag)return;pcDrag=null;renderPoints();};
 pcv.addEventListener('pointerup',pcEnd);pcv.addEventListener('pointercancel',pcEnd);
 pcv.addEventListener('dblclick',ev=>{
-  if(pcLocked||!pcGeom)return;const{x,y}=pcXY(ev),i=pcHit(x,y);
-  if(i!=null&&editPts.length>2){editPts.splice(i,1);pcDrag=null;renderPoints();return;}
-  const fi=pcHitFan(x,y);                                          // double-tap a fan handle: clear that point's fan value
-  if(fi!=null&&editPts[fi].fan!==''&&editPts[fi].fan!=null){editPts[fi].fan='';pcDrag=null;renderPoints();}
+  if(pcLocked||!pcGeom)return;const{x,y}=pcXY(ev);
+  if(pcEdit==='fan'){const fi=pcHitFanX(x);                        // fan mode double-tap: clear that point's fan value
+    if(fi!=null&&editPts[fi].fan!==''&&editPts[fi].fan!=null){editPts[fi].fan='';pcDrag=null;renderPoints();}
+    return;}
+  const i=pcHit(x,y);
+  if(i!=null&&editPts.length>2){editPts.splice(i,1);pcDrag=null;renderPoints();}
 });
 function getPoints(){
   return editPts.filter(p=>p.t!=null&&p.sv!==''&&p.sv!=null)
@@ -951,7 +967,7 @@ function uiAutoFan(){
     pct:Math.max(5,Math.min(100,mp)),
     temp:Math.max(105,Math.min(240,parseInt($('fanMidC').value,10)||160))};
   return af;}
-const redrawFan=()=>{drawChart();drawProfEditor();bbpPreviewDraw();};
+const redrawFan=()=>{drawChart();applyPcMode();drawProfEditor();bbpPreviewDraw();};   // applyPcMode re-offers/hides the fan-edit mode
 $('fanAuto').addEventListener('change',redrawFan);
 $('fanStart').addEventListener('change',redrawFan);
 $('fanMid').addEventListener('change',redrawFan);
