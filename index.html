@@ -218,15 +218,15 @@
       <button id="pcLock" style="padding:5px 11px;font-size:12.5px">🔒 Graph locked — tap to edit</button>
     </div>
     <canvas id="profCanvas" style="height:200px;touch-action:none;margin-bottom:6px"></canvas>
-    <div class="small" style="margin-bottom:8px">✏️ Unlock the graph, then <b>drag points</b> to shape the curve · <b>press empty space</b> to add a point · <b>double-tap a point</b> to delete. Dashed pink = the RoR each segment implies (0–30 °C/min) · dashed grey = fan % (right scale; auto-fan curve or the table's fan values). With Auto fan off, the <b>🌡/💨 button</b> switches the graph between editing the temp curve and the fan curve — in <b>fan mode</b> just press or drag in a point's column to set its fan % (0–100), <b>double-tap</b> to clear it; the temp curve can't be disturbed. Fine-tune times/temps and set fan % in the table.</div>
-    <details id="profDetails" style="margin-bottom:8px">
-      <summary class="small" style="cursor:pointer;font-weight:600">Details — phases, points table</summary>
-      <div style="margin-top:8px">
+    <div class="small" style="margin-bottom:8px">✏️ Unlock the graph, then <b>drag points</b> to shape the curve · <b>press empty space</b> to add a point · <b>double-tap a point</b> to delete. Dashed pink = the RoR each segment implies (0–30 °C/min) · dashed grey = fan % (right scale; auto-fan curve or the table's fan values). With Auto fan off, the <b>🌡/💨 button</b> switches the graph between editing the temp curve and the fan curve — in <b>fan mode</b> just press or drag in a point's column to set its fan % (0–100), <b>press between points</b> to add a fan point there (it lands on the temp line, so the temp shape is unchanged), <b>double-tap</b> to clear; the temp curve can't be disturbed. Fine-tune times/temps and set fan % in the table.</div>
     <div class="row" style="gap:6px;align-items:center;margin-bottom:6px">
-      <span class="small"><b>Phases</b> — DE at</span><input id="phDE" type="number" min="100" max="200" value="160" style="width:64px"><span class="small">°C · FC at</span><input id="phFC" type="number" min="150" max="240" value="200" style="width:64px"><span class="small">°C</span>
+      <span class="small"><b>Phases</b> — DE at</span><input id="phDE" type="number" min="100" max="200" value="160" style="width:64px"><span class="small">°C · FC at</span><input id="phFC" type="number" min="150" max="240" value="200" style="width:64px"><span class="small">°C · end <b id="phEnd" style="color:var(--text)">—</b> °C</span>
     </div>
     <div id="phaseBar" style="display:flex;height:30px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin-bottom:6px;font-size:11.5px;font-weight:700"></div>
     <div class="small" id="rorInfo" style="margin-bottom:12px"></div>
+    <details id="profDetails" style="margin-bottom:8px">
+      <summary class="small" style="cursor:pointer;font-weight:600">Details — points table</summary>
+      <div style="margin-top:8px">
     <div class="ptbl"><span class="hd">Time m:ss</span><span class="hd">Target °C</span><span class="hd">Fan % (opt)</span><span></span></div>
     <div id="ptPoints"></div>
       </div>
@@ -673,7 +673,8 @@ function planRorInfo(){                              // planned RoR approaching 
 }
 function renderPhaseBar(){
   const box=$('phaseBar'),pts=getPoints();
-  if(pts.length<2){box.style.display='none';$('rorInfo').textContent='';return;}
+  if(pts.length<2){box.style.display='none';$('rorInfo').textContent='';$('phEnd').textContent='—';return;}
+  $('phEnd').textContent=Math.round(pts[pts.length-1].sv);
   const ri=planRorInfo();
   $('rorInfo').innerHTML=ri?('Planned RoR — into FC: <b style="color:var(--text)">'+(ri.intoFc!=null?ri.intoFc.toFixed(1):'—')
     +'</b> °C/min · ending: <b style="color:var(--text)">'+(ri.end!=null?ri.end.toFixed(1):'—')+'</b> °C/min'):'';
@@ -800,8 +801,16 @@ function pcHit(x,y){const g=pcGeom;let best=null,bd=16;
 pcv.addEventListener('pointerdown',ev=>{
   if(pcLocked||!pcGeom)return;ev.preventDefault();pcv.setPointerCapture(ev.pointerId);
   const{x,y}=pcXY(ev);
-  if(pcEdit==='fan'){const fi=pcHitFanX(x);                        // fan mode: press/drag anywhere in a point's column; temps can't be disturbed
-    if(fi!=null){pcDrag={i:fi,fan:true};editPts[fi].fan=fanFromY(y);drawProfEditor();}
+  if(pcEdit==='fan'){const fi=pcHitFanX(x),g=pcGeom;               // fan mode: temps can't be disturbed
+    const nearX=fi!=null?Math.abs(g.pL+(+editPts[fi].t||0)/g.tMax*g.pw-x):1e9;
+    if(nearX<=20){pcDrag={i:fi,fan:true};editPts[fi].fan=fanFromY(y);drawProfEditor();return;}
+    // pressed between columns: add a fan point there — the row's target sits ON the
+    // interpolated temp line, so the temp curve's shape is unchanged
+    const d=pcToData(x,y),q=interpAt(getPoints(),d.t);
+    if(!q)return;
+    let at=editPts.findIndex(p=>(+p.t||0)>d.t);if(at<0)at=editPts.length;
+    editPts.splice(at,0,{t:d.t,sv:Math.round(q.sv),fan:fanFromY(y)});
+    pcDrag={i:at,fan:true};drawProfEditor();
     return;}
   let i=pcHit(x,y);
   if(i==null){const d=pcToData(x,y);
@@ -834,7 +843,7 @@ function getPoints(){
     .map(p=>({t:+p.t,sv:+p.sv,fan:(p.fan===''||p.fan==null)?null:+p.fan}))
     .sort((a,b)=>a.t-b.t);
 }
-// the details block (phases / points table / auto fan) stays collapsed unless opened — remembered per browser
+// the details block (points table) stays collapsed unless opened — remembered per browser
 try{$('profDetails').open=localStorage.getItem('rc_profdet')==='1';}catch(e){}
 $('profDetails').addEventListener('toggle',()=>{try{localStorage.setItem('rc_profdet',$('profDetails').open?'1':'0');}catch(e){}});
 
