@@ -449,6 +449,25 @@
     </div>
   </div>
 
+  <div id="batchBeanModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:1000;padding:12px;overflow:auto">
+    <div style="background:var(--panel);border-radius:var(--r);padding:16px;max-width:500px;margin:auto;margin-top:40px">
+      <h2 style="margin-top:0">New batch — bean &amp; weight</h2>
+      <div class="small" style="margin-bottom:6px"><b>Bean from inventory</b> — the green weight is deducted from its stock at Drop.</div>
+      <div id="bbmList" style="margin-bottom:10px"></div>
+      <div class="small" style="margin-bottom:4px"><b>Green weight</b></div>
+      <div class="row" style="align-items:center;gap:6px;margin-bottom:6px">
+        <button id="bbmW150" class="blue" style="flex:0">150 g</button>
+        <button id="bbmW100" style="flex:0">100 g</button>
+        <input id="bbmCustom" type="number" min="1" inputmode="decimal" placeholder="custom g" style="width:110px">
+      </div>
+      <div class="small" id="bbmNote" style="margin-bottom:12px"></div>
+      <div class="row" style="justify-content:flex-end;gap:8px">
+        <button id="bbmCancel" style="flex:0">Cancel</button>
+        <button id="bbmGo" class="green" style="flex:0;white-space:nowrap">▶ Start cycle</button>
+      </div>
+    </div>
+  </div>
+
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
 <script>
 "use strict";
@@ -1490,7 +1509,7 @@ function beepReady(){
 }
 function saveBbpCfg(){try{localStorage.setItem('rc_bbp',JSON.stringify({cool:$('bbpCool').value,charge:$('bbpCharge').value,fan:$('bbpFan').value}));}catch(e){}}
 ['bbpCool','bbpCharge','bbpFan'].forEach(id=>$(id).addEventListener('change',saveBbpCfg));
-$('bbpStart').addEventListener('click',()=>{bbp?stopBBP('cancelled'):startBBP();});
+$('bbpStart').addEventListener('click',()=>{bbp?stopBBP('cancelled'):openBatchBeanModal();});
 // What will actually run at the bean drop — shown live in the between-batch panel
 // so there's no guessing between the designer profile and an armed ET-track /
 // power-schedule replay of a previous roast.
@@ -2449,6 +2468,77 @@ $('invUseBatch').addEventListener('click',()=>{
   $('wIn').value=trimN(size);
   $('wIn').dispatchEvent(new Event('input'));         // runs updateLoss (+ deduction if already dropped)
   log('Green g set to one batch: '+trimN(size)+' g');
+});
+// ---------- Batch-start popup ----------
+// Starting the between-batch cycle first asks which inventory bean this batch
+// roasts and how much green goes in — 150 g default, 100 g quick pick, or a
+// custom weight. The choice lands in the same fields the rest of the app
+// already uses (#invUseSel + #wIn), so the stock deduction at Drop, the bean
+// line on the saved roast and the weight-loss maths all keep working.
+const BBM_DEFAULT_G=150,BBM_QUICK_G=100;
+let bbmSel={itemId:'',weight:BBM_DEFAULT_G};
+function bbmWeight(){const c=parseFloat($('bbmCustom').value);return c>0?c:bbmSel.weight;}
+function bbmPaintWeights(){
+  const custom=parseFloat($('bbmCustom').value)>0;
+  $('bbmW150').classList.toggle('blue',!custom&&bbmSel.weight===BBM_DEFAULT_G);
+  $('bbmW100').classList.toggle('blue',!custom&&bbmSel.weight===BBM_QUICK_G);
+  bbmNote();
+}
+function bbmNote(){
+  const w=bbmWeight(),it=loadInventory().find(x=>x.id===bbmSel.itemId);
+  $('bbmNote').innerHTML=!it?'Batch: <b>'+trimN(w)+' g</b> — no stock tracking.'
+    :w>(it.weight||0)?'⚠ <b>'+trimN(w)+' g</b> is more than the <b>'+trimN(it.weight||0)+' g</b> of '+escapeHtml(it.name)+' left in stock.'
+    :'Batch: <b>'+trimN(w)+' g</b> of '+escapeHtml(it.name)+' — '+trimN((it.weight||0)-w)+' g left after Drop.';
+}
+function bbmPaintList(){
+  $('bbmList').querySelectorAll('[data-bbm-id]').forEach(d=>{
+    const on=d.dataset.bbmId===bbmSel.itemId;
+    d.style.borderColor=on?'var(--bt)':'var(--line)';
+    d.style.boxShadow=on?'0 0 0 1px var(--bt) inset':'none';
+  });
+}
+function bbmRenderList(){
+  const list=$('bbmList');list.innerHTML='';
+  const inv=loadInventory();
+  const mk=(id,title,sub)=>{                          // title/sub arrive pre-escaped
+    const d=document.createElement('div');
+    d.dataset.bbmId=id;
+    d.style.cssText='padding:8px 11px;border:1px solid var(--line);border-radius:9px;margin-bottom:6px;cursor:pointer;background:var(--panel2)';
+    d.innerHTML='<b>'+title+'</b>'+(sub?' · <span class="small">'+sub+'</span>':'');
+    d.addEventListener('click',()=>{bbmSel.itemId=id;bbmPaintList();bbmNote();});
+    list.appendChild(d);
+  };
+  mk('','— not tracked —','roast without deducting stock');
+  inv.forEach(it=>mk(it.id,escapeHtml(it.name||'Unknown'),
+    trimN(it.weight||0)+' g left'+(it.origin?' · '+escapeHtml(it.origin):'')));
+  if(!inv.length){const n=document.createElement('div');n.className='small';
+    n.textContent='No beans in inventory yet — add them in the Inventory panel.';list.appendChild(n);}
+  if(!inv.some(it=>it.id===bbmSel.itemId))bbmSel.itemId='';
+  bbmPaintList();
+}
+function openBatchBeanModal(){
+  if(!writeChar){alert('Connect the roaster first.');return;}
+  if(!$('enableControl').checked){alert('Tick "Enable control" next to the chart first.');return;}
+  bbmSel={itemId:$('invUseSel').value||'',weight:BBM_DEFAULT_G};   // last-used bean preselected, 150 g default
+  $('bbmCustom').value='';
+  bbmRenderList();bbmPaintWeights();
+  $('batchBeanModal').style.display='block';
+}
+$('bbmW150').addEventListener('click',()=>{bbmSel.weight=BBM_DEFAULT_G;$('bbmCustom').value='';bbmPaintWeights();});
+$('bbmW100').addEventListener('click',()=>{bbmSel.weight=BBM_QUICK_G;$('bbmCustom').value='';bbmPaintWeights();});
+$('bbmCustom').addEventListener('input',bbmPaintWeights);
+$('bbmCancel').addEventListener('click',()=>{$('batchBeanModal').style.display='none';});
+$('bbmGo').addEventListener('click',()=>{
+  const w=bbmWeight();
+  $('batchBeanModal').style.display='none';
+  invUse.dropped=false;invUse.deducted=0;             // new batch: fresh deduction session before touching the fields,
+  $('invUseSel').value=bbmSel.itemId;                 // so the previous roast's deduction is never put back or re-adjusted
+  $('invUseSel').dispatchEvent(new Event('change'));  // sets invUse.itemId, bean-details line, saved pick
+  $('wOut').value='';                                 // last batch's roasted weight doesn't belong to this one
+  $('wIn').value=trimN(w);
+  $('wIn').dispatchEvent(new Event('input'));
+  log('Batch: '+(bbmSel.itemId?$('beanInfo').value:'untracked bean')+' · '+trimN(w)+' g green');
+  startBBP();
 });
 // Pull the common green-coffee spec fields out of OCR text. Each field is
 // anchored to BOTH its Chinese and English labels: on these sheets the value
