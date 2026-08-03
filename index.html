@@ -156,6 +156,12 @@
         <span class="small">hover / drag to inspect values · top pane: temps (left axis) + RoR 0–30 °C/min (right axis) · bottom pane: heater &amp; fan %, dashed gold = cumulative heat used · bar = phases · dashed = plan · faded = background roast</span>
       </div>
       <div class="row" style="margin-top:8px;gap:6px;align-items:center">
+        <span class="small"><b>Mark</b></span>
+        <button id="cEvDry">🌾 Dry End</button>
+        <button id="cEvFc">💥 First Crack</button>
+        <span class="small">puts the event line on the graph — press again to re-mark</span>
+      </div>
+      <div class="row" style="margin-top:8px;gap:6px;align-items:center">
         <span class="small"><b>Fan</b></span>
         <button id="cFanM5">−5</button>
         <input type="number" id="cFanVal" min="0" max="100" value="50" style="width:64px">
@@ -1795,8 +1801,12 @@ $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;
     connectMs=chargeMs;
     $('rowCount').textContent=samples.length+' samples';}
   $('statsCard').style.display='none';$('alarmBanner').style.display='none';updateLiveBar();renderEvents();drawChart();log('CHARGE');});
-$('evDry').addEventListener('click',()=>{if(chargeMs){events.dry=(Date.now()-chargeMs)/1000;renderEvents();}});
-$('evFc').addEventListener('click',()=>{if(chargeMs){events.fc=(Date.now()-chargeMs)/1000;renderEvents();}});
+$('evDry').addEventListener('click',()=>{if(chargeMs){events.dry=(Date.now()-chargeMs)/1000;renderEvents();drawChart();log('Marked Dry End at '+fmt(events.dry));}});
+$('evFc').addEventListener('click',()=>{if(chargeMs){events.fc=(Date.now()-chargeMs)/1000;renderEvents();drawChart();log('Marked First Crack at '+fmt(events.fc));}});
+// Visible DE / FC mark buttons under the chart — same machinery as the (hidden)
+// Roast session buttons, so the marks land in the saved roast and phase bar too.
+$('cEvDry').addEventListener('click',()=>{chargeMs?$('evDry').click():log('Dry End not marked — no roast running (charge first).');});
+$('cEvFc').addEventListener('click',()=>{chargeMs?$('evFc').click():log('First Crack not marked — no roast running (charge first).');});
 $('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-chargeMs)/1000;renderEvents();
   if(writeChar&&$('enableControl').checked){                       // end of roast: heater off; fan left as-is (a blast would eject the beans)
     stopRamp();stopProfile();stopEtRun('drop',true);stopPProf('drop',true);
@@ -1815,7 +1825,7 @@ function resetRoastView(){                         // fresh chart for the next b
   curSV=null;$('tSv').textContent='—';
   $('rowCount').textContent='0 samples';
   $('evTimes').innerHTML='Roast saved &amp; chart reset — press <b>Charge</b> for the next batch (or Load the saved roast to review it).';
-  updateTimer();updateLiveBar();drawChart();
+  updateEvBtns();updateTimer();updateLiveBar();drawChart();
 }
 function updateTimer(){$('tTimer').textContent=chargeMs?fmt((Date.now()-chargeMs)/1000):'0:00';}
 function updateLoss(){
@@ -1831,6 +1841,12 @@ function renderEvents(){
   $('evTimes').innerHTML=parts.length?parts.join(' · '):'Timer running…';
   if(events.fc!=null&&events.drop!=null&&events.drop>events.fc){const dev=(events.drop-events.fc),pct=(dev/events.drop*100).toFixed(1);$('tDev').innerHTML='Development <b style="color:var(--text)">'+fmt(dev)+' ('+pct+'%)</b>';}
   else if(events.fc==null&&liveCross.fc==null)$('tDev').textContent='';
+  updateEvBtns();
+}
+function updateEvBtns(){                           // the chart's Mark buttons carry their marked time
+  const set=(id,base,t)=>{const b=$(id);if(!b)return;b.textContent=t!=null?base+' '+fmt(t):base;b.classList.toggle('blue',t!=null);};
+  set('cEvDry','🌾 Dry End',events.dry);
+  set('cEvFc','💥 First Crack',events.fc);
 }
 
 // ---------- Theme ----------
