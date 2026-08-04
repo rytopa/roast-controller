@@ -161,8 +161,8 @@
         <button id="cEvFc">💥 First Crack</button>
         <span class="small">puts the event line on the graph — press again to re-mark</span>
       </div>
-      <label class="ck" style="margin:8px 0 0"><input type="checkbox" id="fcHold"><span class="small"><b>⚡ Hold power at FC</b> — marking First Crack fixes the heater at its <b>last-30 s average %</b> for the development phase (one steady setting, no more corrections; auto fan keeps running). Re-marking FC re-averages.</span></label>
-      <div id="fcHoldNote" class="small" style="display:none;color:var(--warn);margin-top:8px">⚡ <b>FC power hold active</b> — heater fixed at <b id="fcHoldPctTxt">—</b>%.
+      <label class="ck" style="margin:8px 0 0"><input type="checkbox" id="fcHold"><span class="small"><b>⚡ Hold power at FC</b> — marking First Crack fixes the heater at its <b>last-30 s average %</b> for the development phase, and <b>pauses the automated fan</b> — heat and air both stay put, no more corrections. Re-marking FC re-averages; manual fan buttons still work.</span></label>
+      <div id="fcHoldNote" class="small" style="display:none;color:var(--warn);margin-top:8px">⚡ <b>FC power hold active</b> — heater fixed at <b id="fcHoldPctTxt">—</b>%, automated fan paused.
         <button id="fcHoldResume" style="padding:4px 9px;font-size:12px;margin-left:6px">▶ Resume PID</button></div>
       <div class="row" style="margin-top:8px;gap:6px;align-items:center">
         <span class="small"><b>Fan</b></span>
@@ -1092,7 +1092,7 @@ async function startProfile(){
         }}
       else if(p.fan!=null)fv=Math.round(p.fan);
       if(fv!=null&&profile.fanOfs)fv=Math.max(0,Math.min(100,fv+profile.fanOfs));   // curve shifted through a mid-roast hand adjustment
-      if(!fanOverride&&fv!=null){
+      if(!fanOverride&&profile.holdPct==null&&fv!=null){   // FC hold pauses the automated fan too — air stays put
         if(fv!==profile.lastFan){send('IO3,'+fv);profile.lastFan=fv;profile.fanSentAt=e;}
         else{const s=samples[samples.length-1];                    // verify against telemetry: re-send if the roaster disagrees
           if(s&&s.fan!=null&&!Number.isNaN(s.fan)&&Math.abs(s.fan-fv)>2&&(profile.fanSentAt==null||e-profile.fanSentAt>=10)){
@@ -1287,7 +1287,7 @@ function etTick(){
     if(want!==etRun.lastOut){send('OT1,'+want);etRun.lastOut=want;}
     out=etRun.lastOut;
   }
-  if(!fanOverride){let fv=Math.round(refAt(etRef,e,'fan')??NaN);    // replay the reference fan
+  if(!fanOverride&&etRun.holdPct==null){let fv=Math.round(refAt(etRef,e,'fan')??NaN);    // replay the reference fan (paused during an FC hold)
     if(Number.isFinite(fv)){if(etRun.fanOfs)fv=Math.max(0,Math.min(100,fv+etRun.fanOfs));   // curve shifted through a hand adjustment
       if(fv!==etRun.lastFan){send('IO3,'+fv);etRun.lastFan=fv;}}}
   const dropTxt=' · → drop @ '+dropBt+'°'+(bt!=null?' (BT '+Math.round(bt)+'°)':'');
@@ -1843,21 +1843,21 @@ async function applyFcHold(){
     await delay(200);await send('OT1,'+avg);
   }
   setFcHoldNote();
-  log('⚡ FC hold — heater fixed at '+avg+'% (avg of last 30 s) for development'+(profile?'; the profile keeps driving the fan':'')+'.');
+  log('⚡ FC hold — heater fixed at '+avg+'% (avg of last 30 s) for development'+((profile||etRun)?'; automated fan paused':'')+'.');
 }
 async function resumeFromFcHold(){                  // one click: hand the heater back to the automated control
   if(!fcHold)return;
   const held=fcHold;fcHold=null;setFcHoldNote();
-  if(etRun){etRun.holdPct=null;log('⚡ FC hold released — ET-track loop resumes.');return;}
+  if(etRun){etRun.holdPct=null;etRun.lastFan=null;log('⚡ FC hold released — ET-track loop and fan replay resume.');return;}
   let sv=null;
-  if(profile){profile.holdPct=null;                 // profile run: rejoin the curve at its current target
+  if(profile){profile.holdPct=null;profile.lastFan=null;   // rejoin the curve at its current target; next tick re-sends the fan
     const p=interpAt(profile.points,nowT()-profile.startT);
     if(p)sv=p.sv;}
   if(sv==null)sv=held.sv;                           // plain PID roast: back to the setpoint the hold displaced
   if(sv==null){const s=samples[samples.length-1];if(s&&s.bt!=null&&!Number.isNaN(s.bt))sv=s.bt;}   // last resort: hold the current BT
   if(sv==null){log('⚡ FC hold released — no setpoint known, heater stays at '+held.pct+'% (set a target by hand).');return;}
   await engagePID(sv);
-  log('⚡ FC hold released — PID re-engaged (SV '+Math.round(sv)+'°).');
+  log('⚡ FC hold released — PID re-engaged (SV '+Math.round(sv)+'°)'+(profile?'; automated fan resumes':'')+'.');
 }
 $('fcHoldResume').addEventListener('click',resumeFromFcHold);
 $('fcHold').addEventListener('change',()=>{try{localStorage.setItem('rc_fchold',$('fcHold').checked?'1':'');}catch(e){}});
