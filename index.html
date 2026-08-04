@@ -156,6 +156,13 @@
         <span class="small">hover / drag to inspect values · top pane: temps (left axis) + RoR 0–30 °C/min (right axis) · bottom pane: heater &amp; fan %, dashed gold = cumulative heat used · bar = phases · dashed = plan · faded = background roast</span>
       </div>
       <div class="row" style="margin-top:8px;gap:6px;align-items:center">
+        <span class="small"><b>Mark</b></span>
+        <button id="cEvDry">🌾 Dry End</button>
+        <button id="cEvFc">💥 First Crack</button>
+        <span class="small">puts the event line on the graph — press again to re-mark</span>
+      </div>
+      <label class="ck" style="margin:8px 0 0"><input type="checkbox" id="fcHold"><span class="small"><b>⚡ Hold power at FC</b> — marking First Crack fixes the heater at its <b>last-30 s average %</b> for the development phase (one steady setting, no more corrections; auto fan keeps running). Re-marking FC re-averages.</span></label>
+      <div class="row" style="margin-top:8px;gap:6px;align-items:center">
         <span class="small"><b>Fan</b></span>
         <button id="cFanM5">−5</button>
         <input type="number" id="cFanVal" min="0" max="100" value="50" style="width:64px">
@@ -1060,7 +1067,11 @@ async function startProfile(){
   profile={points:pts,startT,autoFan:af,lastFan:null,fanSentAt:null,btMin:null,fanArmed:false,fanOfs:0,soak,soakPct:soaking?soak[0].pct:null,tid:setInterval(()=>{   // lastFan null: first tick re-sends the fan even if the start command was lost
     const e=nowT()-startT,p=interpAt(pts,e);
     if(p){
-      if(profile.soakPct!=null){                             // charge soak: fixed heater %, no setpoint while the PID is off
+      if(profile.holdPct!=null){                             // FC hold: fixed heater (PID off) — just verify against telemetry
+        const s=samples[samples.length-1];
+        if(s&&s.heat!=null&&!Number.isNaN(s.heat)&&Math.abs(s.heat-profile.holdPct)>2&&(profile.holdSentAt==null||e-profile.holdSentAt>=10)){
+          send('OT1,'+profile.holdPct);profile.holdSentAt=e;log('↻ re-sent heater '+profile.holdPct+'% (FC hold)');}
+      }else if(profile.soakPct!=null){                       // charge soak: fixed heater %, no setpoint while the PID is off
         const ce=chargeMs?(Date.now()-chargeMs)/1000:1e9;
         const st=profile.soak.find(s=>ce<s.until);
         if(st){if(st.pct!==profile.soakPct){send('OT1,'+st.pct);profile.soakPct=st.pct;log('Charge soak: heater '+st.pct+'%');}}
@@ -1252,7 +1263,10 @@ function etTick(){
   // Control move every other tick (4 s). Correcting every 2 s still hunted (the loop out-ran the
   // exhaust's response); safety checks above stay at 2 s. Derivative defaults OFF: with the
   // measurement-filter lag it acted a quarter-cycle late and fed the oscillation.
-  if(etRun.soakPct==null&&etRun.tickN%2===0){
+  if(etRun.holdPct!=null&&etRun.soakPct==null){                     // FC hold: one fixed heater setting for development
+    if(etRun.lastOut!==etRun.holdPct){send('OT1,'+etRun.holdPct);etRun.lastOut=etRun.holdPct;}
+    out=etRun.lastOut;
+  }else if(etRun.soakPct==null&&etRun.tickN%2===0){
     if(etRun.lastErr!=null&&err*etRun.lastErr<0)etRun.integ*=0.5;   // error flipped sign (e.g. the FC heat draw): dump stale wind-up fast
     etRun.lastErr=err;
     const etPrev=etMean(s.t-12,s.t-6);
@@ -1795,8 +1809,39 @@ $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;
     connectMs=chargeMs;
     $('rowCount').textContent=samples.length+' samples';}
   $('statsCard').style.display='none';$('alarmBanner').style.display='none';updateLiveBar();renderEvents();drawChart();log('CHARGE');});
-$('evDry').addEventListener('click',()=>{if(chargeMs){events.dry=(Date.now()-chargeMs)/1000;renderEvents();}});
-$('evFc').addEventListener('click',()=>{if(chargeMs){events.fc=(Date.now()-chargeMs)/1000;renderEvents();}});
+$('evDry').addEventListener('click',()=>{if(chargeMs){events.dry=(Date.now()-chargeMs)/1000;renderEvents();drawChart();log('Marked Dry End at '+fmt(events.dry));}});
+$('evFc').addEventListener('click',()=>{if(chargeMs){events.fc=(Date.now()-chargeMs)/1000;renderEvents();drawChart();log('Marked First Crack at '+fmt(events.fc));applyFcHold();}});
+// Optional FC power hold: marking First Crack freezes the heater at its recent
+// average — one steady setting through development instead of PID corrections.
+function last30AvgHeat(){
+  const hs=samples.filter(s=>s.heat!=null&&!Number.isNaN(s.heat));
+  if(!hs.length)return null;
+  const tN=hs[hs.length-1].t,win=hs.filter(s=>tN-s.t<=30);
+  return Math.round(win.reduce((a,s)=>a+s.heat,0)/win.length);
+}
+async function applyFcHold(){
+  if(!$('fcHold').checked)return;
+  if(!writeChar||!$('enableControl').checked){log('⚡ FC hold skipped — control not enabled.');return;}
+  if(pprof){log('⚡ FC hold skipped — a power profile is running (its schedule already fixes the heater).');return;}
+  const avg=last30AvgHeat();
+  if(avg==null){log('⚡ FC hold skipped — no heater telemetry to average.');return;}
+  if(etRun){                                        // ET-track drives OT1 itself: park its loop on the held value
+    etRun.holdPct=avg;
+    if(etRun.lastOut!==avg){send('OT1,'+avg);etRun.lastOut=avg;}
+  }else{                                            // profile / plain PID roast: PID off, fixed manual power
+    if(profile){profile.holdPct=avg;profile.holdSentAt=null;}
+    stopRamp();
+    await send('PID,OFF ');pidEngaged=false;setPidPill();
+    curSV=null;$('tSv').textContent='—';            // no setpoint while open-loop: keep the SV readout honest
+    await delay(200);await send('OT1,'+avg);
+  }
+  log('⚡ FC hold — heater fixed at '+avg+'% (avg of last 30 s) for development'+(profile?'; the profile keeps driving the fan':'')+'.');
+}
+$('fcHold').addEventListener('change',()=>{try{localStorage.setItem('rc_fchold',$('fcHold').checked?'1':'');}catch(e){}});
+// Visible DE / FC mark buttons under the chart — same machinery as the (hidden)
+// Roast session buttons, so the marks land in the saved roast and phase bar too.
+$('cEvDry').addEventListener('click',()=>{chargeMs?$('evDry').click():log('Dry End not marked — no roast running (charge first).');});
+$('cEvFc').addEventListener('click',()=>{chargeMs?$('evFc').click():log('First Crack not marked — no roast running (charge first).');});
 $('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-chargeMs)/1000;renderEvents();
   if(writeChar&&$('enableControl').checked){                       // end of roast: heater off; fan left as-is (a blast would eject the beans)
     stopRamp();stopProfile();stopEtRun('drop',true);stopPProf('drop',true);
@@ -1815,7 +1860,7 @@ function resetRoastView(){                         // fresh chart for the next b
   curSV=null;$('tSv').textContent='—';
   $('rowCount').textContent='0 samples';
   $('evTimes').innerHTML='Roast saved &amp; chart reset — press <b>Charge</b> for the next batch (or Load the saved roast to review it).';
-  updateTimer();updateLiveBar();drawChart();
+  updateEvBtns();updateTimer();updateLiveBar();drawChart();
 }
 function updateTimer(){$('tTimer').textContent=chargeMs?fmt((Date.now()-chargeMs)/1000):'0:00';}
 function updateLoss(){
@@ -1831,6 +1876,12 @@ function renderEvents(){
   $('evTimes').innerHTML=parts.length?parts.join(' · '):'Timer running…';
   if(events.fc!=null&&events.drop!=null&&events.drop>events.fc){const dev=(events.drop-events.fc),pct=(dev/events.drop*100).toFixed(1);$('tDev').innerHTML='Development <b style="color:var(--text)">'+fmt(dev)+' ('+pct+'%)</b>';}
   else if(events.fc==null&&liveCross.fc==null)$('tDev').textContent='';
+  updateEvBtns();
+}
+function updateEvBtns(){                           // the chart's Mark buttons carry their marked time
+  const set=(id,base,t)=>{const b=$(id);if(!b)return;b.textContent=t!=null?base+' '+fmt(t):base;b.classList.toggle('blue',t!=null);};
+  set('cEvDry','🌾 Dry End',events.dry);
+  set('cEvFc','💥 First Crack',events.fc);
 }
 
 // ---------- Theme ----------
@@ -2759,6 +2810,7 @@ try{const ep=JSON.parse(localStorage.getItem('rc_etrun')||'null');
     if(ep.endBt)$('etEndBt').value=ep.endBt;
     if(ep.id){$('etSel').value=ep.id;if($('etSel').value===ep.id)applyEtRef(true);}}}catch(e){}
 drawChart();
+try{if(localStorage.getItem('rc_fchold'))$('fcHold').checked=true;}catch(e){}   // restore the FC power-hold option
 try{const bc=JSON.parse(localStorage.getItem('rc_batch')||'null');         // restore the roaster's batch range
   if(bc){if(bc.min)$('batchMin').value=bc.min;if(bc.max)$('batchMax').value=bc.max;}}catch(e){}
 try{const bb=JSON.parse(localStorage.getItem('rc_bbp')||'null');           // restore between-batch cool/charge/fan settings
