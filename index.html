@@ -162,6 +162,8 @@
         <span class="small">puts the event line on the graph — press again to re-mark</span>
       </div>
       <label class="ck" style="margin:8px 0 0"><input type="checkbox" id="fcHold"><span class="small"><b>⚡ Hold power at FC</b> — marking First Crack fixes the heater at its <b>last-30 s average %</b> for the development phase (one steady setting, no more corrections; auto fan keeps running). Re-marking FC re-averages.</span></label>
+      <div id="fcHoldNote" class="small" style="display:none;color:var(--warn);margin-top:8px">⚡ <b>FC power hold active</b> — heater fixed at <b id="fcHoldPctTxt">—</b>%.
+        <button id="fcHoldResume" style="padding:4px 9px;font-size:12px;margin-left:6px">▶ Resume PID</button></div>
       <div class="row" style="margin-top:8px;gap:6px;align-items:center">
         <span class="small"><b>Fan</b></span>
         <button id="cFanM5">−5</button>
@@ -655,7 +657,7 @@ $('cFan0').addEventListener('click',()=>{if(fanCtlOk())manualFan(0);});
 // Heater Off is the stop button — gated on connection only, NOT the Enable-control
 // tick: an emergency cut must never be blocked by a checkbox.
 $('cPow0').addEventListener('click',()=>{if(!writeChar){alert('Connect the roaster first.');return;}heaterOff();});
-async function heaterOff(){stopRamp();stopProfile();stopBBP('emergency',true);stopEtRun('emergency',true);stopPProf('emergency',true);await send('PID,OFF ');pidEngaged=false;setPidPill();setTimeout(()=>send('OT1,0'),300);}
+async function heaterOff(){stopRamp();stopProfile();stopBBP('emergency',true);stopEtRun('emergency',true);stopPProf('emergency',true);clearFcHold();await send('PID,OFF ');pidEngaged=false;setPidPill();setTimeout(()=>send('OT1,0'),300);}
 function stopRamp(){if(ramp){clearInterval(ramp.tid);ramp=null;}}
 
 // ---------- Profile designer + playback ----------
@@ -1047,7 +1049,7 @@ async function startProfile(){
   const pts=getPoints();if(pts.length<2){alert('Add at least 2 points.');return;}
   if(!writeChar){alert('Connect the roaster first.');return;}
   if(!$('enableControl').checked){alert('Tick "Enable control" next to the chart first.');return;}
-  stopRamp();stopEtRun('profile started',true);stopPProf('profile started',true);clearFanOverride();
+  stopRamp();stopEtRun('profile started',true);stopPProf('profile started',true);clearFanOverride();clearFcHold();
   const af=uiAutoFan(),endSv=Math.max(175,pts[pts.length-1].sv);
   const fan0=af?af.start:(pts[0].fan!=null?Math.round(pts[0].fan):40); send('IO3,'+fan0); await delay(300);
   // Fresh charge -> fixed-power soak (PID off) per the user's charge-soak settings, timed on the
@@ -1102,7 +1104,7 @@ async function startProfile(){
 }
 function stopProfile(){if(profile){clearInterval(profile.tid);profile=null;}clearFanOverride();const b=$('profRun');if(b){b.textContent='▶ Run profile';b.classList.add('green');b.classList.remove('danger');}}
 function finishProfile(){                          // natural end of the curve: stop heating, don't hold the last setpoint
-  stopProfile();
+  stopProfile();clearFcHold();
   send('PID,OFF ');pidEngaged=false;setPidPill();
   setTimeout(()=>send('OT1,0'),250);
   autoSaveRoast();                                 // profile ran to completion -> save it (updated again on Drop)
@@ -1185,7 +1187,7 @@ async function startEtRun(){
   if(!$('enableControl').checked){alert('Tick "Enable control" next to the chart first.');return;}
   if(!etRef)applyEtRef();
   if(!etRef){alert('Pick a reference roast (with ET data) first.');return;}
-  stopRamp();stopProfile();stopPProf('ET-track started',true);clearFanOverride();
+  stopRamp();stopProfile();stopPProf('ET-track started',true);clearFanOverride();clearFcHold();
   etRef._i=0;
   await send('PID,OFF ');pidEngaged=false;
   curSV=null;$('tSv').textContent='—';                              // no setpoint in ET-track: don't chart a stale SV line
@@ -1449,7 +1451,7 @@ async function startPProf(){
   if(!writeChar){alert('Connect the roaster first.');return;}
   if(!$('enableControl').checked){alert('Tick "Enable control" next to the chart first.');return;}
   const steps=ppSteps();if(!steps){alert('The schedule isn\'t valid — one "time heater% [fan%]" per line, at least 2 lines.');return;}
-  stopRamp();stopProfile();stopEtRun('power profile started',true);clearFanOverride();
+  stopRamp();stopProfile();stopEtRun('power profile started',true);clearFanOverride();clearFcHold();
   await send('PID,OFF ');pidEngaged=false;
   curSV=null;$('tSv').textContent='—';                 // open loop: no setpoint to chart
   const pill=$('pidPill');pill.textContent='OPEN LOOP';pill.className='pill on';
@@ -1801,6 +1803,7 @@ $('heaterW').addEventListener('change',()=>{
 // ---------- Roast timer + events ----------
 $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;events.dry=events.fc=events.drop=null;
   invUse.dropped=false;invUse.deducted=0;         // new batch: fresh inventory-deduction session
+  clearFcHold();
   liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=false;bgIdx=0;
   if(connectMs){                                   // drop pre-charge telemetry and make Charge the chart's zero point
     const base=(chargeMs-connectMs)/1000;
@@ -1819,12 +1822,16 @@ function last30AvgHeat(){
   const tN=hs[hs.length-1].t,win=hs.filter(s=>tN-s.t<=30);
   return Math.round(win.reduce((a,s)=>a+s.heat,0)/win.length);
 }
+let fcHold=null;                                    // {pct, sv}: active hold + the setpoint it displaced (for Resume PID)
+function setFcHoldNote(){const n=$('fcHoldNote');if(!n)return;n.style.display=fcHold?'':'none';if(fcHold)$('fcHoldPctTxt').textContent=fcHold.pct;}
+function clearFcHold(){if(!fcHold)return;fcHold=null;if(profile)profile.holdPct=null;if(etRun)etRun.holdPct=null;setFcHoldNote();}
 async function applyFcHold(){
   if(!$('fcHold').checked)return;
   if(!writeChar||!$('enableControl').checked){log('⚡ FC hold skipped — control not enabled.');return;}
   if(pprof){log('⚡ FC hold skipped — a power profile is running (its schedule already fixes the heater).');return;}
   const avg=last30AvgHeat();
   if(avg==null){log('⚡ FC hold skipped — no heater telemetry to average.');return;}
+  fcHold={pct:avg,sv:(fcHold&&fcHold.sv!=null)?fcHold.sv:curSV};   // a re-mark keeps the original displaced setpoint
   if(etRun){                                        // ET-track drives OT1 itself: park its loop on the held value
     etRun.holdPct=avg;
     if(etRun.lastOut!==avg){send('OT1,'+avg);etRun.lastOut=avg;}
@@ -1835,8 +1842,24 @@ async function applyFcHold(){
     curSV=null;$('tSv').textContent='—';            // no setpoint while open-loop: keep the SV readout honest
     await delay(200);await send('OT1,'+avg);
   }
+  setFcHoldNote();
   log('⚡ FC hold — heater fixed at '+avg+'% (avg of last 30 s) for development'+(profile?'; the profile keeps driving the fan':'')+'.');
 }
+async function resumeFromFcHold(){                  // one click: hand the heater back to the automated control
+  if(!fcHold)return;
+  const held=fcHold;fcHold=null;setFcHoldNote();
+  if(etRun){etRun.holdPct=null;log('⚡ FC hold released — ET-track loop resumes.');return;}
+  let sv=null;
+  if(profile){profile.holdPct=null;                 // profile run: rejoin the curve at its current target
+    const p=interpAt(profile.points,nowT()-profile.startT);
+    if(p)sv=p.sv;}
+  if(sv==null)sv=held.sv;                           // plain PID roast: back to the setpoint the hold displaced
+  if(sv==null){const s=samples[samples.length-1];if(s&&s.bt!=null&&!Number.isNaN(s.bt))sv=s.bt;}   // last resort: hold the current BT
+  if(sv==null){log('⚡ FC hold released — no setpoint known, heater stays at '+held.pct+'% (set a target by hand).');return;}
+  await engagePID(sv);
+  log('⚡ FC hold released — PID re-engaged (SV '+Math.round(sv)+'°).');
+}
+$('fcHoldResume').addEventListener('click',resumeFromFcHold);
 $('fcHold').addEventListener('change',()=>{try{localStorage.setItem('rc_fchold',$('fcHold').checked?'1':'');}catch(e){}});
 // Visible DE / FC mark buttons under the chart — same machinery as the (hidden)
 // Roast session buttons, so the marks land in the saved roast and phase bar too.
@@ -1848,6 +1871,7 @@ $('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-c
     send('PID,OFF ');pidEngaged=false;setPidPill();
     setTimeout(()=>send('OT1,0'),250);
     log('DROP — heater off (fan unchanged)');}
+  clearFcHold();
   autoSaveRoast();
   invUse.dropped=true;applyInvDeduction();        // take the batch's green weight out of the selected bean's stock
   renderStatsCard(roastStats(),+$('wIn').value,+$('wOut').value);
@@ -1860,7 +1884,7 @@ function resetRoastView(){                         // fresh chart for the next b
   curSV=null;$('tSv').textContent='—';
   $('rowCount').textContent='0 samples';
   $('evTimes').innerHTML='Roast saved &amp; chart reset — press <b>Charge</b> for the next batch (or Load the saved roast to review it).';
-  updateEvBtns();updateTimer();updateLiveBar();drawChart();
+  clearFcHold();updateEvBtns();updateTimer();updateLiveBar();drawChart();
 }
 function updateTimer(){$('tTimer').textContent=chargeMs?fmt((Date.now()-chargeMs)/1000):'0:00';}
 function updateLoss(){
