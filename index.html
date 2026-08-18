@@ -252,7 +252,12 @@
           <button data-genshape="pyr" style="flex:1;min-width:120px">🔺 Pyramid RoR</button>
           <button data-genshape="flat" style="flex:1;min-width:120px">📏 Straight phases</button>
         </div>
-        <div class="small" id="genInfo">Pick a shape — the curve is built to hit your dry-end, first-crack and drop targets at exactly those times, and loads into the graph below. Flip between the shapes to compare, tweak points if you like, then <b>Save profile</b>. <b>Declining</b>: RoR starts high and eases down all roast (classic). <b>Pyramid</b>: RoR climbs through drying, peaks at dry end, then declines. <b>Straight</b>: constant RoR within each phase. The fan is not set — tick <b>Auto fan</b> below or fill the fan column.</div>
+        <div class="row" style="gap:6px;margin-bottom:6px">
+          <button data-genshape="soak" style="flex:1;min-width:120px">🛁 Soak start</button>
+          <button data-genshape="cruise" style="flex:1;min-width:120px">🛬 Flat development</button>
+          <button data-genshape="step" style="flex:1;min-width:120px">🪜 Step-down at FC</button>
+        </div>
+        <div class="small" id="genInfo">Pick a shape — the curve is built to hit your dry-end, first-crack and drop targets at exactly those times, and loads into the graph below. Flip between the shapes to compare, tweak points if you like, then <b>Save profile</b>. <b>Declining</b>: RoR starts high and eases down all roast (classic). <b>Pyramid</b>: RoR climbs through drying, peaks at dry end, then declines. <b>Straight</b>: constant RoR within each phase. <b>Soak</b>: near-flat target for the first ~45 s (gentle on dense beans), then a declining curve. <b>Flat development</b>: declining until first crack, then the RoR holds steady through development — helps hit the drop time without stalling. <b>Step-down at FC</b>: sheds a chunk of RoR in the ~30 s before first crack (the anti-crash/flick move), then a calm flat development. The fan is not set — tick <b>Auto fan</b> below or fill the fan column.</div>
       </div>
     </details>
     <div class="row" style="justify-content:flex-end;margin-bottom:6px">
@@ -911,10 +916,12 @@ $('profDetails').addEventListener('toggle',()=>{try{localStorage.setItem('rc_pro
 // ---------- Profile generator: phase targets → curve-shape options ----------
 // The user fixes WHERE the roast must be (dry-end / FC / drop temps) and WHEN
 // (time in each phase); the shape only decides how the RoR is distributed
-// inside those constraints. RoR is modelled piecewise-linear between the phase
-// boundaries (knots r0..r3), so each phase's mean must equal its required
-// average a_i — (r_{i-1}+r_i)/2 = a_i — leaving one free knob (r0) to pick the
-// shape. Temps are the exact integral of that RoR, so every anchor is hit.
+// inside those constraints. The RoR plan is a list of segments, each linear
+// from ra to rb °C/s over len seconds; every phase's segments integrate to
+// exactly that phase's temperature rise, so all anchors are hit on the dot.
+// Between two knots of one phase the means obey (r_prev+r_next)/2 = phase
+// average, leaving one free knob to pick the shape; the soak / step / cruise
+// shapes split a phase to add an extra bend.
 function generateProfile(shape){
   const T0=+$('genT0').value,Tde=+$('genDeC').value,Tfc=+$('genFcC').value,Te=+$('genEndC').value;
   const dur=p=>(+$(p+'M').value||0)*60+(+$(p+'S').value||0);
@@ -922,35 +929,57 @@ function generateProfile(shape){
   if(!(T0>0&&Tde>T0&&Tfc>Tde&&Te>Tfc&&Te<=260)){alert('Temperatures must ascend: start < dry end < first crack < drop (max 260 °C).');return;}
   if(d1<60||d2<60||d3<30){alert('Phase times too short — give at least 1:00 drying, 1:00 Maillard, 0:30 development.');return;}
   const a1=(Tde-T0)/d1,a2=(Tfc-Tde)/d2,a3=(Te-Tfc)/d3;              // required per-phase average RoR, °C/s
-  let seg,approx=false,fellBack=false;
-  if(shape==='flat')seg=[[a1,a1],[a2,a2],[a3,a3]];
-  else{
-    let r0;
-    if(shape==='decl'){                                             // want r0 ≥ r1 ≥ r2 ≥ r3 ≥ 0
-      const lo=Math.max(a1,2*a1-2*a2+a3),hi=Math.min(2*a1-a2,2*(a1-a2+a3));
-      if(lo<=hi)r0=(lo+hi)/2;else{approx=true;r0=Math.max(0,Math.min(1.12*a1,2*(a1-a2+a3)));}
-    }else{                                                          // pyramid: climb to a peak at dry end, then decline
-      const lo=2*a1-2*a2+a3,hi=Math.max(0,Math.min(a1,2*(a1-a2+a3)));
-      r0=Math.min(Math.max(0.55*a1,lo,0),hi);if(lo>hi)approx=true;
-    }
+  const f=x=>Math.round(x*10)/10,pm=x=>f(x*60);                     // °C/s → display °C/min
+  const mk=(...s)=>s.map(x=>({len:x[0],ra:x[1],rb:x[2]}));
+  const flatSegs=()=>mk([d1,a1,a1],[d2,a2,a2],[d3,a3,a3]);
+  const flatDesc='Straight-line phases: constant RoR per phase — ~'+pm(a1)+' / '+pm(a2)+' / '+pm(a3)+' °C/min.';
+  let segs,descStr=flatDesc,approx=false,fellBack=false;
+  // declining fit for a phase triple (aA,a2,a3): first knot so r0 ≥ r1 ≥ r2 ≥ r3 ≥ 0 where possible
+  const pickDecl=aA=>{const lo=Math.max(aA,2*aA-2*a2+a3),hi=Math.min(2*aA-a2,2*(aA-a2+a3));
+    if(lo<=hi)return(lo+hi)/2;approx=true;return Math.max(0,Math.min(1.12*aA,2*(aA-a2+a3)));};
+  if(shape==='flat')segs=flatSegs();
+  else if(shape==='decl'){
+    const r0=pickDecl(a1),r1=2*a1-r0,r2=2*a2-r1,r3=2*a3-r2;
+    segs=mk([d1,r0,r1],[d2,r1,r2],[d3,r2,r3]);
+    descStr='Declining RoR: ~'+pm(r0)+' → '+pm(r3)+' °C/min, easing down through the whole roast.';
+  }else if(shape==='pyr'){                                          // climb to a peak at dry end, then decline
+    const lo=2*a1-2*a2+a3,hi=Math.max(0,Math.min(a1,2*(a1-a2+a3)));
+    const r0=Math.min(Math.max(0.55*a1,lo,0),hi);if(lo>hi)approx=true;
     const r1=2*a1-r0,r2=2*a2-r1,r3=2*a3-r2;
-    if(Math.min(r0,r1,r2,r3)<-1e-9){fellBack=true;seg=[[a1,a1],[a2,a2],[a3,a3]];}  // shape impossible without a temp dip
-    else seg=[[r0,r1],[r1,r2],[r2,r3]];
+    segs=mk([d1,r0,r1],[d2,r1,r2],[d3,r2,r3]);
+    descStr='Pyramid RoR: ~'+pm(r0)+' °C/min climbing to a peak of ~'+pm(r1)+' at dry end, then declining to ~'+pm(r3)+'.';
+  }else if(shape==='soak'){                                         // gentle hold after charge, then a declining fit
+    const ts=Math.min(45,Math.round(d1/4)),rs=0.2*a1,dR=d1-ts;
+    const aR=((Tde-T0)-rs*ts)/dR;                                   // rest of drying must average this to still hit DE on time
+    const rp=pickDecl(aR),r1=2*aR-rp,r2=2*a2-r1,r3=2*a3-r2;
+    segs=mk([ts,rs,rs],[dR,rp,r1],[d2,r1,r2],[d3,r2,r3]);
+    descStr='Soak start: ~'+pm(rs)+' °C/min hold for the first '+fmt(ts)+', then declining ~'+pm(rp)+' → '+pm(r3)+' °C/min.';
+  }else if(shape==='cruise'){                                       // declining into FC, development held flat at its average
+    let r1=Math.min(a1,2*a2-a3);
+    if(r1<a2){r1=Math.min(a2,2*a2-a3);approx=true;}                 // Maillard demands more RoR than drying can end with
+    const r0=2*a1-r1,den=r1-a3;
+    const th=den>1e-9?d2*(2*a2-r1-a3)/den:0;                        // hold r1 this long, then decline to a3 by FC
+    segs=mk([d1,r0,r1],[th,r1,r1],[d2-th,r1,a3],[d3,a3,a3]);
+    descStr='Declining ~'+pm(r0)+' → '+pm(a3)+' °C/min by first crack, then held flat at ~'+pm(a3)+' through development.';
+  }else{                                                            // 'step': shed RoR just before FC, flat development
+    const ts=Math.min(30,Math.round(d2/3));
+    const rHi=(a2*d2-a3*ts/2)/(d2-ts/2),r0=2*a1-rHi;
+    segs=mk([d1,r0,rHi],[d2-ts,rHi,rHi],[ts,rHi,a3],[d3,a3,a3]);
+    descStr='RoR eases ~'+pm(r0)+' → '+pm(rHi)+' °C/min, holds through Maillard, sheds to ~'+pm(a3)+' in the '+fmt(ts)+' before first crack, then flat development.';
   }
-  const b=[0,d1,d1+d2,d1+d2+d3],base=[T0,Tde,Tfc],total=b[3];
-  const tempAt=t=>{const i=t<=d1?0:(t<=d1+d2?1:2),tau=t-b[i],ra=seg[i][0],rb=seg[i][1];
-    return base[i]+ra*tau+(rb-ra)*tau*tau/(2*(b[i+1]-b[i]));};
-  const times=b.slice();                                            // anchors always; minute grid where the curve bends
-  if(shape!=='flat'&&!fellBack)for(let t=60;t<total;t+=60)if(b.every(x=>Math.abs(x-t)>=20))times.push(t);
+  if(segs.some(s=>s.ra<-1e-9||s.rb<-1e-9)){fellBack=true;approx=false;segs=flatSegs();descStr=flatDesc;}  // shape impossible without a temp dip
+  segs=segs.filter(s=>s.len>0);
+  let ct=0,cT=T0;const S=segs.map(s=>{const o={t0:ct,T:cT,len:s.len,ra:s.ra,rb:s.rb};ct+=s.len;cT+=(s.ra+s.rb)/2*s.len;return o;});
+  const total=ct;
+  const tempAt=t=>{const s=S.find(x=>t<=x.t0+x.len+1e-9)||S[S.length-1],tau=Math.max(0,Math.min(t-s.t0,s.len));
+    return s.T+s.ra*tau+(s.rb-s.ra)*tau*tau/(2*s.len);};
+  const anch=S.map(s=>s.t0).concat([total]),times=anch.slice();     // segment anchors always; minute grid where the curve bends
+  if(shape!=='flat'&&!fellBack)for(let t=60;t<total;t+=60)if(anch.every(x=>Math.abs(x-t)>=20))times.push(t);
   times.sort((x,y)=>x-y);
   editPts=times.map(t=>({t,sv:Math.round(tempAt(t)*10)/10,fan:''}));
-  const f=x=>Math.round(x*10)/10,rS=f(seg[0][0]*60),rP=f(seg[0][1]*60),rE=f(seg[2][1]*60);
   const dm=[];for(let m=60;m<total+59;m+=60)dm.push('+'+Math.round(tempAt(Math.min(m,total))-tempAt(m-60)));
-  const label={decl:'Declining RoR',pyr:'Pyramid RoR',flat:'Straight phases'}[shape];
-  const flatDesc='Straight-line phases: constant RoR per phase — ~'+f(a1*60)+' / '+f(a2*60)+' / '+f(a3*60)+' °C/min.';
-  const desc=fellBack?flatDesc:{decl:'Declining RoR: ~'+rS+' → '+rE+' °C/min, easing down through the whole roast.',
-    pyr:'Pyramid RoR: ~'+rS+' °C/min climbing to a peak of ~'+rP+' at dry end, then declining to ~'+rE+'.',
-    flat:flatDesc}[shape];
+  const label={decl:'Declining RoR',pyr:'Pyramid RoR',flat:'Straight phases',soak:'Soak start',cruise:'Flat development',step:'Step-down at FC'}[shape];
+  const desc=descStr;
   $('profName').value=label+' — FC '+Tfc+', drop '+Te+' @ '+fmt(total).replace(':','m')+'s';
   $('profNotes').value='Generated from phase targets — dry end '+Tde+' °C at '+fmt(d1)+', first crack '+Tfc+' °C at '+fmt(d1+d2)
     +', drop '+Te+' °C at '+fmt(total)+' ('+Math.round(d3/total*100)+'% development). '+desc
