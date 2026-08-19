@@ -257,7 +257,17 @@
           <button data-genshape="cruise" style="flex:1;min-width:120px">🛬 Flat development</button>
           <button data-genshape="step" style="flex:1;min-width:120px">🪜 Step-down at FC</button>
         </div>
-        <div class="small" id="genInfo">Pick a shape — the curve is built to hit your dry-end, first-crack and drop targets at exactly those times, and loads into the graph below. Flip between the shapes to compare, tweak points if you like, then <b>Save profile</b>. <b>Declining</b>: RoR starts high and eases down all roast (classic). <b>Pyramid</b>: RoR climbs through drying, peaks at dry end, then declines. <b>Straight</b>: constant RoR within each phase. <b>Soak</b>: near-flat target for the first ~45 s (gentle on dense beans), then a declining curve. <b>Flat development</b>: declining until first crack, then the RoR holds steady through development — helps hit the drop time without stalling. <b>Step-down at FC</b>: sheds a chunk of RoR in the ~30 s before first crack (the anti-crash/flick move), then a calm flat development. The fan is not set — tick <b>Auto fan</b> below or fill the fan column.</div>
+        <div class="row" style="gap:6px;margin-bottom:6px">
+          <button data-genshape="plateau" style="flex:1;min-width:120px">♨️ Boil-off plateau</button>
+          <button data-genshape="bump" style="flex:1;min-width:120px">🌋 FC exotherm bump</button>
+          <button data-genshape="valley" style="flex:1;min-width:120px">🏞 Maillard valley</button>
+        </div>
+        <div class="row" style="gap:6px;margin-bottom:6px;align-items:center">
+          <button data-genshape="exp" style="flex:1;min-width:120px">🪂 Free-fall (exp)</button>
+          <label class="ck" style="margin:0;flex:1;min-width:140px"><input type="checkbox" id="genBoost"><span><b>⚡ Precharge start</b></span></label>
+          <label class="ck" style="margin:0;flex:1;min-width:140px"><input type="checkbox" id="genCoast"><span><b>🍃 Coast to drop</b></span></label>
+        </div>
+        <div class="small" id="genInfo">Pick a shape — the curve is built to hit your dry-end, first-crack and drop targets at exactly those times, and loads into the graph below. Flip between the shapes to compare, tweak points if you like, then <b>Save profile</b>. <b>Declining</b>: RoR starts high, eases down all roast (classic). <b>Pyramid</b>: climbs to a peak at dry end, then declines. <b>Straight</b>: constant RoR per phase. <b>Soak</b>: near-flat first ~45 s, then declining. <b>Flat development</b>: declining until FC, then RoR held steady. <b>Step-down at FC</b>: sheds RoR ~30 s before FC (anti-crash/flick), calm flat development. <b>Boil-off plateau</b>: parks ~60–90 s at the boiling point so energy evaporates moisture at constant temp, then declines. <b>FC exotherm bump</b>: a small deliberate RoR <i>rise</i> into FC so the PID holds power through the steam crash — the real RoR comes out flat. <b>Maillard valley</b>: hot drying into a near-stall dwell past dry end (time-at-temperature for sweetness), second push, decline — experimental. <b>Free-fall</b>: exponential RoR decay, the natural curve of a constant heater. Modifiers combine with any shape — <b>⚡ Precharge</b> commands +8 °C for the first 40 s (full power into cold wet beans, faster turnaround); <b>🍃 Coast</b> ends the command 3 °C early and lets stored drum heat carry the beans to the drop. The fan is not set — tick <b>Auto fan</b> below or fill the fan column.</div>
       </div>
     </details>
     <div class="row" style="justify-content:flex-end;margin-bottom:6px">
@@ -933,7 +943,8 @@ function generateProfile(shape){
   const mk=(...s)=>s.map(x=>({len:x[0],ra:x[1],rb:x[2]}));
   const flatSegs=()=>mk([d1,a1,a1],[d2,a2,a2],[d3,a3,a3]);
   const flatDesc='Straight-line phases: constant RoR per phase — ~'+pm(a1)+' / '+pm(a2)+' / '+pm(a3)+' °C/min.';
-  let segs,descStr=flatDesc,approx=false,fellBack=false;
+  let segs,expParts=null,descStr=flatDesc,approx=false,fellBack=false;
+  const expF=(rIn,k,d)=>Math.abs(k)<1e-9?rIn*d:rIn*(1-Math.exp(-k*d))/k;   // area under rIn·e^(−kτ) over d seconds
   // declining fit for a phase triple (aA,a2,a3): first knot so r0 ≥ r1 ≥ r2 ≥ r3 ≥ 0 where possible
   const pickDecl=aA=>{const lo=Math.max(aA,2*aA-2*a2+a3),hi=Math.min(2*aA-a2,2*(aA-a2+a3));
     if(lo<=hi)return(lo+hi)/2;approx=true;return Math.max(0,Math.min(1.12*aA,2*(aA-a2+a3)));};
@@ -961,26 +972,83 @@ function generateProfile(shape){
     const th=den>1e-9?d2*(2*a2-r1-a3)/den:0;                        // hold r1 this long, then decline to a3 by FC
     segs=mk([d1,r0,r1],[th,r1,r1],[d2-th,r1,a3],[d3,a3,a3]);
     descStr='Declining ~'+pm(r0)+' → '+pm(a3)+' °C/min by first crack, then held flat at ~'+pm(a3)+' through development.';
-  }else{                                                            // 'step': shed RoR just before FC, flat development
+  }else if(shape==='step'){                                         // shed RoR just before FC, flat development
     const ts=Math.min(30,Math.round(d2/3));
     const rHi=(a2*d2-a3*ts/2)/(d2-ts/2),r0=2*a1-rHi;
     segs=mk([d1,r0,rHi],[d2-ts,rHi,rHi],[ts,rHi,a3],[d3,a3,a3]);
     descStr='RoR eases ~'+pm(r0)+' → '+pm(rHi)+' °C/min, holds through Maillard, sheds to ~'+pm(a3)+' in the '+fmt(ts)+' before first crack, then flat development.';
+  }else if(shape==='plateau'){                                      // park at the boil: latent heat evaporates moisture at constant temp
+    const Tp=Math.max(104,T0+6),rr=1.5*a1,tr=(Tp-T0)/rr;
+    const tp=Math.min(75,d1-tr-30);
+    if(Tde<Tp+15||tp<25){fellBack=true;segs=flatSegs();}
+    else{
+      const dR=d1-tr-tp,aR=(Tde-Tp)/dR;
+      const rp=pickDecl(aR),r1=2*aR-rp,r2=2*a2-r1,r3=2*a3-r2;
+      segs=mk([tr,rr,rr],[tp,0,0],[dR,rp,r1],[d2,r1,r2],[d3,r2,r3]);
+      descStr='Boil-off plateau: quick rise to '+Tp+' °C, held dead flat for '+fmt(tp)+' so heater energy boils off moisture at constant temp (evens out the bean’s moisture gradient), then declining ~'+pm(rp)+' → '+pm(r3)+' °C/min.';
+    }
+  }else if(shape==='bump'){                                         // deliberate RoR rise straddling FC: a rising target keeps the PID from cutting power in the steam crash
+    const tb2=Math.min(20,Math.round(d2/4)),tb3=Math.min(20,Math.round(d3/3)),bumpR=2.5/60;
+    const r1=0.93*a1,r0=2*a1-r1;
+    const rLo=(2*a2-r1*(d2-tb2)/d2-bumpR*tb2/d2)/(1+tb2/d2),rPk=rLo+bumpR;
+    const rDev=(a3*d3-rPk*tb3/2)/(d3-tb3/2);
+    segs=mk([d1,r0,r1],[d2-tb2,r1,rLo],[tb2,rLo,rPk],[tb3,rPk,rDev],[d3-tb3,rDev,rDev]);
+    descStr='FC exotherm bump: declining ~'+pm(r0)+' → '+pm(rLo)+' °C/min, then a deliberate rise to ~'+pm(rPk)+' into first crack — the climbing target holds PID power through the FC steam crash so the real RoR comes out flat (no flick) — settling to ~'+pm(rDev)+' flat development.';
+  }else if(shape==='valley'){                                       // hot front, near-stall dwell just past dry end, second push, decline
+    const tv=Math.min(40,Math.round(d2/4)),rV=0.2*a1,th=Math.min(45,Math.round((d2-tv)/3)),dH=d2-tv-th;
+    if(dH<20){fellBack=true;segs=flatSegs();}
+    else{
+      const r0=2*a1-rV,r2=1.2*a3,r3=2*a3-r2;
+      const rH=(a2*d2-rV*tv-rV*th/2-r2*dH/2)/((d2-tv)/2);
+      segs=mk([d1,r0,rV],[tv,rV,rV],[th,rV,rH],[dH,rH,r2],[d3,r2,r3]);
+      descStr='Maillard valley: hot front ~'+pm(r0)+' °C/min falling to a ~'+pm(rV)+' near-stall held '+fmt(tv)+' just past dry end (buying time-at-temperature for Maillard chemistry), a second push to ~'+pm(rH)+', then declining to ~'+pm(r3)+'.';
+    }
+  }else{                                                            // 'exp' free-fall: piecewise-exponential RoR decay — the curve a constant heater draws
+    const solveK=(rIn,d,dT)=>{let lo=-0.2,hi=0.2;
+      for(let i=0;i<70;i++){const mid=(lo+hi)/2;if(expF(rIn,mid,d)>dT)lo=mid;else hi=mid;}return(lo+hi)/2;};
+    let rIn=1.35*a1,Ts=T0,tacc=0,kerr=0;expParts=[];
+    for(const[d,dT]of[[d1,Tde-T0],[d2,Tfc-Tde],[d3,Te-Tfc]]){
+      const k=solveK(rIn,d,dT);expParts.push({t0:tacc,T:Ts,rIn,k,len:d});
+      kerr=Math.max(kerr,Math.abs(expF(rIn,k,d)-dT));
+      rIn*=Math.exp(-k*d);Ts+=dT;tacc+=d;
+    }
+    if(kerr>0.5){fellBack=true;expParts=null;segs=flatSegs();}      // no decay constant can fit these targets — don't miss an anchor
+    else descStr='Free-fall: RoR decays exponentially ~'+pm(expParts[0].rIn)+' → '+pm(rIn)+' °C/min — the natural curve of a constant heater (the bean-to-air gap shrinking Newtonially), so the PID barely has to actuate.';
   }
-  if(segs.some(s=>s.ra<-1e-9||s.rb<-1e-9)){fellBack=true;approx=false;segs=flatSegs();descStr=flatDesc;}  // shape impossible without a temp dip
-  segs=segs.filter(s=>s.len>0);
-  let ct=0,cT=T0;const S=segs.map(s=>{const o={t0:ct,T:cT,len:s.len,ra:s.ra,rb:s.rb};ct+=s.len;cT+=(s.ra+s.rb)/2*s.len;return o;});
-  const total=ct;
-  const tempAt=t=>{const s=S.find(x=>t<=x.t0+x.len+1e-9)||S[S.length-1],tau=Math.max(0,Math.min(t-s.t0,s.len));
-    return s.T+s.ra*tau+(s.rb-s.ra)*tau*tau/(2*s.len);};
-  const anch=S.map(s=>s.t0).concat([total]),times=anch.slice();     // segment anchors always; minute grid where the curve bends
-  if(shape!=='flat'&&!fellBack)for(let t=60;t<total;t+=60)if(anch.every(x=>Math.abs(x-t)>=20))times.push(t);
-  times.sort((x,y)=>x-y);
-  editPts=times.map(t=>({t,sv:Math.round(tempAt(t)*10)/10,fan:''}));
-  const dm=[];for(let m=60;m<total+59;m+=60)dm.push('+'+Math.round(tempAt(Math.min(m,total))-tempAt(m-60)));
-  const label={decl:'Declining RoR',pyr:'Pyramid RoR',flat:'Straight phases',soak:'Soak start',cruise:'Flat development',step:'Step-down at FC'}[shape];
+  let tempAt,anch,bendy=true;const total=d1+d2+d3;
+  if(expParts){
+    tempAt=t=>{const p=expParts.find(x=>t<=x.t0+x.len+1e-9)||expParts[expParts.length-1],tau=Math.max(0,Math.min(t-p.t0,p.len));
+      return p.T+expF(p.rIn,p.k,tau);};
+    anch=[0,d1,d1+d2,total];
+  }else{
+    if(segs.some(s=>s.ra<-1e-9||s.rb<-1e-9)){fellBack=true;approx=false;segs=flatSegs();descStr=flatDesc;}  // shape impossible without a temp dip
+    segs=segs.filter(s=>s.len>0);
+    let ct=0,cT=T0;const S=segs.map(s=>{const o={t0:ct,T:cT,len:s.len,ra:s.ra,rb:s.rb};ct+=s.len;cT+=(s.ra+s.rb)/2*s.len;return o;});
+    tempAt=t=>{const s=S.find(x=>t<=x.t0+x.len+1e-9)||S[S.length-1],tau=Math.max(0,Math.min(t-s.t0,s.len));
+      return s.T+s.ra*tau+(s.rb-s.ra)*tau*tau/(2*s.len);};
+    anch=S.map(s=>s.t0).concat([total]);
+    bendy=shape!=='flat'&&!fellBack;
+  }
+  // optional modifiers, combinable with every shape: precharge start / coast-to-drop
+  const boost=$('genBoost').checked,BB=8,tb=40,tbr=15;              // precharge: command +8 °C for 40 s, back on the curve by 55 s
+  const off=t=>!boost?0:(t<=tb?BB:(t<tb+tbr?BB*(1-(t-tb)/tbr):0));
+  const coastOn=$('genCoast').checked&&Te-3>Tfc+1;let coastT=null;
+  if(coastOn){let t=total;while(t>0&&tempAt(t-1)>=Te-3)t--;coastT=t;}  // first second the base curve reaches drop−3
+  const finalAt=t=>(coastT!=null?Math.min(tempAt(t),Te-3):tempAt(t))+off(t);
+  if(boost)anch=anch.concat([tb,tb+tbr]);
+  if(coastT!=null)anch=anch.concat([coastT]);
+  let times=anch.slice();                                           // segment anchors always; minute grid where the curve bends
+  if(bendy)for(let t=60;t<total;t+=60)if(anch.every(x=>Math.abs(x-t)>=20))times.push(t);
+  if(coastT!=null)times=times.filter(t=>t<coastT+1||t>total-1);     // the coast is flat — no grid points needed inside it
+  times=[...new Set(times.map(Math.round))].sort((x,y)=>x-y);
+  editPts=times.map(t=>({t,sv:Math.round(finalAt(t)*10)/10,fan:''}));
+  const dm=[];for(let m=60;m<total+59;m+=60)dm.push('+'+Math.round(finalAt(Math.min(m,total))-finalAt(m-60)));
+  if(boost)descStr+=' Precharge: commanded +'+BB+' °C above the curve for the first '+fmt(tb)+' — the PID slams full power into the cold wet beans (shorter turnaround), stepping back onto the curve by '+fmt(tb+tbr)+'.';
+  if(coastT!=null)descStr+=' Coast: the command stops 3 °C short at '+fmt(coastT)+' and holds — stored drum heat carries the beans the last degrees to the drop.';
+  else if($('genCoast').checked)descStr+=' (Coast skipped — the drop target is too close to first crack.)';
+  const label={decl:'Declining RoR',pyr:'Pyramid RoR',flat:'Straight phases',soak:'Soak start',cruise:'Flat development',step:'Step-down at FC',plateau:'Boil-off plateau',bump:'FC exotherm bump',valley:'Maillard valley',exp:'Free-fall'}[shape];
   const desc=descStr;
-  $('profName').value=label+' — FC '+Tfc+', drop '+Te+' @ '+fmt(total).replace(':','m')+'s';
+  $('profName').value=label+(boost?' +pre':'')+(coastT!=null?' +coast':'')+' — FC '+Tfc+', drop '+Te+' @ '+fmt(total).replace(':','m')+'s';
   $('profNotes').value='Generated from phase targets — dry end '+Tde+' °C at '+fmt(d1)+', first crack '+Tfc+' °C at '+fmt(d1+d2)
     +', drop '+Te+' °C at '+fmt(total)+' ('+Math.round(d3/total*100)+'% development). '+desc
     +' Per-minute deltas '+dm.join('/')+'. Fan not set by the generator.';
@@ -989,12 +1057,15 @@ function generateProfile(shape){
   renderPoints();
   document.querySelectorAll('[data-genshape]').forEach(x=>x.classList.toggle('blue',x.dataset.genshape===shape));
   $('genInfo').innerHTML='Loaded <b>'+label+'</b> — '+desc
-    +(fellBack?' <i>(These phase times force the RoR to jump between phases — a smooth '+label+' isn’t possible without the temperature dipping, so straight phases were loaded; your temp/time targets are still hit exactly.)</i>'
+    +(fellBack?' <i>(These phase targets can’t support a '+label+' shape — it would need the temperature to dip or a phase is too short — so straight phases were loaded; your temp/time targets are still hit exactly.)</i>'
       :approx?' <i>(Closest fit: with these phase times the average RoRs don’t '+(shape==='pyr'?'rise-then-fall':'decline strictly')+', so the shape is approximated — your temp/time targets are still hit exactly.)</i>':'')
     +' Compare the other shapes, tweak on the graph, then <b>Save profile</b>.';
   log('Profile generated: '+label+' ('+fmt(total)+', FC '+Tfc+', drop '+Te+')');
+  lastGenShape=shape;
 }
+let lastGenShape=null;
 document.querySelectorAll('[data-genshape]').forEach(btn=>btn.addEventListener('click',()=>generateProfile(btn.dataset.genshape)));
+['genBoost','genCoast'].forEach(id=>$(id).addEventListener('change',()=>{if(lastGenShape)generateProfile(lastGenShape);}));
 
 const PROF_KEY='rc_profiles_v1';
 function loadProfilesStore(){try{return JSON.parse(localStorage.getItem(PROF_KEY)||'[]');}catch(e){return[];}}
