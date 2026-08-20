@@ -161,8 +161,9 @@
         <button id="cEvFc">💥 First Crack</button>
         <span class="small">puts the event line on the graph — press again to re-mark</span>
       </div>
-      <label class="ck" style="margin:8px 0 0"><input type="checkbox" id="fcHold"><span class="small"><b>⚡ Hold power at FC</b> — marking First Crack fixes the heater at its <b>last-30 s average %</b> for the development phase, and <b>pauses the automated fan</b> — heat and air both stay put, no more corrections. Re-marking FC re-averages; manual fan buttons still work.</span></label>
-      <div id="fcHoldNote" class="small" style="display:none;color:var(--warn);margin-top:8px">⚡ <b>FC power hold active</b> — heater fixed at <b id="fcHoldPctTxt">—</b>%, automated fan paused.
+      <label class="ck" style="margin:8px 0 0"><input type="checkbox" id="fcHold"><span class="small"><b>⚡ Hold power at FC</b> — marking First Crack fixes the heater at its <b>last-30 s average %</b> and <b>pauses the automated fan</b> — heat and air both stay put — for
+        <input id="fcHoldSecs" type="number" min="0" max="600" value="30" style="width:64px"> s, then <b>hands back to the PID automatically</b> (blank or 0 = hold until drop — resume by hand). Re-marking FC re-averages and restarts the clock; manual fan buttons still work.</span></label>
+      <div id="fcHoldNote" class="small" style="display:none;color:var(--warn);margin-top:8px">⚡ <b>FC power hold active</b> — heater fixed at <b id="fcHoldPctTxt">—</b>%, automated fan paused<span id="fcHoldTimerTxt"></span>.
         <button id="fcHoldResume" style="padding:4px 9px;font-size:12px;margin-left:6px">▶ Resume PID</button></div>
       <div class="row" style="margin-top:8px;gap:6px;align-items:center">
         <span class="small"><b>Fan</b></span>
@@ -2040,15 +2041,19 @@ function last30AvgHeat(){
   const tN=hs[hs.length-1].t,win=hs.filter(s=>tN-s.t<=30);
   return Math.round(win.reduce((a,s)=>a+s.heat,0)/win.length);
 }
-let fcHold=null;                                    // {pct, sv}: active hold + the setpoint it displaced (for Resume PID)
-function setFcHoldNote(){const n=$('fcHoldNote');if(!n)return;n.style.display=fcHold?'':'none';if(fcHold)$('fcHoldPctTxt').textContent=fcHold.pct;}
-function clearFcHold(){if(!fcHold)return;fcHold=null;if(profile)profile.holdPct=null;if(etRun)etRun.holdPct=null;setFcHoldNote();}
+let fcHold=null;                                    // {pct, sv, until, tid, cid}: active hold + the setpoint it displaced (for Resume PID)
+function setFcHoldNote(){const n=$('fcHoldNote');if(!n)return;n.style.display=fcHold?'':'none';
+  if(fcHold){$('fcHoldPctTxt').textContent=fcHold.pct;
+    $('fcHoldTimerTxt').textContent=fcHold.until?' — PID auto-resumes in '+Math.max(0,Math.ceil((fcHold.until-Date.now())/1000))+' s':'';}}
+function stopFcHoldTimers(){if(!fcHold)return;if(fcHold.tid)clearTimeout(fcHold.tid);if(fcHold.cid)clearInterval(fcHold.cid);fcHold.tid=fcHold.cid=null;}
+function clearFcHold(){if(!fcHold)return;stopFcHoldTimers();fcHold=null;if(profile)profile.holdPct=null;if(etRun)etRun.holdPct=null;setFcHoldNote();}
 async function applyFcHold(){
   if(!$('fcHold').checked)return;
   if(!writeChar||!$('enableControl').checked){log('⚡ FC hold skipped — control not enabled.');return;}
   if(pprof){log('⚡ FC hold skipped — a power profile is running (its schedule already fixes the heater).');return;}
   const avg=last30AvgHeat();
   if(avg==null){log('⚡ FC hold skipped — no heater telemetry to average.');return;}
+  stopFcHoldTimers();                                // a re-mark restarts the auto-resume clock
   fcHold={pct:avg,sv:(fcHold&&fcHold.sv!=null)?fcHold.sv:curSV};   // a re-mark keeps the original displaced setpoint
   if(etRun){                                        // ET-track drives OT1 itself: park its loop on the held value
     etRun.holdPct=avg;
@@ -2060,11 +2065,17 @@ async function applyFcHold(){
     curSV=null;$('tSv').textContent='—';            // no setpoint while open-loop: keep the SV readout honest
     await delay(200);await send('OT1,'+avg);
   }
+  const secs=Math.max(0,Math.min(600,Math.round(+$('fcHoldSecs').value)||0));
+  if(secs>0){fcHold.until=Date.now()+secs*1000;      // timed hold: hand back to the PID by itself
+    fcHold.tid=setTimeout(()=>{if(fcHold)resumeFromFcHold();},secs*1000);
+    fcHold.cid=setInterval(setFcHoldNote,1000);}
   setFcHoldNote();
-  log('⚡ FC hold — heater fixed at '+avg+'% (avg of last 30 s) for development'+((profile||etRun)?'; automated fan paused':'')+'.');
+  log('⚡ FC hold — heater fixed at '+avg+'% (avg of last 30 s)'+((profile||etRun)?', automated fan paused':'')
+    +(secs>0?' — PID resumes automatically in '+secs+' s.':' for development.'));
 }
-async function resumeFromFcHold(){                  // one click: hand the heater back to the automated control
+async function resumeFromFcHold(){                  // one click (or the hold timer): hand the heater back to the automated control
   if(!fcHold)return;
+  stopFcHoldTimers();
   const held=fcHold;fcHold=null;setFcHoldNote();
   if(etRun){etRun.holdPct=null;etRun.lastFan=null;log('⚡ FC hold released — ET-track loop and fan replay resume.');return;}
   let sv=null;
@@ -2079,6 +2090,7 @@ async function resumeFromFcHold(){                  // one click: hand the heate
 }
 $('fcHoldResume').addEventListener('click',resumeFromFcHold);
 $('fcHold').addEventListener('change',()=>{try{localStorage.setItem('rc_fchold',$('fcHold').checked?'1':'');}catch(e){}});
+$('fcHoldSecs').addEventListener('change',()=>{try{localStorage.setItem('rc_fcholdsecs',$('fcHoldSecs').value);}catch(e){}});
 // Visible DE / FC mark buttons under the chart — same machinery as the (hidden)
 // Roast session buttons, so the marks land in the saved roast and phase bar too.
 $('cEvDry').addEventListener('click',()=>{chargeMs?$('evDry').click():log('Dry End not marked — no roast running (charge first).');});
@@ -3052,7 +3064,8 @@ try{const ep=JSON.parse(localStorage.getItem('rc_etrun')||'null');
     if(ep.endBt)$('etEndBt').value=ep.endBt;
     if(ep.id){$('etSel').value=ep.id;if($('etSel').value===ep.id)applyEtRef(true);}}}catch(e){}
 drawChart();
-try{if(localStorage.getItem('rc_fchold'))$('fcHold').checked=true;}catch(e){}   // restore the FC power-hold option
+try{if(localStorage.getItem('rc_fchold'))$('fcHold').checked=true;              // restore the FC power-hold option + hold duration
+  const hs=localStorage.getItem('rc_fcholdsecs');if(hs!=null)$('fcHoldSecs').value=hs;}catch(e){}
 try{const bc=JSON.parse(localStorage.getItem('rc_batch')||'null');         // restore the roaster's batch range
   if(bc){if(bc.min)$('batchMin').value=bc.min;if(bc.max)$('batchMax').value=bc.max;}}catch(e){}
 try{const bb=JSON.parse(localStorage.getItem('rc_bbp')||'null');           // restore between-batch cool/charge/fan settings
