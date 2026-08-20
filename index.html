@@ -195,13 +195,14 @@
       <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge fan %</div><input id="bbpFan" type="number" min="10" max="100" value="30"></div>
     </div>
     <div class="row" style="margin:0 0 4px;align-items:center">
-      <span class="small"><b>Charge soak</b> — heater</span>
+      <label class="ck" style="margin:0"><input type="checkbox" id="soakOn" checked><span class="small"><b>Charge soak</b></span></label>
+      <span class="small">— heater</span>
       <input id="soakP1" type="number" min="0" max="85" value="30" style="width:66px"><span class="small">% until</span>
       <input id="soakT1" type="number" min="5" max="120" value="30" style="width:66px"><span class="small">s, then</span>
       <input id="soakP2" type="number" min="0" max="85" value="40" style="width:66px"><span class="small">% until</span>
       <input id="soakT2" type="number" min="10" max="180" value="45" style="width:66px"><span class="small">s</span>
     </div>
-    <div class="small" style="margin-bottom:8px">Fixed heater power right after <b>Charge</b> (open loop, PID off) — then the control loop takes over. Applies to profile runs <b>and ET-track runs</b> started at charge. Saved in this browser. ⚡ Charging and the between-batch cycle are <b>hard-capped at 85% power</b> — above that the app pauses the PID and holds 85% until the temperature is nearly there.</div>
+    <div class="small" style="margin-bottom:8px">Fixed heater power right after <b>Charge</b> (open loop, PID off) — then the control loop takes over. Applies to profile runs <b>and ET-track runs</b> started at charge. <b>Untick to skip the soak</b> — the control loop then engages on the curve from the first second after charge. Saved in this browser. ⚡ Charging and the between-batch cycle are <b>hard-capped at 85% power</b> — above that the app pauses the PID and holds 85% until the temperature is nearly there.</div>
     <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="bbpAuto" checked><span><b>Auto-charge</b> — when the beans drop (BT plunges), mark Charge and start the profile loaded in the designer automatically. <b>No need to press ▶ Run profile</b> — the whole roast runs from this one button.</span></label>
     <div id="bbpPreview" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 11px;margin-bottom:8px"></div>
     <button id="bbpStart" class="blue" style="width:100%">🔄 Start between-batch cycle</button>
@@ -1228,6 +1229,7 @@ function confirmAutoFan(){
 }
 $('profRun').addEventListener('click',()=>{profile?stopProfile():(confirmAutoFan()&&startProfile());});
 function chargeSoak(){                                     // open-loop heater steps after charge (roast clock); the control loop takes over after the last step
+  if(!$('soakOn').checked)return null;                     // soak disabled: runs engage the control loop immediately
   const v=(id,d)=>{const x=+$(id).value;return $(id).value!==''&&Number.isFinite(x)?x:d;};
   const t1=Math.max(5,Math.min(120,Math.round(v('soakT1',30))));
   const t2=Math.max(t1+1,Math.min(180,Math.round(v('soakT2',45))));
@@ -1235,8 +1237,9 @@ function chargeSoak(){                                     // open-loop heater s
   const p2=Math.max(0,Math.min(MAX_CHARGE_PWR,Math.round(v('soakP2',40))));
   return[{until:t1,pct:p1},{until:t2,pct:p2}];
 }
-function saveSoakCfg(){try{localStorage.setItem('rc_soak',JSON.stringify({p1:$('soakP1').value,t1:$('soakT1').value,p2:$('soakP2').value,t2:$('soakT2').value}));}catch(e){}}
-['soakP1','soakT1','soakP2','soakT2'].forEach(id=>$(id).addEventListener('change',saveSoakCfg));
+function saveSoakCfg(){try{localStorage.setItem('rc_soak',JSON.stringify({on:$('soakOn').checked?1:0,p1:$('soakP1').value,t1:$('soakT1').value,p2:$('soakP2').value,t2:$('soakT2').value}));}catch(e){}
+  ['soakP1','soakT1','soakP2','soakT2'].forEach(id=>$(id).disabled=!$('soakOn').checked);}
+['soakOn','soakP1','soakT1','soakP2','soakT2'].forEach(id=>$(id).addEventListener('change',saveSoakCfg));
 async function startProfile(){
   const pts=getPoints();if(pts.length<2){alert('Add at least 2 points.');return;}
   if(!writeChar){alert('Connect the roaster first.');return;}
@@ -1248,7 +1251,7 @@ async function startProfile(){
   // roast clock; the PID takes over after the last step. A run started without a recent Charge
   // (restart mid-roast, manual run) engages the PID immediately as before.
   const soak=chargeSoak();
-  const soaking=!!(chargeMs&&(Date.now()-chargeMs)/1000<10&&(Date.now()-chargeMs)/1000<soak[soak.length-1].until);
+  const soaking=!!(soak&&chargeMs&&(Date.now()-chargeMs)/1000<10&&(Date.now()-chargeMs)/1000<soak[soak.length-1].until);
   if(soaking){
     if(pidEngaged){await send('PID,OFF ');pidEngaged=false;setPidPill();await delay(200);}
     curSV=null;$('tSv').textContent='—';                     // no setpoint while open-loop: keep the SV readout/chart honest
@@ -1388,7 +1391,7 @@ async function startEtRun(){
   // Fresh charge -> the user's standard fixed-power soak (same as profile runs), NOT the reference's
   // recorded heater at t=0; the PID trim takes over after the last soak step.
   const soak=chargeSoak(),ce0=chargeMs?(Date.now()-chargeMs)/1000:1e9;
-  const soaking=ce0<10&&ce0<soak[soak.length-1].until;
+  const soaking=!!(soak&&ce0<10&&ce0<soak[soak.length-1].until);
   const out0=soaking?soak[0].pct:Math.max(0,Math.min(100,Math.round(refAt(etRef,0,'heat')??0)));
   send('OT1,'+out0);
   etRun={startT:nowT(),integ:0,trim:0,lastOut:out0,lastFan:fan0,fanOfs:0,soak,soakPct:soaking?soak[0].pct:null,tid:setInterval(etTick,2000)};
@@ -1648,7 +1651,7 @@ async function startPProf(){
   curSV=null;$('tSv').textContent='—';                 // open loop: no setpoint to chart
   const pill=$('pidPill');pill.textContent='OPEN LOOP';pill.className='pill on';
   const soak=chargeSoak(),ce0=chargeMs?(Date.now()-chargeMs)/1000:1e9;
-  const soaking=ce0<10&&ce0<soak[soak.length-1].until;
+  const soaking=!!(soak&&ce0<10&&ce0<soak[soak.length-1].until);
   const out0=soaking?soak[0].pct:steps[0].heat;
   send('OT1,'+out0);
   if(steps[0].fan!=null)send('IO3,'+steps[0].fan);
@@ -1812,7 +1815,7 @@ async function startBBP(){
     'Roast air flow:  '+airLine,
     'Charge-ramp fan:  '+fanLow+'%',
     'Cool to '+coolTo+'° → charge '+chargeT+'°',
-    'Charge soak:  '+chargeSoak().map(s=>s.pct+'% to '+fmt(s.until)).join(', then '),'',
+    'Charge soak:  '+(chargeSoak()?chargeSoak().map(s=>s.pct+'% to '+fmt(s.until)).join(', then '):'OFF — the control loop engages right at charge'),'',
     auto?(ppArmedSteps?'Auto-charge ON — the fixed power schedule runs automatically when the beans drop.'
          :etArmed?'Auto-charge ON — the ET-track run starts automatically when the beans drop.'
          :haveProfile?'Auto-charge ON — "'+(pname||'the loaded profile')+'" runs automatically when the beans drop.'
@@ -3056,7 +3059,8 @@ try{const bb=JSON.parse(localStorage.getItem('rc_bbp')||'null');           // re
   if(bb){if(bb.cool)$('bbpCool').value=bb.cool;if(bb.charge)$('bbpCharge').value=bb.charge;if(bb.fan)$('bbpFan').value=bb.fan;}}catch(e){}
 try{const sk=JSON.parse(localStorage.getItem('rc_soak')||'null');          // restore the charge-soak fixed-power steps
   if(sk){if(sk.p1!==''&&sk.p1!=null)$('soakP1').value=sk.p1;if(sk.t1)$('soakT1').value=sk.t1;
-    if(sk.p2!==''&&sk.p2!=null)$('soakP2').value=sk.p2;if(sk.t2)$('soakT2').value=sk.t2;}}catch(e){}
+    if(sk.p2!==''&&sk.p2!=null)$('soakP2').value=sk.p2;if(sk.t2)$('soakT2').value=sk.t2;
+    if(sk.on!=null){$('soakOn').checked=!!sk.on;['soakP1','soakT1','soakP2','soakT2'].forEach(id=>$(id).disabled=!sk.on);}}}catch(e){}
 try{const pp=JSON.parse(localStorage.getItem('rc_pprof')||'null');          // restore the open-loop power schedule
   if(pp){if(pp.text)$('ppText').value=pp.text;if(pp.endBt)$('ppEndBt').value=pp.endBt;
     if(pp.step)$('ppStep').value=pp.step;$('ppArm').checked=!!pp.arm;
