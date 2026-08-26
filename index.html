@@ -2061,9 +2061,10 @@ async function applyFcHold(){
   }else{                                            // profile / plain PID roast: PID off, fixed manual power
     if(profile){profile.holdPct=avg;profile.holdSentAt=null;}
     stopRamp();
+    await delay(200);                               // settle with the PID still driving — not with the heater at 0
     await send('PID,OFF ');pidEngaged=false;setPidPill();
     curSV=null;$('tSv').textContent='—';            // no setpoint while open-loop: keep the SV readout honest
-    await delay(200);await send('OT1,'+avg);
+    await send('OT1,'+avg);                         // back-to-back after PID,OFF: txChain keeps the order, so no gap needed
   }
   const secs=Math.max(0,Math.min(600,Math.round(+$('fcHoldSecs').value)||0));
   if(secs>0){fcHold.until=Date.now()+secs*1000;      // timed hold: hand back to the PID by itself
