@@ -1926,6 +1926,28 @@ function segHTML(label,secs,total,col,txt){
 function liveTpMark(){                             // confirmed turning point: BT bottomed out below the DE temp and climbed again
   return(liveTP.armed&&liveTP.t!=null&&liveTP.min!=null&&liveTP.min<(+$('phDE').value||160))?{t:liveTP.t,bt:liveTP.min}:null;
 }
+function reviewCross(){                            // DE/FC crossings of the roast on the chart, for reviewing a loaded/finished
+  // roast — a live roast keeps using liveCross, and connected pre-charge warm-up
+  // telemetry (which also climbs past the DE/FC temps) must not fake a roast
+  if(chargeMs||(device&&device.gatt&&device.gatt.connected))return{de:null,fc:null};
+  const deT=+$('phDE').value||160,fcT=Math.max(deT,+$('phFC').value||200);
+  const t1=samples.length?samples[samples.length-1].t:0;
+  const c=reviewCross.cache;
+  if(c&&c.n===samples.length&&c.t1===t1&&c.deT===deT&&c.fcT===fcT)return c;
+  let min=null,armed=false,de=null,fc=null;
+  for(const s of samples){
+    const bt=s.bt;if(bt==null||Number.isNaN(bt))continue;
+    if(!armed){                                    // same turning-point guard as liveTrack
+      if(min==null||bt<min)min=bt;
+      if((min<deT&&bt>=min+3)||s.t>=90)armed=true;
+    }
+    if(armed){
+      if(de==null&&bt>=deT)de=s.t;
+      if(fc==null&&bt>=fcT){fc=s.t;break;}
+    }
+  }
+  return reviewCross.cache={n:samples.length,t1,deT,fcT,de,fc};
+}
 function roastEventList(){                         // [name, elapsed s] of this roast's milestones, marked or auto-detected
   const l=[];if(!chargeMs)return l;
   l.push(['Charge',0]);
@@ -2129,7 +2151,9 @@ $('wOut').addEventListener('input',updateLoss);
 function renderEvents(){
   const parts=[];for(const kl of [['dry','Dry End'],['fc','First Crack'],['drop','Drop']])if(events[kl[0]]!=null)parts.push(kl[1]+' '+fmt(events[kl[0]]));
   $('evTimes').innerHTML=parts.length?parts.join(' · '):'Timer running…';
-  if(events.fc!=null&&events.drop!=null&&events.drop>events.fc){const dev=(events.drop-events.fc),pct=(dev/events.drop*100).toFixed(1);$('tDev').innerHTML='Development <b style="color:var(--text)">'+fmt(dev)+' ('+pct+'%)</b>';}
+  const fc=events.fc!=null?events.fc:(chargeMs?liveCross.fc:reviewCross().fc);   // reviewed roasts get dev % too
+  const end=events.drop!=null?events.drop:((!chargeMs&&samples.length)?samples[samples.length-1].t:null);
+  if(fc!=null&&end!=null&&end>fc){const dev=end-fc,pct=(dev/end*100).toFixed(1);$('tDev').innerHTML='Development <b style="color:var(--text)">'+fmt(dev)+' ('+pct+'%)</b>';}
   else if(events.fc==null&&liveCross.fc==null)$('tDev').textContent='';
   updateEvBtns();
 }
@@ -2298,24 +2322,33 @@ function drawChart(){
      const now=events.drop!=null?events.drop:(Date.now()-chargeMs)/1000;
      if(now>=5){const de=events.dry!=null?events.dry:liveCross.de,fc=events.fc!=null?events.fc:liveCross.fc;
        spans={base,t0:0,de:de!=null?Math.min(de,now):null,fc:fc!=null?Math.min(fc,now):null,t1:now};}
-   }else if(planPts.length>=2){
+   }else if(samples.length>=2){                    // reviewing a loaded/finished roast: its own phases, not the plan's
+     const rc=reviewCross();
+     const de=events.dry!=null?events.dry:rc.de,fc=events.fc!=null?events.fc:rc.fc;
+     const end=events.drop!=null?events.drop:samples[samples.length-1].t;
+     if(end>=5&&(de!=null||fc!=null))
+       spans={base:0,t0:samples[0].t,de:de!=null?Math.min(de,end):null,fc:fc!=null?Math.min(fc,end):null,t1:end};
+   }
+   if(!spans&&planPts.length>=2){
      const deT=+$('phDE').value||160,fcT=Math.max(+$('phDE').value||160,+$('phFC').value||200);
      spans={base:planStart,t0:planPts[0].t,de:crossTime(planPts,deT),fc:crossTime(planPts,fcT),t1:planPts[planPts.length-1].t};
    }
    if(spans){
      const segs=[];
      const dEnd=spans.de!=null?spans.de:spans.t1;
-     segs.push(['#d9b04c','#3a2c07',spans.t0,dEnd]);
-     if(spans.de!=null)segs.push(['#d97f36','#33190a',spans.de,spans.fc!=null?spans.fc:spans.t1]);
-     if(spans.fc!=null)segs.push(['#c4523a','#fff',spans.fc,spans.t1]);
+     segs.push(['#d9b04c','#3a2c07',spans.t0,dEnd,'Dry']);
+     if(spans.de!=null)segs.push(['#d97f36','#33190a',spans.de,spans.fc!=null?spans.fc:spans.t1,'Maillard']);
+     if(spans.fc!=null)segs.push(['#c4523a','#fff',spans.fc,spans.t1,'Dev']);
      const total=Math.max(1,spans.t1-spans.t0);
      ctx.font='600 10.5px system-ui';
-     for(const[col,txt,a,b] of segs){
+     for(const[col,txt,a,b,name] of segs){
        if(b-a<1)continue;
        const x0=X(spans.base+a),x1=X(spans.base+b);
        ctx.fillStyle=col;ctx.fillRect(x0,stripY,x1-x0,stripH);
-       const label=fmt(b-a)+' ('+Math.round((b-a)/total*100)+'%)';
-       if(x1-x0>52){ctx.fillStyle=txt;ctx.fillText(label,x0+4,stripY+14);}}
+       const pct=Math.round((b-a)/total*100);
+       let label=name+' '+fmt(b-a)+' ('+pct+'%)';
+       if(ctx.measureText(label).width+8>x1-x0)label=fmt(b-a)+' ('+pct+'%)';   // narrow segment: drop the name
+       if(ctx.measureText(label).width+8<=x1-x0){ctx.fillStyle=txt;ctx.fillText(label,x0+4,stripY+14);}}
      ctx.font='10px system-ui';}}
   // ---- crosshair + info box: at the pointer when hovering, else docked to the live
   //      edge during a roast so it moves along with the newest sample ----
@@ -2345,8 +2378,12 @@ function drawChart(){
     }
     if(bgv!=null)rows1.push([P.bt,'BG BT '+bgv.toFixed(1)+'\u00b0']);
     const baseH=(chargeMs&&connectMs)?(chargeMs-connectMs)/1000:0,rt=ht-baseH;   // roast time at the hovered moment
-    if(chargeMs&&connectMs){const fcH=events.fc!=null?events.fc:liveCross.fc;
-      if(fcH!=null&&rt>fcH)rows1.push([P.ev.fc,'Dev '+fmt(rt-fcH)+' ('+(100*(rt-fcH)/rt).toFixed(1)+'%)']);}
+    let fcH=null,devEnd=null;                      // dev % past FC — live and when reviewing a loaded/finished roast
+    if(chargeMs&&connectMs)fcH=events.fc!=null?events.fc:liveCross.fc;
+    else if(samples.length){fcH=events.fc!=null?events.fc:reviewCross().fc;
+      devEnd=events.drop!=null?events.drop:samples[samples.length-1].t;}
+    if(fcH!=null&&rt>fcH&&(devEnd==null||rt<=devEnd+2))
+      rows1.push([P.ev.fc,'Dev '+fmt(rt-fcH)+' ('+(100*(rt-fcH)/rt).toFixed(1)+'%)']);
     ctx.font='600 11px system-ui';
     // one grouped info box (ROEST-style) in the temps pane: time on top, then values
     {const title='Time: '+(rt<0?'\u2212':'')+fmt(Math.abs(rt));
