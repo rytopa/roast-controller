@@ -97,7 +97,7 @@
   <div id="supportBanner" class="banner err" style="display:none">
     <b>Web Bluetooth isn't available.</b> Use <b>Chrome</b> or Edge on Android or Windows/macOS/Linux, Bluetooth on. iOS Safari is unsupported.
   </div>
-  <div class="banner warn">⚠️ Controls drive a <b>real heating element</b>. They stay locked until you enable them. Keep the fan on, don't leave it unattended, use <b>Heater Off</b> if anything looks wrong.</div>
+  <div class="banner warn">⚠️ Controls drive a <b>real heating element</b>. They stay locked until you enable them. Keep the fan on, don't leave it unattended, use <b>Heater Off / Drop</b> if anything looks wrong.</div>
 
   <div class="panel">
     <h2>Connection</h2>
@@ -172,7 +172,7 @@
         <button id="cFanP5">+5</button>
         <button id="btnCFan" class="blue">Set fan</button>
         <button id="cFan0">Fan 0</button>
-        <button id="cPow0" class="danger">Heater Off</button>
+        <button id="cPow0" class="danger">Heater Off / Drop</button>
         <label class="ck" style="margin:0"><input type="checkbox" id="enableControl"><span class="small"><b style="color:var(--warn)">Enable control</b> — commands real heater/fan hardware</span></label>
       </div>
       <div class="small" style="margin-top:6px">a manual change during a profile roast pauses the automated fan — options to resume appear below</div>
@@ -315,7 +315,7 @@
 
   <div class="panel" id="etPanel">
     <h2>ET-track roast (experimental)</h2>
-    <div class="banner warn" style="margin-bottom:8px">⚠️ Drives the heater <b>directly in manual mode</b> (firmware PID off) with a software control loop. Stay at the machine — <b>Heater Off</b> always works.</div>
+    <div class="banner warn" style="margin-bottom:8px">⚠️ Drives the heater <b>directly in manual mode</b> (firmware PID off) with a software control loop. Stay at the machine — <b>Heater Off / Drop</b> always works.</div>
     <div class="row" style="margin-bottom:8px">
       <select id="etSel" style="flex:1;min-width:150px"><option value="">— pick a reference roast —</option></select>
       <select id="etSmooth" style="width:auto">
@@ -346,7 +346,7 @@
 
   <div class="panel" id="ppPanel">
     <h2>Power profile (open loop)</h2>
-    <div class="banner warn" style="margin-bottom:8px">⚠️ Drives the heater <b>directly in manual mode</b> on a fixed schedule — no temperature feedback at all. Stay at the machine — <b>Heater Off</b> always works.</div>
+    <div class="banner warn" style="margin-bottom:8px">⚠️ Drives the heater <b>directly in manual mode</b> on a fixed schedule — no temperature feedback at all. Stay at the machine — <b>Heater Off / Drop</b> always works.</div>
     <div class="row" style="margin-bottom:8px;align-items:center">
       <select id="ppSrc" style="flex:1;min-width:150px"><option value="">— pick a source roast —</option></select>
       <span class="small">step ≥</span><input id="ppStep" type="number" min="1" max="10" value="2" style="width:60px"><span class="small">%</span>
@@ -373,13 +373,13 @@
       <button id="evFc">First Crack</button>
       <button id="evDrop" class="danger">⏹ Drop</button>
     </div>
-    <div class="small" style="margin-top:8px" id="evTimes">Press <b>Charge</b> when beans go in to start the timer. <b>Drop</b> also turns the heater off (the fan keeps its current speed). When a running profile reaches its last point, the heater switches off automatically.</div>
+    <div class="small" style="margin-top:8px" id="evTimes">Press <b>Charge</b> when beans go in to start the timer. <b>Drop</b> (the <b>Heater Off / Drop</b> button by the chart) ends the roast: heater off, fan back to its charge speed, roast saved. When a running profile reaches its last point, the heater switches off automatically.</div>
     <hr>
     <div class="row" style="margin-bottom:4px;align-items:center">
       <span class="small"><b>Bean from inventory</b></span>
       <select id="invUseSel" style="flex:1;min-width:160px"><option value="">— not tracked —</option></select>
     </div>
-    <div class="small" style="margin-bottom:8px">Pick the green you're roasting — at <b>Drop</b> the <b>Green g</b> below is deducted from that bean's stock automatically (editing Green g after the drop adjusts it).</div>
+    <div class="small" style="margin-bottom:8px">Pick the green you're roasting — at <b>Drop</b> (<b>Heater Off / Drop</b>) the <b>Green g</b> below is deducted from that bean's stock automatically. Each batch deducts once; correct a mistake in the Inventory panel.</div>
     <div id="invBatchRow" class="row" style="display:none;align-items:center;gap:6px;margin-bottom:8px">
       <button id="invUseBatch" class="blue" style="padding:6px 11px;font-size:12.5px">Use 200 g</button>
       <span class="small" id="invBatchNote"></span>
@@ -511,7 +511,7 @@
   <div id="batchBeanModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:1000;padding:12px;overflow:auto">
     <div style="background:var(--panel);border-radius:var(--r);padding:16px;max-width:500px;margin:auto;margin-top:40px">
       <h2 style="margin-top:0">New batch — bean &amp; weight</h2>
-      <div class="small" style="margin-bottom:6px"><b>Bean from inventory</b> — the green weight is deducted from its stock at Drop.</div>
+      <div class="small" style="margin-bottom:6px"><b>Bean from inventory</b> — the green weight is deducted from its stock at Drop (Heater Off / Drop).</div>
       <div id="bbmList" style="margin-bottom:10px"></div>
       <div class="small" style="margin-bottom:4px"><b>Green weight</b></div>
       <div class="row" style="align-items:center;gap:6px;margin-bottom:6px">
@@ -535,6 +535,8 @@ const $=id=>document.getElementById(id);
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 let device=null,server=null,notifyChar=null,writeChar=null,rxBuffer='';
 let connectMs=null,chargeMs=null,curSV=null,ramp=null,profile=null,pidEngaged=false;
+let roastFan0=null;                              // fan % the roast began with (charge fan, or the run's opening fan) — restored at Drop
+function noteStartFan(v){if(chargeMs&&Date.now()-chargeMs<20000&&v!=null&&!Number.isNaN(+v))roastFan0=clampPct(v);}   // a run started right at Charge sets the roast's opening fan
 const samples=[];          // {t,bt,et,heat,fan,sv,raw}
 const btHist=[];           // {ms,bt} for RoR
 const events={charge:null,dry:null,fc:null,drop:null};
@@ -704,9 +706,13 @@ $('cFanM5').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()-5);})
 $('cFanP5').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()+5);});
 $('btnCFan').addEventListener('click',()=>{if(fanCtlOk())manualFan($('cFanVal').value);});
 $('cFan0').addEventListener('click',()=>{if(fanCtlOk())manualFan(0);});
-// Heater Off is the stop button — gated on connection only, NOT the Enable-control
-// tick: an emergency cut must never be blocked by a checkbox.
-$('cPow0').addEventListener('click',()=>{if(!writeChar){alert('Connect the roaster first.');return;}heaterOff();});
+// Heater Off / Drop is the stop button — gated on connection only, NOT the Enable-control
+// tick: an emergency cut must never be blocked by a checkbox. With a roast running it IS the
+// Drop: the roast is marked, saved and closed, heater to 0, fan back to its charge speed.
+$('cPow0').addEventListener('click',()=>{
+  if(chargeMs){dropRoast();return;}                 // roast in progress (even if the link dropped): end it and save it
+  if(!writeChar){alert('Connect the roaster first.');return;}
+  heaterOff();});
 async function heaterOff(){stopRamp();stopProfile();stopBBP('emergency',true);stopEtRun('emergency',true);stopPProf('emergency',true);clearFcHold();await send('PID,OFF ');pidEngaged=false;setPidPill();setTimeout(()=>send('OT1,0'),300);}
 function stopRamp(){if(ramp){clearInterval(ramp.tid);ramp=null;}}
 
@@ -1247,7 +1253,7 @@ async function startProfile(){
   if(!$('enableControl').checked){alert('Tick "Enable control" next to the chart first.');return;}
   stopRamp();stopEtRun('profile started',true);stopPProf('profile started',true);clearFanOverride();clearFcHold();
   const af=uiAutoFan(),endSv=Math.max(175,pts[pts.length-1].sv);
-  const fan0=af?af.start:(pts[0].fan!=null?Math.round(pts[0].fan):40); send('IO3,'+fan0); await delay(300);
+  const fan0=af?af.start:(pts[0].fan!=null?Math.round(pts[0].fan):40); send('IO3,'+fan0);noteStartFan(fan0); await delay(300);
   // Fresh charge -> fixed-power soak (PID off) per the user's charge-soak settings, timed on the
   // roast clock; the PID takes over after the last step. A run started without a recent Charge
   // (restart mid-roast, manual run) engages the PID immediately as before.
@@ -1388,7 +1394,7 @@ async function startEtRun(){
   await send('PID,OFF ');pidEngaged=false;
   curSV=null;$('tSv').textContent='—';                              // no setpoint in ET-track: don't chart a stale SV line
   const pill=$('pidPill');pill.textContent='SW PID';pill.className='pill on';
-  const fan0=Math.round(refAt(etRef,0,'fan')??40);send('IO3,'+fan0);
+  const fan0=Math.round(refAt(etRef,0,'fan')??40);send('IO3,'+fan0);noteStartFan(fan0);
   // Fresh charge -> the user's standard fixed-power soak (same as profile runs), NOT the reference's
   // recorded heater at t=0; the PID trim takes over after the last soak step.
   const soak=chargeSoak(),ce0=chargeMs?(Date.now()-chargeMs)/1000:1e9;
@@ -1655,7 +1661,7 @@ async function startPProf(){
   const soaking=!!(soak&&ce0<10&&ce0<soak[soak.length-1].until);
   const out0=soaking?soak[0].pct:steps[0].heat;
   send('OT1,'+out0);
-  if(steps[0].fan!=null)send('IO3,'+steps[0].fan);
+  if(steps[0].fan!=null){send('IO3,'+steps[0].fan);noteStartFan(steps[0].fan);}
   pprof={steps,startT:nowT(),lastOut:out0,lastFan:steps[0].fan!=null?steps[0].fan:null,soak,soakPct:soaking?soak[0].pct:null,tid:setInterval(ppTick,1000)};
   $('ppRunBtn').textContent='■ Stop power profile';$('ppRunBtn').classList.remove('green');$('ppRunBtn').classList.add('danger');
   log('Power profile started: '+steps.length+' steps, ends '+fmt(steps[steps.length-1].t)
@@ -2043,6 +2049,7 @@ $('heaterW').addEventListener('change',()=>{
 
 // ---------- Roast timer + events ----------
 $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;events.dry=events.fc=events.drop=null;
+  roastFan0=curFan();                              // the fan the beans went in at — restored when the roast is dropped
   invUse.dropped=false;invUse.deducted=0;         // new batch: fresh inventory-deduction session
   clearFcHold();
   liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=false;bgIdx=0;
@@ -2118,21 +2125,31 @@ $('fcHoldSecs').addEventListener('change',()=>{try{localStorage.setItem('rc_fcho
 // Roast session buttons, so the marks land in the saved roast and phase bar too.
 $('cEvDry').addEventListener('click',()=>{chargeMs?$('evDry').click():log('Dry End not marked — no roast running (charge first).');});
 $('cEvFc').addEventListener('click',()=>{chargeMs?$('evFc').click():log('First Crack not marked — no roast running (charge first).');});
-$('evDrop').addEventListener('click',()=>{if(chargeMs){events.drop=(Date.now()-chargeMs)/1000;renderEvents();
-  if(writeChar&&$('enableControl').checked){                       // end of roast: heater off; fan left as-is (a blast would eject the beans)
-    stopRamp();stopProfile();stopEtRun('drop',true);stopPProf('drop',true);
+$('evDrop').addEventListener('click',dropRoast);
+function dropRoast(){                              // end of roast: mark Drop, cut the heater, fan back to its charge speed, save, reset
+  if(!chargeMs)return;
+  events.drop=(Date.now()-chargeMs)/1000;renderEvents();
+  stopRamp();stopProfile();stopBBP('drop',true);stopEtRun('drop',true);stopPProf('drop',true);
+  if(writeChar){                                   // heater cut needs the link only (never the Enable tick); the fan is a control action
     send('PID,OFF ');pidEngaged=false;setPidPill();
     setTimeout(()=>send('OT1,0'),250);
-    log('DROP — heater off (fan unchanged)');}
+    const fan0=roastFan0;
+    if(fan0!=null&&$('enableControl').checked){
+      setTimeout(()=>{send('IO3,'+fan0);$('cFanVal').value=fan0;},500);
+      log('DROP — heater off, fan back to '+fan0+'% (charge speed)');}
+    else log('DROP — heater off'+(fan0==null?' (no charge fan recorded — fan unchanged)':' (Enable control off — fan unchanged)'));}
+  else log('DROP — roaster not connected; roast saved');
   clearFcHold();
   autoSaveRoast();
   invUse.dropped=true;applyInvDeduction();        // take the batch's green weight out of the selected bean's stock
   renderStatsCard(roastStats(),+$('wIn').value,+$('wOut').value);
-  resetRoastView();}});
+  resetRoastView();
+}
 function resetRoastView(){                         // fresh chart for the next batch (the roast was just auto-saved)
   samples.length=0;btHist.length=0;rxBuffer='';
   Object.assign(events,{charge:null,dry:null,fc:null,drop:null});
   chargeMs=null;if(connectMs)connectMs=Date.now(); // rebase the time axis
+  invUse.dropped=false;invUse.deducted=0;roastFan0=null;   // the batch's stock deduction is final — a new bean/weight typed now is the NEXT batch's
   liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=false;bgIdx=0;
   curSV=null;$('tSv').textContent='—';
   $('rowCount').textContent='0 samples';
