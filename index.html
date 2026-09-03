@@ -124,7 +124,7 @@
     <div class="panel liverail">
       <h2>Live</h2>
       <div class="row" style="justify-content:space-between;margin-bottom:4px">
-        <div class="small">Roast time</div>
+        <div class="small">Roast time <span id="tCode" class="pill" style="display:none;margin-left:6px;background:var(--panel2);color:var(--text);font-family:ui-monospace,monospace;letter-spacing:1px" title="Batch code — write it on the bag"></span></div>
         <span id="pidPill" class="pill off">PID off</span>
       </div>
       <div id="tTimer" style="font-size:40px;font-weight:800;line-height:1.05;color:var(--text);font-variant-numeric:tabular-nums;margin-bottom:8px">0:00</div>
@@ -535,6 +535,23 @@ const $=id=>document.getElementById(id);
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 let device=null,server=null,notifyChar=null,writeChar=null,rxBuffer='';
 let connectMs=null,chargeMs=null,curSV=null,ramp=null,profile=null,pidEngaged=false;
+// Batch code: 3 characters, unique among the saved roasts, assigned at Charge so it can go
+// straight onto the bag. Alphabet skips look-alikes (0/O, 1/I/L, 5/S, 8/B, 2/Z) for handwriting.
+const CODE_CHARS='ACDEFGHJKMNPQRTUVWXY34679';
+let batchCode=null;
+function newBatchCode(){
+  const used=new Set(loadLogs().map(r=>r.code).filter(Boolean));
+  for(let n=0;n<50;n++){
+    const b=new Uint8Array(3);crypto.getRandomValues(b);
+    const c=Array.from(b,x=>CODE_CHARS[x%CODE_CHARS.length]).join('');
+    if(!used.has(c))return c;}
+  const N=CODE_CHARS.length,all=N*N*N,start=Math.floor(Math.random()*all);   // log nearly full: scan for a free code
+  for(let k=0;k<all;k++){const i=(start+k)%all;
+    const c=CODE_CHARS[Math.floor(i/(N*N))]+CODE_CHARS[Math.floor(i/N)%N]+CODE_CHARS[i%N];
+    if(!used.has(c))return c;}
+  return null;                                     // every one of the 15,625 codes is in use
+}
+function showBatchCode(c){const el=$('tCode');if(!el)return;el.textContent=c?'#'+c:'';el.style.display=c?'':'none';}
 let roastFan0=null;                              // fan % the roast began with (charge fan, or the run's opening fan) — restored at Drop
 function noteStartFan(v){if(chargeMs&&Date.now()-chargeMs<20000&&v!=null&&!Number.isNaN(+v))roastFan0=clampPct(v);}   // a run started right at Charge sets the roast's opening fan
 const samples=[];          // {t,bt,et,heat,fan,sv,raw}
@@ -2022,9 +2039,9 @@ function roastStats(){
   return{total,de:de!=null&&de<total?de:null,fc:fc!=null&&fc<total?fc:null,dropBt,maxBt,
     heatLoad:p.load,avgHeat:p.avg,avgFan:p.fanAvg};
 }
-let shownStats=null,shownW=[null,null];
-function renderStatsCard(st,wIn,wOut){
-  const el=$('statsCard');shownStats=st;shownW=[wIn,wOut];if(!st){el.style.display='none';return;}
+let shownStats=null,shownW=[null,null],shownCode=null;
+function renderStatsCard(st,wIn,wOut,code){
+  const el=$('statsCard');shownStats=st;shownW=[wIn,wOut];shownCode=code||null;if(!st){el.style.display='none';return;}
   const pct=s=>Math.round(s/Math.max(1,st.total)*100)+'%';
   const rows=[['Total',fmt(st.total)],
     ['Dry',st.de!=null?fmt(st.de)+' ('+pct(st.de)+')':'—'],
@@ -2038,18 +2055,20 @@ function renderStatsCard(st,wIn,wOut){
   if(w>0&&st.avgHeat!=null){const wh=w*(st.avgHeat/100)*(st.total/3600);
     rows.push(['Energy',wh>=1000?(wh/1000).toFixed(2)+' kWh':Math.round(wh)+' Wh']);}
   if(wIn>0&&wOut>0&&wOut<=wIn)rows.push(['Weight loss',((1-wOut/wIn)*100).toFixed(1)+'%']);
-  el.innerHTML='<b style="color:var(--text)">Roast summary</b><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:3px 14px;margin-top:5px">'
+  if(shownCode)rows.unshift(['Batch','#'+shownCode]);
+  el.innerHTML='<b style="color:var(--text)">Roast summary'+(shownCode?' — batch <span style="font-family:ui-monospace,monospace;letter-spacing:1px">#'+shownCode+'</span> (write it on the bag)':'')+'</b><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:3px 14px;margin-top:5px">'
     +rows.map(r=>'<div class="kv"><span>'+r[0]+'</span><b>'+r[1]+'</b></div>').join('')+'</div>';
   el.style.display='block';
 }
 $('heaterW').addEventListener('change',()=>{
   try{localStorage.setItem('rc_heaterW',$('heaterW').value);}catch(e){}
-  if(shownStats)renderStatsCard(shownStats,shownW[0],shownW[1]);   // re-render live or loaded card with new kWh
+  if(shownStats)renderStatsCard(shownStats,shownW[0],shownW[1],shownCode);   // re-render live or loaded card with new kWh
 });
 
 // ---------- Roast timer + events ----------
 $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;events.dry=events.fc=events.drop=null;
   roastFan0=curFan();                              // the fan the beans went in at — restored when the roast is dropped
+  batchCode=newBatchCode();showBatchCode(batchCode);   // label for the bag
   invUse.dropped=false;invUse.deducted=0;         // new batch: fresh inventory-deduction session
   clearFcHold();
   liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=false;bgIdx=0;
@@ -2059,7 +2078,7 @@ $('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;
     samples.length=0;Array.prototype.push.apply(samples,keep);
     connectMs=chargeMs;
     $('rowCount').textContent=samples.length+' samples';}
-  $('statsCard').style.display='none';$('alarmBanner').style.display='none';updateLiveBar();renderEvents();drawChart();log('CHARGE');});
+  $('statsCard').style.display='none';$('alarmBanner').style.display='none';updateLiveBar();renderEvents();drawChart();log('CHARGE'+(batchCode?' — batch #'+batchCode:''));});
 $('evDry').addEventListener('click',()=>{if(chargeMs){events.dry=(Date.now()-chargeMs)/1000;renderEvents();drawChart();log('Marked Dry End at '+fmt(events.dry));}});
 $('evFc').addEventListener('click',()=>{if(chargeMs){events.fc=(Date.now()-chargeMs)/1000;renderEvents();drawChart();log('Marked First Crack at '+fmt(events.fc));applyFcHold();}});
 // Optional FC power hold: marking First Crack freezes the heater at its recent
@@ -2142,7 +2161,7 @@ function dropRoast(){                              // end of roast: mark Drop, c
   clearFcHold();
   autoSaveRoast();
   invUse.dropped=true;applyInvDeduction();        // take the batch's green weight out of the selected bean's stock
-  renderStatsCard(roastStats(),+$('wIn').value,+$('wOut').value);
+  renderStatsCard(roastStats(),+$('wIn').value,+$('wOut').value,batchCode);
   resetRoastView();
 }
 function resetRoastView(){                         // fresh chart for the next batch (the roast was just auto-saved)
@@ -2150,6 +2169,7 @@ function resetRoastView(){                         // fresh chart for the next b
   Object.assign(events,{charge:null,dry:null,fc:null,drop:null});
   chargeMs=null;if(connectMs)connectMs=Date.now(); // rebase the time axis
   invUse.dropped=false;invUse.deducted=0;roastFan0=null;   // the batch's stock deduction is final — a new bean/weight typed now is the NEXT batch's
+  batchCode=null;showBatchCode(null);
   liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=false;bgIdx=0;
   curSV=null;$('tSv').textContent='—';
   $('rowCount').textContent='0 samples';
@@ -2445,6 +2465,7 @@ $('btnCsv').addEventListener('click',()=>{
   const num=(v,d)=>(v==null||Number.isNaN(v))?'':v.toFixed(d);
   let meta='';
   const bean=$('beanInfo').value.trim(),wi=+$('wIn').value,wo=+$('wOut').value;
+  if(shownCode||batchCode)meta+='# batch,'+(batchCode||shownCode)+'\n';
   if(bean)meta+='# bean,"'+bean.replace(/"/g,'""')+'"\n';
   if(wi>0)meta+='# green_g,'+wi+'\n';
   if(wo>0)meta+='# roasted_g,'+wo+'\n';
@@ -2469,14 +2490,14 @@ function refreshRoastSelect(){const a=loadLogs();
   const fill=(s,first)=>{const cur=s.value;s.innerHTML='<option value="">'+first+'</option>';
     a.slice().reverse().forEach(r=>{const o=document.createElement('option');o.value=r.id;
       const d=r.date?new Date(r.date):null;
-      o.textContent=(d?d.toLocaleDateString(undefined,{month:'short',day:'numeric'})+' '+d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})+' · ':'')+r.name;
+      o.textContent=(r.code?'#'+r.code+' · ':'')+(d?d.toLocaleDateString(undefined,{month:'short',day:'numeric'})+' '+d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})+' · ':'')+r.name;
       s.appendChild(o);});
     s.value=cur;if(s.value!==cur)s.value='';};
   fill($('roastSelect'),'— saved roasts ('+a.length+') —');
   fill($('etSel'),'— pick a reference roast —');
   fill($('ppSrc'),'— pick a source roast —');}
 function buildRoastRec(name){
-  return{id:'r'+Date.now(),name,date:new Date().toISOString(),mtime:Date.now(),
+  return{id:'r'+Date.now(),name,date:new Date().toISOString(),mtime:Date.now(),code:batchCode||newBatchCode(),
     chargeT:(chargeMs&&connectMs)?+(((chargeMs-connectMs)/1000).toFixed(1)):null,stats:roastStats(),
     bean:$('beanInfo').value.trim(),invId:invUse.itemId||null,weightIn:+$('wIn').value||null,weightOut:+$('wOut').value||null,
     samples:samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv})),
@@ -2496,7 +2517,7 @@ function autoSaveRoast(){                                   // roast lands in th
   }
   const rec=buildRoastRec($('beanInfo').value.trim()||'Unknown');rec.autoName=true;
   a.push(rec);
-  if(saveLogs(a)){autoSaved={charge:chargeMs,id:rec.id};refreshRoastSelect();log('💾 Roast auto-saved to the log: '+rec.name);}
+  if(saveLogs(a)){autoSaved={charge:chargeMs,id:rec.id};refreshRoastSelect();log('💾 Roast auto-saved to the log: '+rec.name+(rec.code?' · batch #'+rec.code:''));}
 }
 function syncAutoSaved(){                                   // weights/bean typed after saving update the record
   if(!autoSaved.id||autoSaved.charge!==chargeMs)return;
@@ -2531,9 +2552,9 @@ $('btnLoadRoast').addEventListener('click',()=>{
   if(r.stats){if(r.stats.avgHeat==null&&r.samples&&r.samples.length){       // backfill power for roasts saved before this feature
       const b=bgBaseOf(r),end=r.events&&r.events.drop!=null?b+r.events.drop:1e12;
       const p=heatLoadOver(r.samples,b,end);r.stats.heatLoad=p.load;r.stats.avgHeat=p.avg;r.stats.avgFan=p.fanAvg;}
-    renderStatsCard(r.stats,r.weightIn,r.weightOut);}
+    renderStatsCard(r.stats,r.weightIn,r.weightOut,r.code);}
   else $('statsCard').style.display='none';
-  $('rowCount').textContent=samples.length+' samples · '+r.name;renderEvents();drawChart();log('Loaded roast: '+r.name);
+  $('rowCount').textContent=samples.length+' samples · '+(r.code?'#'+r.code+' ':'')+r.name;renderEvents();drawChart();log('Loaded roast: '+(r.code?'#'+r.code+' ':'')+r.name);
 });
 $('btnDelRoast').addEventListener('click',()=>{const id=$('roastSelect').value;if(!id)return;if(!confirm('Delete this saved roast?'))return;cloudTomb(id);saveLogs(loadLogs().filter(r=>r.id!==id));refreshRoastSelect();});
 
