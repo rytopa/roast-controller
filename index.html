@@ -2530,7 +2530,7 @@ function refreshRoastSelect(){const a=loadLogs();
   fill($('etSel'),'— pick a reference roast —');
   fill($('ppSrc'),'— pick a source roast —');}
 function buildRoastRec(name){
-  return{id:'r'+Date.now(),name,date:new Date().toISOString(),mtime:Date.now(),code:batchCode||newBatchCode(),notes:$('roastNotes').value.trim(),star:curStar,
+  return{id:'r'+Date.now(),name,date:new Date().toISOString(),mtime:Date.now(),code:batchCode||newBatchCode(),notes:liveDraft.notes.trim(),star:liveDraft.star,
     chargeT:(chargeMs&&connectMs)?+(((chargeMs-connectMs)/1000).toFixed(1)):null,stats:roastStats(),
     bean:$('beanInfo').value.trim(),invId:invUse.itemId||null,weightIn:+$('wIn').value||null,weightOut:+$('wOut').value||null,
     samples:samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv})),
@@ -2538,19 +2538,26 @@ function buildRoastRec(name){
 }
 let autoSaved={charge:null,id:null};
 // ---------- Roast notes + star ----------
-// Notes and the ★ mark belong to the "current" roast: the one being roasted (held in the box
-// until it is auto-saved at Drop), the one just dropped, or the one loaded from the saved list.
-let curRoastId=null,curStar=false;
+// Notes and the ★ mark belong to the roast selected in the saved-roast dropdown (the box and
+// the dropdown always agree). While a roast is running and nothing is selected, the box holds a
+// draft for that live roast, which is written to the record when it is auto-saved at Drop.
+let curRoastId=null,curStar=false,liveDraft={notes:'',star:false};
 function withCurRoast(fn){const a=loadLogs(),r=a.find(x=>x.id===curRoastId);if(!r)return false;fn(r);r.mtime=Date.now();saveLogs(a);return true;}
 function roastLabel(r){return (r.code?'#'+r.code+' ':'')+(r.name||'');}
 function paintStar(){const b=$('btnStar');b.textContent=curStar?'★ Starred':'☆ Star';b.classList.toggle('on',curStar);b.title=curStar?'Excellent roast — click to remove the star':'Mark this roast as excellent';}
 function showNotesBox(title){$('roastNotesBox').style.display='';$('roastNotesTitle').innerHTML='<b>Roast notes</b>'+(title?' — '+escapeHtml(title):'');paintStar();}
-function setCurRoast(r){curRoastId=r?r.id:null;curStar=!!(r&&r.star);$('roastNotes').value=(r&&r.notes)||'';showNotesBox(r?roastLabel(r):null);}
-function startNotesForLiveRoast(){curRoastId=null;curStar=false;$('roastNotes').value='';showNotesBox((batchCode?'#'+batchCode+' ':'')+'(this roast)');}
-$('roastNotes').addEventListener('input',()=>{withCurRoast(r=>{r.notes=$('roastNotes').value;});});   // live roast: picked up at save
+function setCurRoast(r){curRoastId=r?r.id:null;curStar=!!(r&&r.star);$('roastNotes').value=(r&&r.notes)||'';showNotesBox(r?roastLabel(r):null);
+  const s=$('roastSelect');if(r&&[...s.options].some(o=>o.value===r.id))s.value=r.id;}   // dropdown and box always agree
+function showLiveDraft(){curRoastId=null;curStar=liveDraft.star;$('roastNotes').value=liveDraft.notes;showNotesBox((batchCode?'#'+batchCode+' ':'')+'(this roast — not saved yet)');}
+function startNotesForLiveRoast(){liveDraft={notes:'',star:false};$('roastSelect').value='';showLiveDraft();}
+function hideNotesBox(){curRoastId=null;curStar=false;$('roastNotes').value='';$('roastNotesBox').style.display='none';}
+$('roastNotes').addEventListener('input',()=>{if(!withCurRoast(r=>{r.notes=$('roastNotes').value;})&&chargeMs)liveDraft.notes=$('roastNotes').value;});   // live roast: written to the record at save
 $('btnStar').addEventListener('click',()=>{curStar=!curStar;paintStar();
   if(withCurRoast(r=>{r.star=curStar;})){refreshRoastSelect();log(curStar?'★ Roast starred: '+roastLabel(loadLogs().find(x=>x.id===curRoastId)):'Star removed');}
-  else log(curStar?'★ This roast will be saved starred':'Star removed');});
+  else{liveDraft.star=curStar;log(curStar?'★ This roast will be saved starred':'Star removed');}});
+$('roastSelect').addEventListener('change',()=>{                     // browsing the list shows that roast's notes + star (without loading its chart)
+  const id=$('roastSelect').value,r=id?loadLogs().find(x=>x.id===id):null;
+  if(r)setCurRoast(r);else if(chargeMs)showLiveDraft();else hideNotesBox();});
 function autoSaveRoast(){                                   // roast lands in the log at profile completion or Drop
   if(!samples.length)return;
   const a=loadLogs();
@@ -2559,13 +2566,13 @@ function autoSaveRoast(){                                   // roast lands in th
     if(r){r.samples=samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv}));
       r.events=Object.assign({},events);r.stats=roastStats()||r.stats;r.mtime=Date.now();
       if(r.autoName)r.name=$('beanInfo').value.trim()||'Unknown';
-      if(curRoastId!==r.id){r.notes=$('roastNotes').value.trim();r.star=curStar;}
-      saveLogs(a);setCurRoast(r);}
+      if(curRoastId!==r.id){r.notes=liveDraft.notes.trim();r.star=liveDraft.star;}
+      saveLogs(a);liveDraft={notes:'',star:false};setCurRoast(r);}
     return;
   }
   const rec=buildRoastRec($('beanInfo').value.trim()||'Unknown');rec.autoName=true;
   a.push(rec);
-  if(saveLogs(a)){autoSaved={charge:chargeMs,id:rec.id};setCurRoast(rec);refreshRoastSelect();log('💾 Roast auto-saved to the log: '+rec.name+(rec.code?' · batch #'+rec.code:''));}
+  if(saveLogs(a)){autoSaved={charge:chargeMs,id:rec.id};liveDraft={notes:'',star:false};refreshRoastSelect();setCurRoast(rec);log('💾 Roast auto-saved to the log: '+rec.name+(rec.code?' · batch #'+rec.code:''));}
 }
 function syncAutoSaved(){                                   // weights/bean typed after saving update the record
   if(!autoSaved.id||autoSaved.charge!==chargeMs)return;
@@ -2585,11 +2592,11 @@ $('btnSaveRoast').addEventListener('click',()=>{
   if(ex){                                                   // rename/refresh the auto-saved record instead of duplicating
     ex.name=name||defName;ex.autoName=false;ex.bean=bean;ex.weightIn=+$('wIn').value||null;ex.weightOut=+$('wOut').value||null;ex.mtime=Date.now();
     ex.samples=samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv}));ex.events=Object.assign({},events);
-    ex.stats=roastStats()||ex.stats;ex.notes=$('roastNotes').value.trim();ex.star=curStar;
-    if(saveLogs(a)){setCurRoast(ex);refreshRoastSelect();log('Roast updated: '+ex.name);}
+    ex.stats=roastStats()||ex.stats;if(curRoastId===ex.id){ex.notes=$('roastNotes').value.trim();ex.star=curStar;}
+    if(saveLogs(a)){refreshRoastSelect();setCurRoast(ex);log('Roast updated: '+ex.name);}
   }else{
     const rec=buildRoastRec(name||defName);rec.autoName=false;a.push(rec);
-    if(saveLogs(a)){autoSaved={charge:chargeMs,id:rec.id};setCurRoast(rec);refreshRoastSelect();log('Roast saved: '+rec.name);}
+    if(saveLogs(a)){autoSaved={charge:chargeMs,id:rec.id};liveDraft={notes:'',star:false};refreshRoastSelect();setCurRoast(rec);log('Roast saved: '+rec.name);}
   }
 });
 $('btnLoadRoast').addEventListener('click',()=>{
@@ -2606,7 +2613,7 @@ $('btnLoadRoast').addEventListener('click',()=>{
   setCurRoast(r);
   $('rowCount').textContent=samples.length+' samples · '+(r.code?'#'+r.code+' ':'')+r.name;renderEvents();drawChart();log('Loaded roast: '+(r.code?'#'+r.code+' ':'')+r.name);
 });
-$('btnDelRoast').addEventListener('click',()=>{const id=$('roastSelect').value;if(!id)return;if(!confirm('Delete this saved roast?'))return;cloudTomb(id);saveLogs(loadLogs().filter(r=>r.id!==id));refreshRoastSelect();if(id===curRoastId){curRoastId=null;curStar=false;$('roastNotes').value='';$('roastNotesBox').style.display='none';}});
+$('btnDelRoast').addEventListener('click',()=>{const id=$('roastSelect').value;if(!id)return;if(!confirm('Delete this saved roast?'))return;cloudTomb(id);saveLogs(loadLogs().filter(r=>r.id!==id));refreshRoastSelect();$('roastSelect').dispatchEvent(new Event('change'));});
 
 // ---------- Cloud sync (Cloudflare Worker + KV) ----------
 const cloud={url:'',code:'',rev:0,pushTid:null,pulling:false,pushing:false,lastMs:0};
