@@ -1,0 +1,56 @@
+{
+  "format": "roast-profile-v1",
+  "name": "Sprint to 140 — espresso, 216 drop",
+  "notes": "Same fast opening as the filter curve — past 140 °C by about 1:40 — then a long, gentle decline through Maillard and a near-flat development (~6 °C/min held through first crack, the app's 'flat development' idea) so the drop at 216 °C is reached without the RoR stalling. Dry end (160 °C) around 2:45, first crack (200 °C) around 6:30, development ~3:00 (≈32 %), which suits a darker espresso roast on this small drum. Per-minute deltas +25/+22/+18/+14/+11/+7/+6/+6/+5/+4/min over 0:30. Time below 140 °C 1:41 of 9:30 (18 %), time at or above 140 °C 7:49 (82 %). Assumes a ~100 °C bean-probe turnaround after charge (charge the drum at your usual temperature) and a 150 g batch; the target is the bean temperature the PID is asked to track — it does not check the machine can actually deliver the early rate, so watch the first two minutes on the first run and use the filter curve if the heater cannot keep up.",
+  "autoFan": {
+    "startPct": 60,
+    "endPct": 40,
+    "mode": "knee"
+  },
+  "points": [
+    {
+      "time": "0:00",
+      "targetC": 100
+    },
+    {
+      "time": "1:00",
+      "targetC": 125
+    },
+    {
+      "time": "2:00",
+      "targetC": 147
+    },
+    {
+      "time": "3:00",
+      "targetC": 165
+    },
+    {
+      "time": "4:00",
+      "targetC": 179
+    },
+    {
+      "time": "5:00",
+      "targetC": 190
+    },
+    {
+      "time": "6:00",
+      "targetC": 197
+    },
+    {
+      "time": "7:00",
+      "targetC": 203
+    },
+    {
+      "time": "8:00",
+      "targetC": 209
+    },
+    {
+      "time": "9:00",
+      "targetC": 214
+    },
+    {
+      "time": "9:30",
+      "targetC": 216
+    }
+  ]
+}

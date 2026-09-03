@@ -1,0 +1,52 @@
+{
+  "format": "roast-profile-v1",
+  "name": "Sprint to 140 — filter, 208 drop",
+  "notes": "Front-loaded filter roast: the heater runs hard through the wet, low-temperature zone so the beans are past 140 °C in well under two minutes, then the rate of rise eases steadily so almost the whole roast is spent between 140 °C and the drop. Dry end (160 °C) lands around 2:50, first crack (200 °C) around 6:40, development ~1:50 (≈22 %). Per-minute deltas +24/+22/+17/+14/+11/+8/+6/+4/+4/min over 0:30. Time below 140 °C 1:44 of 8:30 (20 %), time at or above 140 °C 6:46 (80 %). Assumes a ~100 °C bean-probe turnaround after charge (charge the drum at your usual temperature) and a 150 g batch; the target is the bean temperature the PID is asked to track — it does not check the machine can actually deliver the early rate, so watch the first two minutes on the first run and use the filter curve if the heater cannot keep up.",
+  "autoFan": {
+    "startPct": 60,
+    "endPct": 42,
+    "mode": "knee"
+  },
+  "points": [
+    {
+      "time": "0:00",
+      "targetC": 100
+    },
+    {
+      "time": "1:00",
+      "targetC": 124
+    },
+    {
+      "time": "2:00",
+      "targetC": 146
+    },
+    {
+      "time": "3:00",
+      "targetC": 163
+    },
+    {
+      "time": "4:00",
+      "targetC": 177
+    },
+    {
+      "time": "5:00",
+      "targetC": 188
+    },
+    {
+      "time": "6:00",
+      "targetC": 196
+    },
+    {
+      "time": "7:00",
+      "targetC": 202
+    },
+    {
+      "time": "8:00",
+      "targetC": 206
+    },
+    {
+      "time": "8:30",
+      "targetC": 208
+    }
+  ]
+}
