@@ -272,9 +272,11 @@
         </div>
         <div class="row" style="gap:6px;margin-bottom:6px;align-items:center">
           <button data-genshape="sprint" style="flex:1;min-width:120px">🏃 Sprint through the lows</button>
-          <span class="small">race to</span><input id="genSprintC" type="number" min="105" max="200" value="140" style="width:64px"><span class="small">°C flat out, then decline — the bulk of the roast above that temp</span>
+          <span class="small">race to</span><input id="genSprintC" type="number" min="105" max="200" value="140" style="width:64px"><span class="small">°C by</span>
+          <input id="genSprintM" type="number" min="0" max="10" value="1" style="width:58px"><span class="small">min</span>
+          <input id="genSprintS" type="number" min="0" max="59" step="5" value="0" style="width:58px"><span class="small">sec — then dwell in that band until dry end</span>
         </div>
-        <div class="small" id="genInfo">Pick a shape — the curve is built to hit your dry-end, first-crack and drop targets at exactly those times, and loads into the graph below. Flip between the shapes to compare, tweak points if you like, then <b>Save profile</b>. <b>Declining</b>: RoR starts high, eases down all roast (classic). <b>Pyramid</b>: climbs to a peak at dry end, then declines. <b>Straight</b>: constant RoR per phase. <b>Soak</b>: near-flat first ~45 s, then declining. <b>Flat development</b>: declining until FC, then RoR held steady. <b>Step-down at FC</b>: sheds RoR ~30 s before FC (anti-crash/flick), calm flat development. <b>Boil-off plateau</b>: parks ~60–90 s at the boiling point so energy evaporates moisture at constant temp, then declines. <b>FC exotherm bump</b>: a small deliberate RoR <i>rise</i> into FC so the PID holds power through the steam crash — the real RoR comes out flat. <b>Maillard valley</b>: hot drying into a near-stall dwell past dry end (time-at-temperature for sweetness), second push, decline — experimental. <b>Free-fall</b>: exponential RoR decay, the natural curve of a constant heater. <b>Sprint</b>: the fastest constant RoR to the sprint temp (140 °C by default) that still lets the curve decline the rest of the way, so the wet low-temperature zone is over quickly and most of the roast is spent above it — a short drying time (~2:30) gives a real sprint; a long one leaves no room and the closest fit is loaded. Modifiers combine with any shape — <b>⚡ Precharge</b> commands +8 °C for the first 40 s (full power into cold wet beans, faster turnaround); <b>🍃 Coast</b> ends the command 3 °C early and lets stored drum heat carry the beans to the drop. The fan is not set — tick <b>Auto fan</b> below or fill the fan column.</div>
+        <div class="small" id="genInfo">Pick a shape — the curve is built to hit your dry-end, first-crack and drop targets at exactly those times, and loads into the graph below. Flip between the shapes to compare, tweak points if you like, then <b>Save profile</b>. <b>Declining</b>: RoR starts high, eases down all roast (classic). <b>Pyramid</b>: climbs to a peak at dry end, then declines. <b>Straight</b>: constant RoR per phase. <b>Soak</b>: near-flat first ~45 s, then declining. <b>Flat development</b>: declining until FC, then RoR held steady. <b>Step-down at FC</b>: sheds RoR ~30 s before FC (anti-crash/flick), calm flat development. <b>Boil-off plateau</b>: parks ~60–90 s at the boiling point so energy evaporates moisture at constant temp, then declines. <b>FC exotherm bump</b>: a small deliberate RoR <i>rise</i> into FC so the PID holds power through the steam crash — the real RoR comes out flat. <b>Maillard valley</b>: hot drying into a near-stall dwell past dry end (time-at-temperature for sweetness), second push, decline — experimental. <b>Free-fall</b>: exponential RoR decay, the natural curve of a constant heater. <b>Sprint</b>: flat out to the sprint temp (140 °C by default) by the time you set, then a slow, steady dwell through the band from there to dry end — the bulk of drying is spent in that band, and the RoR deliberately picks up again into Maillard (a valley, not a decline; the heater will be at full power for the sprint). Modifiers combine with any shape — <b>⚡ Precharge</b> commands +8 °C for the first 40 s (full power into cold wet beans, faster turnaround); <b>🍃 Coast</b> ends the command 3 °C early and lets stored drum heat carry the beans to the drop. The fan is not set — tick <b>Auto fan</b> below or fill the fan column.</div>
       </div>
     </details>
     <div class="row" style="justify-content:flex-end;margin-bottom:6px">
@@ -976,7 +978,7 @@ function generateProfile(shape){
   if(!(T0>0&&Tde>T0&&Tfc>Tde&&Te>Tfc&&Te<=260)){alert('Temperatures must ascend: start < dry end < first crack < drop (max 260 °C).');return;}
   if(d1<60||d2<60||d3<30){alert('Phase times too short — give at least 1:00 drying, 1:00 Maillard, 0:30 development.');return;}
   const a1=(Tde-T0)/d1,a2=(Tfc-Tde)/d2,a3=(Te-Tfc)/d3;              // required per-phase average RoR, °C/s
-  const sprintC=Math.round(+$('genSprintC').value||140);
+  const sprintC=Math.round(+$('genSprintC').value||140),sprintT=(+$('genSprintM').value||0)*60+(+$('genSprintS').value||0);
   const f=x=>Math.round(x*10)/10,pm=x=>f(x*60);                     // °C/s → display °C/min
   const mk=(...s)=>s.map(x=>({len:x[0],ra:x[1],rb:x[2]}));
   const flatSegs=()=>mk([d1,a1,a1],[d2,a2,a2],[d3,a3,a3]);
@@ -1041,18 +1043,20 @@ function generateProfile(shape){
       segs=mk([d1,r0,rV],[tv,rV,rV],[th,rV,rH],[dH,rH,r2],[d3,r2,r3]);
       descStr='Maillard valley: hot front ~'+pm(r0)+' °C/min falling to a ~'+pm(rV)+' near-stall held '+fmt(tv)+' just past dry end (buying time-at-temperature for Maillard chemistry), a second push to ~'+pm(rH)+', then declining to ~'+pm(r3)+'.';
     }
-  }else if(shape==='sprint'){                                       // flat out to the sprint temp, then the declining fit for the rest
-    const Ts=Math.max(T0+10,Math.min(Tde-10,sprintC));
-    const fit=r=>{const tS=(Ts-T0)/r,dR=d1-tS;if(dR<15)return null;const aR=(Tde-Ts)/dR,r1=2*aR-r,r2=2*a2-r1,r3=2*a3-r2;
-      return{tS,dR,r1,r2,r3,strict:r1>=a2-1e-9&&r2>=r3-1e-9&&r3>=0.3*a3,ok:r1>=0&&r2>=0&&r3>=0};};   // strict: declining all the way, no stall at the drop
-    let rS=null,F=null;
-    for(let r=35/60;r>=a1-1e-9;r-=0.25/60){const f=fit(r);if(f&&f.strict){rS=r;F=f;break;}}   // fastest sprint with the RoR still declining all the way
-    if(rS!=null&&rS<1.05*a1)approx=true;                             // "sprint" no faster than the drying average: the drying time leaves no room
-    if(rS==null){approx=true;for(let r=Math.min(35/60,1.6*a1);r>=a1-1e-9;r-=0.25/60){const f=fit(r);if(f&&f.ok){rS=r;F=f;break;}}}
-    if(!F){fellBack=true;approx=false;segs=flatSegs();}
-    else{segs=mk([F.tS,rS,rS],[F.dR,rS,F.r1],[d2,F.r1,F.r2],[d3,F.r2,F.r3]);
-      const tot=d1+d2+d3;
-      descStr='Sprint: ~'+pm(rS)+' °C/min flat out to '+Ts+' °C (reached at '+fmt(Math.round(F.tS))+'), then declining ~'+pm(rS)+' → '+pm(F.r3)+' °C/min — '+Math.round((tot-F.tS)/tot*100)+'% of the roast is spent at or above '+Ts+' °C.';}
+  }else if(shape==='sprint'){                                       // flat out to the sprint temp by a set time, then a slow dwell through the band up to dry end
+    const Ts=Math.max(T0+10,Math.min(Tde-5,sprintC));
+    const tS=Math.max(20,Math.min(d1-30,sprintT)),dR=d1-tS;          // sprint time clamped so the dwell keeps at least 30 s
+    const rS=(Ts-T0)/tS,aR=(Tde-Ts)/dR;                               // sprint rate; dwell rate (flat through the band)
+    const lo=Math.max(a2,2*a2-2*a3),hi=2*a2-a3;                       // Maillard + development: a declining pair after the dwell
+    let rA,rB,rC;
+    if(lo<=hi){rA=lo+0.3*(hi-lo);rB=2*a2-rA;rC=2*a3-rB;}
+    else{approx=true;rA=rB=a2;rC=a3;}                                 // no declining pair fits these times: straight Maillard / development
+    segs=approx?mk([tS,rS,rS],[dR,aR,aR],[d2,a2,a2],[d3,a3,a3]):mk([tS,rS,rS],[dR,aR,aR],[d2,rA,rB],[d3,rB,rC]);
+    const tot=d1+d2+d3;
+    descStr='Sprint: ~'+pm(rS)+' °C/min flat out to '+Ts+' °C by '+fmt(tS)+', then a slow ~'+pm(aR)+' °C/min dwell through the '+Ts+'–'+Tde+' °C band for '+fmt(dR)+' ('+Math.round(dR/d1*100)+'% of drying), '
+      +(approx?'straight Maillard ~'+pm(a2)+' and development ~'+pm(a3)+' °C/min.':'a second push into Maillard ~'+pm(rA)+' → '+pm(rB)+' °C/min, easing to ~'+pm(rC)+' at the drop.')
+      +' '+Math.round((tot-tS)/tot*100)+'% of the roast is spent at or above '+Ts+' °C.'
+      +(rS>30/60?' The sprint asks for more than 30 °C/min — the heater will be flat out and the beans may lag the target until the dwell.':'');
   }else{                                                            // 'exp' free-fall: piecewise-exponential RoR decay — the curve a constant heater draws
     const solveK=(rIn,d,dT)=>{let lo=-0.2,hi=0.2;
       for(let i=0;i<70;i++){const mid=(lo+hi)/2;if(expF(rIn,mid,d)>dT)lo=mid;else hi=mid;}return(lo+hi)/2;};
@@ -1108,7 +1112,7 @@ function generateProfile(shape){
   document.querySelectorAll('[data-genshape]').forEach(x=>x.classList.toggle('blue',x.dataset.genshape===shape));
   $('genInfo').innerHTML='Loaded <b>'+label+'</b> — '+desc
     +(fellBack?' <i>(These phase targets can’t support a '+label+' shape — it would need the temperature to dip or a phase is too short — so straight phases were loaded; your temp/time targets are still hit exactly.)</i>'
-      :approx?' <i>(Closest fit: '+(shape==='sprint'?'with this drying time there is no room to sprint and still keep the RoR declining into Maillard — shorten the drying time (about 2:30) or lower the dry-end temp for a real sprint':'with these phase times the average RoRs don’t '+(shape==='pyr'?'rise-then-fall':'decline strictly'))+', so the shape is approximated — your temp/time targets are still hit exactly.)</i>':'')
+      :approx?' <i>(Closest fit: '+(shape==='sprint'?'the Maillard and development times don’t allow a declining RoR after the dwell, so those two phases run straight':'with these phase times the average RoRs don’t '+(shape==='pyr'?'rise-then-fall':'decline strictly'))+', so the shape is approximated — your temp/time targets are still hit exactly.)</i>':'')
     +' Compare the other shapes, tweak on the graph, then <b>Save profile</b>.';
   log('Profile generated: '+label+' ('+fmt(total)+', FC '+Tfc+', drop '+Te+')');
   lastGenShape=shape;
@@ -1116,7 +1120,7 @@ function generateProfile(shape){
 let lastGenShape=null;
 document.querySelectorAll('[data-genshape]').forEach(btn=>btn.addEventListener('click',()=>generateProfile(btn.dataset.genshape)));
 ['genBoost','genCoast'].forEach(id=>$(id).addEventListener('change',()=>{if(lastGenShape)generateProfile(lastGenShape);}));
-$('genSprintC').addEventListener('change',()=>{if(lastGenShape==='sprint')generateProfile('sprint');});
+['genSprintC','genSprintM','genSprintS'].forEach(id=>$(id).addEventListener('change',()=>{if(lastGenShape==='sprint')generateProfile('sprint');}));
 
 const PROF_KEY='rc_profiles_v1';
 function loadProfilesStore(){try{return JSON.parse(localStorage.getItem(PROF_KEY)||'[]');}catch(e){return[];}}
