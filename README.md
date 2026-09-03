@@ -77,6 +77,18 @@ You can have an AI assistant (e.g. Claude) design a roast curve and load it stra
 - `notes` — optional short write-up of the profile (intent, bean/batch, RoR deltas, drop target). Shown in the designer's Notes box and kept with the saved profile.
 - At least 2 points; they're sorted by time on import. Import fills the designer — review the curve and notes, then **Save profile**.
 
+### Ready-made "sprint to 140" profiles
+
+The `profiles/` folder holds importable curves that race through the wet, low-temperature zone and spend ~80 % of the roast at or above 140 °C (**Import JSON** in the Profile panel):
+
+| File | Length | Past 140 °C at | Dry end · First crack | Drop |
+|---|---|---|---|---|
+| `sprint-140-filter-208.json` | 8:30 | 1:44 | 2:49 · 6:40 | 208 °C, ~22 % development |
+| `sprint-140-espresso-216.json` | 9:30 | 1:41 | 2:43 · 6:30 | 216 °C, near-flat development |
+| `sprint-140-max-push-208.json` | 8:00 | 1:19 | 2:20 · 6:10 | 208 °C, heater flat out for the first 90 s |
+
+All three assume a ~100 °C bean-probe turnaround after charge. Each file's `notes` carries the per-minute deltas and the time split.
+
 Example prompt: *"Design a roast profile for [beans / batch size / roast level] as a minute-by-minute table of target bean temperature (°C) and fan %. Include a short write-up of what the curve is doing in the `notes` field. Output it as a downloadable JSON file in this format: …"* (paste the JSON above as the template).
 
 For a complete, paste-into-Claude spec — field semantics, how the app interpolates the curve, and machine-specific design guidance — see **[PROFILE_FORMAT.md](PROFILE_FORMAT.md)**.

@@ -1,0 +1,56 @@
+{
+  "format": "roast-profile-v1",
+  "name": "Sprint to 140 — max push, 208 drop",
+  "notes": "The aggressive version: the target climbs at ~30 °C/min for the first 90 s so the beans clear 140 °C around 1:19, then declines evenly to the drop. Expect the heater to sit at full power for the first 60–90 s — the PID will be saturated and the bean temperature may lag the target by a few degrees until it catches up around dry end (160 °C, ~2:20). First crack (200 °C) around 6:10, development ~1:50 (≈23 %). The fan holds its start speed until 160 °C ('hold' mode) to keep hot air moving through the wet beans, then runs straight down to 40 % for the finish. If the machine falls well behind the curve in the first minute, prefer the filter version — a large target lead only builds up PID windup and overshoot later. Per-minute deltas +32/min over 0:30/+30/min over 0:30/+28/min over 0:30/+18/+14/+11/+8/+6/+4/+4/min over 0:30. Time below 140 °C 1:19 of 8:00 (17 %), time at or above 140 °C 6:41 (83 %). Assumes a ~100 °C bean-probe turnaround after charge (charge the drum at your usual temperature) and a 150 g batch; the target is the bean temperature the PID is asked to track — it does not check the machine can actually deliver the early rate, so watch the first two minutes on the first run and use the filter curve if the heater cannot keep up.",
+  "autoFan": {
+    "startPct": 60,
+    "endPct": 40,
+    "mode": "hold"
+  },
+  "points": [
+    {
+      "time": "0:00",
+      "targetC": 100
+    },
+    {
+      "time": "0:30",
+      "targetC": 116
+    },
+    {
+      "time": "1:00",
+      "targetC": 131
+    },
+    {
+      "time": "1:30",
+      "targetC": 145
+    },
+    {
+      "time": "2:30",
+      "targetC": 163
+    },
+    {
+      "time": "3:30",
+      "targetC": 177
+    },
+    {
+      "time": "4:30",
+      "targetC": 188
+    },
+    {
+      "time": "5:30",
+      "targetC": 196
+    },
+    {
+      "time": "6:30",
+      "targetC": 202
+    },
+    {
+      "time": "7:30",
+      "targetC": 206
+    },
+    {
+      "time": "8:00",
+      "targetC": 208
+    }
+  ]
+}
