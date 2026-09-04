@@ -245,6 +245,15 @@
     </div>
     <div class="small" style="margin-bottom:8px">Fixed heater power right after <b>Charge</b> (open loop, PID off) — then the control loop takes over. Applies to profile runs <b>and ET-track runs</b> started at charge. <b>Untick to skip the soak</b> — the control loop then engages on the curve from the first second after charge. Saved in this browser. ⚡ Charging and the between-batch cycle are <b>hard-capped at 85% power</b> — above that the app pauses the PID and holds 85% until the temperature is nearly there.</div>
     <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="bbpAuto" checked><span><b>Auto-charge</b> — when the beans drop (BT plunges), mark Charge and start the profile loaded in the designer automatically. <b>No need to press ▶ Run profile</b> — the whole roast runs from this one button.</span></label>
+    <div class="row" style="margin-bottom:6px;align-items:center;gap:12px">
+      <span class="small"><b>At bean drop</b></span>
+      <label class="ck" style="margin:0"><input type="radio" name="bbpMode" id="bbpModeProf" value="profile" checked><span><b>📈 Run the profile</b> (or an armed replay)</span></label>
+      <label class="ck" style="margin:0"><input type="radio" name="bbpMode" id="bbpModeMan" value="manual"><span><b>🎛 Manual</b> — hand control from the Controls rail</span></label>
+    </div>
+    <div id="bbpManRow" class="row" style="display:none;align-items:center;margin-bottom:8px">
+      <span class="small">Opening heater</span><input id="bbpManHeat" type="number" min="0" max="100" value="60" style="width:66px"><span class="small">% · fan</span>
+      <input id="bbpManFan" type="number" min="0" max="100" value="60" style="width:66px"><span class="small">% — set at Charge (after the charge soak if it is on), PID stays <b>off</b>; from there you drive Heater / Fan ± yourself. Stop / Drop ends and saves the roast as usual.</span>
+    </div>
     <div id="bbpPreview" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 11px;margin-bottom:8px"></div>
     <button id="bbpStart" class="blue" style="width:100%">🔄 Start between-batch cycle</button>
     <div id="bbpStatus" class="small" style="margin-top:7px">Cools the machine (fan 100%, heater off) to the cool-to temp, then ramps gradually to your charge temp over <b>1 min</b> at the charge fan speed, holds it <b>30 s</b>, and lights up when it's time to drop the beans.</div>
@@ -797,6 +806,7 @@ function crRefresh(){
 // Manual heater: stops every automated run (keeping the heat), drops the PID and sends the power.
 function manualHeat(v){
   v=clampPct(v);
+  stopManRun();                                          // a manual-mode soak in progress just yields to the tap
   if(profile||etRun||pprof||ramp||bbp){
     if(!confirm('Take manual heater control? The running profile / cycle stops and the PID switches off.'))return;
     stopRamp();stopProfile();stopBBP('manual heater',true);stopEtRun('manual heater',true);stopPProf('manual heater',true);clearFcHold();}
@@ -817,7 +827,7 @@ $('cPow0').addEventListener('click',()=>{
   if(chargeMs){dropRoast();return;}                 // roast in progress (even if the link dropped): end it and save it
   if(!writeChar){alert('Connect the roaster first.');return;}
   heaterOff();});
-async function heaterOff(){stopRamp();stopProfile();stopBBP('emergency',true);stopEtRun('emergency',true);stopPProf('emergency',true);clearFcHold();await send('PID,OFF ');pidEngaged=false;setPidPill();setTimeout(()=>send('OT1,0'),300);}
+async function heaterOff(){stopManRun();stopRamp();stopProfile();stopBBP('emergency',true);stopEtRun('emergency',true);stopPProf('emergency',true);clearFcHold();await send('PID,OFF ');pidEngaged=false;setPidPill();setTimeout(()=>send('OT1,0'),300);}
 function stopRamp(){if(ramp){clearInterval(ramp.tid);ramp=null;}}
 
 // ---------- Profile designer + playback ----------
@@ -1371,7 +1381,7 @@ async function startProfile(){
   const pts=getPoints();if(pts.length<2){alert('Add at least 2 points.');return;}
   if(!writeChar){alert('Connect the roaster first.');return;}
   if(!$('enableControl').checked){alert('Tick "Enable control" next to the chart first.');return;}
-  stopRamp();stopEtRun('profile started',true);stopPProf('profile started',true);clearFanOverride();clearFcHold();
+  stopManRun();stopRamp();stopEtRun('profile started',true);stopPProf('profile started',true);clearFanOverride();clearFcHold();
   const af=uiAutoFan(),endSv=Math.max(175,pts[pts.length-1].sv);
   const fan0=af?af.start:(pts[0].fan!=null?Math.round(pts[0].fan):40); send('IO3,'+fan0);noteStartFan(fan0); await delay(300);
   // Fresh charge -> fixed-power soak (PID off) per the user's charge-soak settings, timed on the
@@ -1867,8 +1877,34 @@ function beepReady(){
     o.frequency.value=880;g.gain.value=.15;o.start();o.stop(ac.currentTime+1.2);o.onended=()=>ac.close();}catch(e){}
   if(navigator.vibrate)navigator.vibrate([200,100,200,100,500]);
 }
-function saveBbpCfg(){try{localStorage.setItem('rc_bbp',JSON.stringify({cool:$('bbpCool').value,charge:$('bbpCharge').value,fan:$('bbpFan').value}));}catch(e){}}
-['bbpCool','bbpCharge','bbpFan'].forEach(id=>$(id).addEventListener('change',saveBbpCfg));
+function saveBbpCfg(){try{localStorage.setItem('rc_bbp',JSON.stringify({cool:$('bbpCool').value,charge:$('bbpCharge').value,fan:$('bbpFan').value,
+  mode:bbpMode(),manHeat:$('bbpManHeat').value,manFan:$('bbpManFan').value}));}catch(e){}}
+['bbpCool','bbpCharge','bbpFan','bbpManHeat','bbpManFan'].forEach(id=>$(id).addEventListener('change',saveBbpCfg));
+// ---- Manual mode: at bean drop the app marks Charge, sets an opening heater/fan and hands over ----
+function bbpMode(){return $('bbpModeMan').checked?'manual':'profile';}
+function bbpManOpen(){return{heat:clampPct($('bbpManHeat').value),fan:clampPct($('bbpManFan').value)};}
+function bbpModeUI(){$('bbpManRow').style.display=bbpMode()==='manual'?'':'none';bbpPreviewDraw();saveBbpCfg();}
+['bbpModeProf','bbpModeMan'].forEach(id=>$(id).addEventListener('change',bbpModeUI));
+let manRun=null;                                          // only alive while the charge soak runs before the hand-over
+function stopManRun(){if(manRun){clearInterval(manRun.tid);manRun=null;}}
+function startManualRoast(){
+  const o=bbpManOpen(),soak=chargeSoak();
+  stopManRun();
+  send('PID,OFF ');pidEngaged=false;curSV=null;$('tSv').textContent='—';setPidPill();
+  setTimeout(()=>send('IO3,'+o.fan),200);noteStartFan(o.fan);
+  const handOver=()=>{send('OT1,'+o.heat);log('🎛 Manual roast — heater '+o.heat+'%, fan '+o.fan+'%. Drive Heater / Fan ± from the Controls rail; Stop / Drop ends the roast.');};
+  if(!soak){setTimeout(handOver,400);return;}
+  const tick=()=>{
+    if(!manRun)return;
+    if(!chargeMs||events.drop!=null||profile||etRun||pprof||bbp){stopManRun();return;}   // something else took over
+    const e=(Date.now()-chargeMs)/1000,st=soak.find(x=>e<x.until);
+    if(st){if(st.pct!==manRun.soakPct){send('OT1,'+st.pct);manRun.soakPct=st.pct;log('Charge soak: heater '+st.pct+'%');}}
+    else{stopManRun();handOver();}
+  };
+  manRun={soakPct:null,tid:setInterval(tick,1000)};
+  setTimeout(tick,400);                                   // first soak step right away, after PID off + fan
+  log('Charge soak: heater '+soak.map(x=>x.pct+'% to '+fmt(x.until)).join(', then ')+' — then manual control at '+o.heat+'%');
+}
 $('bbpStart').addEventListener('click',()=>{bbp?stopBBP('cancelled'):openBatchBeanModal();});
 // What will actually run at the bean drop — shown live in the between-batch panel
 // so there's no guessing between the designer profile and an armed ET-track /
@@ -1880,7 +1916,11 @@ function bbpPreviewDraw(){
   const pts=getPoints(),haveProfile=pts.length>=2,pname=$('profName').value.trim();
   const ppArmedSteps=$('ppArm').checked?ppSteps():null;
   const etArmed=!ppArmedSteps&&$('etArm').checked&&!!(etRef||$('etSel').value);
-  if(ppArmedSteps){
+  if(bbpMode()==='manual'){
+    const o=bbpManOpen(),sk=chargeSoak();
+    el.innerHTML=lbl+'<b>🎛 Manual — hand control</b><div class="small">Charge is marked, then '+(sk?'the charge soak runs ('+sk.map(x=>x.pct+'% to '+fmt(x.until)).join(', ')+'), then ':'')
+      +'heater '+o.heat+'% · fan '+o.fan+'% · PID off — you drive from the Controls rail</div>';
+  }else if(ppArmedSteps){
     el.innerHTML=lbl+'<b>⚡ Power profile (open loop)</b><div class="small">'+ppArmedSteps.length+' fixed steps · '+fmt(ppArmedSteps[ppArmedSteps.length-1].t)+' · drop at BT '+Math.max(120,Math.min(250,+$('ppEndBt').value||210))+'°</div>';
   }else if(etArmed){
     const n=etRef?etRef.name:($('etSel').selectedOptions[0]?$('etSel').selectedOptions[0].textContent.trim():'selected reference');
@@ -1894,7 +1934,7 @@ function bbpPreviewDraw(){
     el.innerHTML=lbl+'<b>⚠ no profile loaded</b><div class="small">load or build one in the Profile designer below before charging</div>';
   }
 }
-['bbpAuto','etArm','ppArm','etSel','ppEndBt','etEndBt'].forEach(id=>$(id).addEventListener('change',bbpPreviewDraw));
+['bbpAuto','etArm','ppArm','etSel','ppEndBt','etEndBt','bbpManHeat','bbpManFan','soakOn','soakP1','soakT1','soakP2','soakT2'].forEach(id=>$(id).addEventListener('change',bbpPreviewDraw));
 $('profName').addEventListener('input',bbpPreviewDraw);
 async function startBBP(){
   if(!writeChar){alert('Connect the roaster first.');return;}
@@ -1905,10 +1945,14 @@ async function startBBP(){
   // ---- confirmation summary: what will actually run at bean drop + the air flow it uses ----
   const auto=$('bbpAuto').checked,pts=getPoints(),haveProfile=pts.length>=2;
   const pname=$('profName').value.trim(),af=uiAutoFan();
-  const ppArmedSteps=$('ppArm').checked?ppSteps():null;               // ppArm diverts auto-charge to the open-loop power schedule
-  const etArmed=!ppArmedSteps&&$('etArm').checked&&!!(etRef||$('etSel').value);   // etArm diverts auto-charge to the ET-track run
+  const manual=bbpMode()==='manual',mo=bbpManOpen();                   // manual mode: hand control from Charge, no profile needed
+  const ppArmedSteps=!manual&&$('ppArm').checked?ppSteps():null;       // ppArm diverts auto-charge to the open-loop power schedule
+  const etArmed=!manual&&!ppArmedSteps&&$('etArm').checked&&!!(etRef||$('etSel').value);   // etArm diverts auto-charge to the ET-track run
   let runLine,airLine;
-  if(ppArmedSteps){
+  if(manual){
+    runLine='Manual — hand control (opening heater '+mo.heat+'%)';
+    airLine='fan '+mo.fan+'% at charge, then by hand';
+  }else if(ppArmedSteps){
     runLine='Power profile — '+ppArmedSteps.length+' fixed steps, open loop';
     airLine=ppArmedSteps.some(x=>x.fan!=null)?'fan from the power schedule':'— (manual fan)';
   }else if(etArmed){
@@ -1934,16 +1978,17 @@ async function startBBP(){
     dropTemp=Math.round(lp.sv)+' °C (last-point target)';
     totalTime=fmt(lp.t);
   }
-  if(auto&&!ppArmedSteps&&!etArmed&&haveProfile&&!confirmAutoFan())return;   // fan choice happens now — not at the bean drop
+  if(auto&&!manual&&!ppArmedSteps&&!etArmed&&haveProfile&&!confirmAutoFan())return;   // fan choice happens now — not at the bean drop
   const summary=['Start the between-batch cycle?','',
-    ((ppArmedSteps||etArmed)?'Run:  ':'Profile:  ')+runLine,
+    ((manual||ppArmedSteps||etArmed)?'Run:  ':'Profile:  ')+runLine,
     'Drop temp:  '+(dropTemp||'—'),
     'Total roast time:  '+(totalTime||'—'),
     'Roast air flow:  '+airLine,
     'Charge-ramp fan:  '+fanLow+'%',
     'Cool to '+coolTo+'° → charge '+chargeT+'°',
     'Charge soak:  '+(chargeSoak()?chargeSoak().map(s=>s.pct+'% to '+fmt(s.until)).join(', then '):'OFF — the control loop engages right at charge'),'',
-    auto?(ppArmedSteps?'Auto-charge ON — the fixed power schedule runs automatically when the beans drop.'
+    auto?(manual?'Auto-charge ON — at the bean drop the app marks Charge, sets the opening heater / fan and hands control to you.'
+         :ppArmedSteps?'Auto-charge ON — the fixed power schedule runs automatically when the beans drop.'
          :etArmed?'Auto-charge ON — the ET-track run starts automatically when the beans drop.'
          :haveProfile?'Auto-charge ON — "'+(pname||'the loaded profile')+'" runs automatically when the beans drop.'
                      :'⚠ Auto-charge ON but NO profile is loaded — load one before you charge.')
@@ -1959,7 +2004,7 @@ async function startBBP(){
   bbp={phase:'cool',coolTo,chargeT,fanLow,heatStart:null,startSv:null,soakStart:null,readyMax:null,capped:false,capRelAt:null,tid:setInterval(bbpTick,1000)};
   $('bbpStart').textContent='■ Cancel cycle';$('bbpStart').classList.remove('blue');$('bbpStart').classList.add('danger');
   log('BBP: cooling to '+coolTo+'°C (fan 100%, heater off), charge '+chargeT+'°C, fan '+fanLow+'%');
-  if(auto&&!ppArmedSteps&&!etArmed&&!haveProfile)log('⚠️ Auto-charge is on but no valid profile is loaded — load one before the beans go in.');
+  if(auto&&!manual&&!ppArmedSteps&&!etArmed&&!haveProfile)log('⚠️ Auto-charge is on but no valid profile is loaded — load one before the beans go in.');
   bbpTick();
 }
 function stopBBP(reason,keepHeat){
@@ -1967,7 +2012,7 @@ function stopBBP(reason,keepHeat){
   $('bbpLight').style.display='none';
   $('bbpStart').textContent='🔄 Start between-batch cycle';$('bbpStart').classList.add('blue');$('bbpStart').classList.remove('danger');
   if(!keepHeat){send('PID,OFF ');pidEngaged=false;setPidPill();setTimeout(()=>send('OT1,0'),250);}
-  $('bbpStatus').textContent=reason==='charge'?'Beans charged — profile has taken over.':'Cycle stopped ('+reason+')'+(keepHeat?'.':' — heater off.');
+  $('bbpStatus').textContent=reason==='charge'?(bbpMode()==='manual'?'Beans charged — manual control: drive Heater / Fan from the Controls rail.':'Beans charged — profile has taken over.'):'Cycle stopped ('+reason+')'+(keepHeat?'.':' — heater off.');
   log('BBP '+(reason==='charge'?'→ CHARGE':'stopped: '+reason));
 }
 function bbpTick(){
@@ -1998,12 +2043,13 @@ function bbpTick(){
     b.readyMax=Math.max(b.readyMax,bt);
     const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
     const pname=$('profName').value.trim();
-    $('bbpStatus').innerHTML='✅ Holding '+b.chargeT+' °C — drop the beans'+($('bbpAuto').checked?' · will auto-run '+(pname?'“'+esc(pname)+'”':'the loaded profile'):'');
+    $('bbpStatus').innerHTML='✅ Holding '+b.chargeT+' °C — drop the beans'+($('bbpAuto').checked?(bbpMode()==='manual'?' · will hand over to manual control':' · will auto-run '+(pname?'“'+esc(pname)+'”':'the loaded profile')):'');
     if($('bbpAuto').checked&&bt<=b.readyMax-BBP_DROP_DELTA){
       log('BBP: bean drop detected (BT '+Math.round(bt)+'° from '+Math.round(b.readyMax)+'°)');
       stopBBP('charge',true);
       $('evCharge').click();
-      if($('ppArm').checked&&ppSteps())startPProf();
+      if(bbpMode()==='manual')startManualRoast();
+      else if($('ppArm').checked&&ppSteps())startPProf();
       else{
         if($('etArm').checked&&!etRef)applyEtRef();
         if($('etArm').checked&&etRef)startEtRun();
@@ -2252,7 +2298,7 @@ $('evDrop').addEventListener('click',dropRoast);
 function dropRoast(){                              // end of roast: mark Drop, cut the heater, fan back to its charge speed, save, reset
   if(!chargeMs)return;
   events.drop=(Date.now()-chargeMs)/1000;renderEvents();
-  stopRamp();stopProfile();stopBBP('drop',true);stopEtRun('drop',true);stopPProf('drop',true);
+  stopManRun();stopRamp();stopProfile();stopBBP('drop',true);stopEtRun('drop',true);stopPProf('drop',true);
   if(writeChar){                                   // heater cut needs the link only (never the Enable tick); the fan is a control action
     send('PID,OFF ');pidEngaged=false;setPidPill();
     setTimeout(()=>send('OT1,0'),250);
@@ -3268,7 +3314,10 @@ try{if(localStorage.getItem('rc_fchold'))$('fcHold').checked=true;              
 try{const bc=JSON.parse(localStorage.getItem('rc_batch')||'null');         // restore the roaster's batch range
   if(bc){if(bc.min)$('batchMin').value=bc.min;if(bc.max)$('batchMax').value=bc.max;}}catch(e){}
 try{const bb=JSON.parse(localStorage.getItem('rc_bbp')||'null');           // restore between-batch cool/charge/fan settings
-  if(bb){if(bb.cool)$('bbpCool').value=bb.cool;if(bb.charge)$('bbpCharge').value=bb.charge;if(bb.fan)$('bbpFan').value=bb.fan;}}catch(e){}
+  if(bb){if(bb.cool)$('bbpCool').value=bb.cool;if(bb.charge)$('bbpCharge').value=bb.charge;if(bb.fan)$('bbpFan').value=bb.fan;
+    if(bb.manHeat!=null&&bb.manHeat!=='')$('bbpManHeat').value=bb.manHeat;if(bb.manFan!=null&&bb.manFan!=='')$('bbpManFan').value=bb.manFan;
+    if(bb.mode==='manual')$('bbpModeMan').checked=true;}
+  $('bbpManRow').style.display=bbpMode()==='manual'?'':'none';}catch(e){}
 try{const sk=JSON.parse(localStorage.getItem('rc_soak')||'null');          // restore the charge-soak fixed-power steps
   if(sk){if(sk.p1!==''&&sk.p1!=null)$('soakP1').value=sk.p1;if(sk.t1)$('soakT1').value=sk.t1;
     if(sk.p2!==''&&sk.p2!=null)$('soakP2').value=sk.p2;if(sk.t2)$('soakT2').value=sk.t2;

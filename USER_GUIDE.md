@@ -54,6 +54,7 @@ In the **Between batches / charge** panel:
 - **Charge temp °C** — the drum temperature at which you drop beans in (default 180). Start with the default.
 - **Charge fan %** — fan speed used while heating to charge and at the moment you pour (default 30).
 - Leave **Charge soak** and **Auto-charge** ticked.
+- **At bean drop** — leave **Run the profile** selected for now. The **Manual** option is described in section 6.
 
 **C. Run the cycle**
 
@@ -141,6 +142,8 @@ Select it in the drop-down and press **▶ Run profile**. If you pressed **▶ C
 - **Alert at BT** — beeps when the bean temperature reaches this value. **RoR window** and **RoR smooth** tune how responsive vs. how calm the RoR trace is.
 
 **Control rail** (right of the chart on wide screens, below it on phones) — laid out like the stock app's side column: a **Target temp** tile and a **PID** tile, **Heater −/+** and **Fan −/+** steppers showing the live values, a green **event-tagging** button that tags **DE** then **FC**, and a red **Stop / Drop**. Both steppers move 1 % per tap (the fan row under the chart steps by 5 %). Heater ± takes **manual control**: it switches the PID off and stops any running profile or cycle (you are asked to confirm), then sets the heater directly. Stop is the same as Heater Off / Drop.
+
+**Manual mode** — in the **Between batches / charge** panel, choose **🎛 Manual** under *At bean drop* instead of running a profile. The cycle cools, charges and lights **DROP BEANS NOW** exactly as before. When the beans go in the app marks Charge, starts the timer and batch code, runs the charge soak if it is on, then sets your **opening heater %** and **fan %** with the PID **off** and hands over. From there you drive the roast with the Heater and Fan ± steppers on the Controls rail, tag DE and FC with the green button, and press Stop / Drop to end and save. Your opening values are remembered.
 
 **Live guidance** — a live phase bar, a dotted 60 s projection of where the bean temperature is heading, an FC countdown, and automatic **RoR crash / flick** warnings. If **Between batches** is running, that panel shows a status line and the DROP BEANS light.
 
