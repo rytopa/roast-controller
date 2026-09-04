@@ -214,17 +214,17 @@
       </div>
       <div class="stepper">
         <div class="slabel">Heater<i id="crHeatLed"></i></div>
-        <button id="crHeatM" title="Heater −5% (manual)">−</button><div class="sval" id="crHeat">—</div><button id="crHeatP" title="Heater +5% (manual)">+</button>
+        <button id="crHeatM" title="Heater −1% (manual)">−</button><div class="sval" id="crHeat">—</div><button id="crHeatP" title="Heater +1% (manual)">+</button>
       </div>
       <div class="stepper">
         <div class="slabel">Fan<i id="crFanLed"></i></div>
-        <button id="crFanM" title="Fan −5%">−</button><div class="sval" id="crFan">—</div><button id="crFanP" title="Fan +5%">+</button>
+        <button id="crFanM" title="Fan −1%">−</button><div class="sval" id="crFan">—</div><button id="crFanP" title="Fan +1%">+</button>
       </div>
       <div class="bigrow">
         <button id="crEvent" class="bigbtn green" disabled><b>DE</b><span>Event tagging</span></button>
         <button id="crStop" class="bigbtn stop"><b>Stop</b><span>Drop</span></button>
       </div>
-      <div class="small" style="margin-top:8px">Heater ± takes <b>manual control</b> (PID off, any running profile or cycle stops). Fan ± nudges the fan like the row under the chart. The green button tags the next event (DE, then FC); <b>Stop</b> is Heater Off / Drop.</div>
+      <div class="small" style="margin-top:8px">Heater ± takes <b>manual control</b> (PID off, any running profile or cycle stops). Fan ± nudges the fan 1% at a time (the row under the chart steps by 5). The green button tags the next event (DE, then FC); <b>Stop</b> is Heater Off / Drop.</div>
     </div>
   </div>
 
@@ -804,10 +804,10 @@ function manualHeat(v){
   if(pidEngaged){send('PID,OFF ');pidEngaged=false;curSV=null;$('tSv').textContent='—';setPidPill();setTimeout(go,300);}
   else go();
 }
-$('crHeatM').addEventListener('click',()=>{if(fanCtlOk())manualHeat(curHeat()-5);});
-$('crHeatP').addEventListener('click',()=>{if(fanCtlOk())manualHeat(curHeat()+5);});
-$('crFanM').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()-5);});
-$('crFanP').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()+5);});
+$('crHeatM').addEventListener('click',()=>{if(fanCtlOk())manualHeat(curHeat()-1);});
+$('crHeatP').addEventListener('click',()=>{if(fanCtlOk())manualHeat(curHeat()+1);});
+$('crFanM').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()-1);});
+$('crFanP').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()+1);});
 $('crEvent').addEventListener('click',()=>{if(!chargeMs)return;if(events.dry==null)$('cEvDry').click();else if(events.fc==null)$('cEvFc').click();});
 $('crStop').addEventListener('click',()=>$('cPow0').click());
 // Heater Off / Drop is the stop button — gated on connection only, NOT the Enable-control

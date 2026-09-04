@@ -140,7 +140,7 @@ Select it in the drop-down and press **▶ Run profile**. If you pressed **▶ C
 - **Fan row** — quick ±5 nudges, **Set fan**, **Fan 0**, **Heater Off / Drop**, and the **Enable control** tick.
 - **Alert at BT** — beeps when the bean temperature reaches this value. **RoR window** and **RoR smooth** tune how responsive vs. how calm the RoR trace is.
 
-**Control rail** (right of the chart on wide screens, below it on phones) — laid out like the stock app's side column: a **Target temp** tile and a **PID** tile, **Heater −/+** and **Fan −/+** steppers showing the live values, a green **event-tagging** button that tags **DE** then **FC**, and a red **Stop / Drop**. Fan ± nudges the fan by 5 % like the row under the chart. Heater ± takes **manual control**: it switches the PID off and stops any running profile or cycle (you are asked to confirm), then sets the heater directly. Stop is the same as Heater Off / Drop.
+**Control rail** (right of the chart on wide screens, below it on phones) — laid out like the stock app's side column: a **Target temp** tile and a **PID** tile, **Heater −/+** and **Fan −/+** steppers showing the live values, a green **event-tagging** button that tags **DE** then **FC**, and a red **Stop / Drop**. Both steppers move 1 % per tap (the fan row under the chart steps by 5 %). Heater ± takes **manual control**: it switches the PID off and stops any running profile or cycle (you are asked to confirm), then sets the heater directly. Stop is the same as Heater Off / Drop.
 
 **Live guidance** — a live phase bar, a dotted 60 s projection of where the bean temperature is heading, an FC countdown, and automatic **RoR crash / flick** warnings. If **Between batches** is running, that panel shows a status line and the DROP BEANS light.
 
