@@ -138,7 +138,7 @@ Select it in the drop-down and press **▶ Run profile**. If you pressed **▶ C
 
 - The **Enable control** tick.
 - When you have adjusted the fan by hand during a profile, the **Resume profile fan** and **Resume — shift curve to my fan** buttons appear here.
-- **Alert at BT** — beeps when the bean temperature reaches this value. **RoR window** and **RoR smooth** tune how responsive vs. how calm the RoR trace is.
+- **RoR window** and **RoR smooth** tune how responsive vs. how calm the RoR trace is.
 
 **Control rail** (right of the chart on wide screens, below it on phones) — laid out like the stock app's side column: a **Target temp** tile and a **PID** tile, **Heater −/+** and **Fan −/+** steppers showing the live values, a green **event-tagging** button that tags **DE** then **FC**, and a red **Stop / Drop**. Both steppers move 1 % per tap. This is where you mark events, adjust the fan and end the roast. Heater ± takes **manual control**: it switches the PID off and stops any running profile or cycle (you are asked to confirm), then sets the heater directly. Stop ends the roast: heater off, fan back to the charge speed, roast saved.
 
