@@ -175,6 +175,11 @@
         <span><i style="background:#e6b84d"></i>Σ heat <span class="small">(cumulative)</span></span>
         <span class="small">hover / drag to inspect values · top pane: temps (left axis) + RoR 0–30 °C/min (right axis) · bottom pane: heater &amp; fan %, dashed gold = cumulative heat used · bar = phases · dashed = plan · faded = background roast</span>
       </div>
+      <label class="ck" style="margin:8px 0 0"><input type="checkbox" id="enableControl"><span class="small"><b style="color:var(--warn)">Enable control</b> — commands real heater/fan hardware (Heater / Fan ± and the event buttons are on the Controls rail)</span></label>
+      <!-- Legacy Mark / FC-hold / fan rows: hidden per user request now that the Controls rail
+           covers them. The elements stay in the DOM because the rail and the automation still
+           use them (cEvDry/cEvFc clicks, cFanVal + cPow0, fcHold settings). -->
+      <div style="display:none">
       <div class="row" style="margin-top:8px;gap:6px;align-items:center">
         <span class="small"><b>Mark</b></span>
         <button id="cEvDry">🌾 Dry End</button>
@@ -193,9 +198,8 @@
         <button id="btnCFan" class="blue">Set fan</button>
         <button id="cFan0">Fan 0</button>
         <button id="cPow0" class="danger">Heater Off / Drop</button>
-        <label class="ck" style="margin:0"><input type="checkbox" id="enableControl"><span class="small"><b style="color:var(--warn)">Enable control</b> — commands real heater/fan hardware</span></label>
       </div>
-      <div class="small" style="margin-top:6px">a manual change during a profile roast pauses the automated fan — options to resume appear below</div>
+      </div>
       <div id="fanOvrNote" class="small" style="display:none;color:var(--warn);margin-top:8px">✋ <b>Manual fan override</b> — the automated fan is paused for this roast (temperature control keeps running).
         <button id="fanOvrResume" style="padding:4px 9px;font-size:12px;margin-left:6px">Resume profile fan</button>
         <button id="fanOvrRebase" style="padding:4px 9px;font-size:12px;margin-left:6px">Resume — shift curve to my fan</button></div>
@@ -224,7 +228,7 @@
         <button id="crEvent" class="bigbtn green" disabled><b>DE</b><span>Event tagging</span></button>
         <button id="crStop" class="bigbtn stop"><b>Stop</b><span>Drop</span></button>
       </div>
-      <div class="small" style="margin-top:8px">Heater ± takes <b>manual control</b> (PID off, any running profile or cycle stops). Fan ± nudges the fan 1% at a time (the row under the chart steps by 5). The green button tags the next event (DE, then FC); <b>Stop</b> is Heater Off / Drop.</div>
+      <div class="small" style="margin-top:8px">Heater ± takes <b>manual control</b> (PID off, any running profile or cycle stops). Fan ± nudges the fan 1% at a time (during a profile this pauses the automated fan — resume options appear under the chart). The green button tags the next event (DE, then FC); <b>Stop</b> is Heater Off / Drop.</div>
     </div>
   </div>
 

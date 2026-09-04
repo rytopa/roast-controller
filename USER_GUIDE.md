@@ -2,7 +2,7 @@
 
 A step-by-step walkthrough for your first roasts with the Roast Controller web app and a **Hamid / Matchbox (TC4-class)** roaster. It covers setup, the everyday roasting loop, building profiles, and what to do after the roast. Feature-by-feature reference lives in the [README](README.md); this guide is about *the order you do things in*.
 
-> ⚠️ **Read this first.** The app drives a real heating element. Controls stay locked until you tick **Enable control**. Keep the fan running whenever the heater is on, never leave a roast unattended, and press **Heater Off / Drop** (the red button under the chart) if anything looks wrong — it always works, whatever else is running.
+> ⚠️ **Read this first.** The app drives a real heating element. Controls stay locked until you tick **Enable control**. Keep the fan running whenever the heater is on, never leave a roast unattended, and press **Stop / Drop** (the red button on the Controls rail) if anything looks wrong — it always works, whatever else is running.
 
 ---
 
@@ -28,8 +28,8 @@ A step-by-step walkthrough for your first roasts with the Roast Controller web a
 1. Power the roaster on. Close the vendor app if it is open — only one thing can hold the Bluetooth connection.
 2. Open the app and press **Connect roaster** in the **Connection** panel. A browser dialog lists nearby devices; pick `MATCHBOX` / `MBOX`. If it is not listed, tick **Can't find it by name? List all Bluetooth devices** and try again.
 3. The status pill turns to **connected** and the **Live** tiles start showing **Bean °C**, **ET °C**, **Heater %** and **Fan %**. If the numbers appear, the link is working.
-4. Tick **Enable control** (in the fan row under the chart). Until this is ticked the app only *reads* from the roaster.
-5. Test the fan: type `50` next to **Set fan** and press it. You should hear the roaster's fan change speed and see **Fan %** update. This confirms commands are reaching the machine.
+4. Tick **Enable control** (just under the chart). Until this is ticked the app only *reads* from the roaster.
+5. Test the fan: tap **Fan +** on the **Controls** rail a few times. You should hear the roaster's fan change speed and see the Fan value climb. This confirms commands are reaching the machine.
 
 If the tiles stay at `—` after connecting, open **Connection details / advanced** and follow the troubleshooting notes in section 12.
 
@@ -67,13 +67,13 @@ In the **Between batches / charge** panel:
 **D. During the roast**
 
 - Watch **Bean °C** climb and the **RoR** tile settle. The chart shows the plan as a dashed line and the actual bean temperature as a solid one.
-- Press **🌾 Dry End** when the beans turn from green/yellow to tan (around 150–165 °C bean temp) and **💥 First Crack** when you hear the first pops. These marks drive the phase bar and the development-time percentage.
-- If the beans are not tumbling well, bump the fan with **+5**. This pauses the automated fan; **Resume profile fan** hands it back.
+- Press the green **DE** button on the Controls rail when the beans turn from green/yellow to tan (around 150–165 °C bean temp); it then becomes **FC**, which you press when you hear the first pops. These marks drive the phase bar and the development-time percentage.
+- If the beans are not tumbling well, bump the fan with **Fan +** on the rail. This pauses the automated fan; **Resume profile fan** under the chart hands it back.
 
 **E. Drop**
 
-1. When the beans reach the colour you want, press **Heater Off / Drop**. The heater goes to 0, the fan returns to the charge speed, the roast is stamped with a 3-character **batch code** (e.g. `#K7Q`) and is **saved automatically**. Write the code on the bag.
-2. If you let the profile run to its last point instead, the heater switches off by itself and an alert sounds — you still press **Heater Off / Drop** to end and save the roast.
+1. When the beans reach the colour you want, press **Stop / Drop** on the Controls rail. The heater goes to 0, the fan returns to the charge speed, the roast is stamped with a 3-character **batch code** (e.g. `#K7Q`) and is **saved automatically**. Write the code on the bag.
+2. If you let the profile run to its last point instead, the heater switches off by itself and an alert sounds — you still press **Stop / Drop** to end and save the roast.
 3. The saved roast appears at the top of the saved-roasts list in the **Data** panel, named by its batch code, time and bean. Type tasting notes there whenever you like.
 4. Tip the beans out to cool and let the machine idle with the fan on before the next batch.
 
@@ -86,7 +86,7 @@ That is the whole loop. The next batch starts again at step C.
 ```
 Connect → Enable control → pick profile → Start between-batch cycle
    → DROP BEANS NOW → (auto-charge) → mark Dry End / First Crack
-   → Heater Off / Drop → notes / star → next batch
+   → Stop / Drop → notes / star → next batch
 ```
 
 Between batches the app does the cooling and re-heating for you, so the rhythm is: *tip out, note, press Start cycle, wait for the light, pour*.
@@ -136,12 +136,11 @@ Select it in the drop-down and press **▶ Run profile**. If you pressed **▶ C
 
 **Under the chart**
 
-- **Mark** buttons for Dry End and First Crack.
-- **⚡ Hold power at FC** — when you mark First Crack, freezes the heater at its recent average and pauses the automated fan for a set number of seconds, then returns to the PID. Useful to ride through the first-crack crash. Off by default.
-- **Fan row** — quick ±5 nudges, **Set fan**, **Fan 0**, **Heater Off / Drop**, and the **Enable control** tick.
+- The **Enable control** tick.
+- When you have adjusted the fan by hand during a profile, the **Resume profile fan** and **Resume — shift curve to my fan** buttons appear here.
 - **Alert at BT** — beeps when the bean temperature reaches this value. **RoR window** and **RoR smooth** tune how responsive vs. how calm the RoR trace is.
 
-**Control rail** (right of the chart on wide screens, below it on phones) — laid out like the stock app's side column: a **Target temp** tile and a **PID** tile, **Heater −/+** and **Fan −/+** steppers showing the live values, a green **event-tagging** button that tags **DE** then **FC**, and a red **Stop / Drop**. Both steppers move 1 % per tap (the fan row under the chart steps by 5 %). Heater ± takes **manual control**: it switches the PID off and stops any running profile or cycle (you are asked to confirm), then sets the heater directly. Stop is the same as Heater Off / Drop.
+**Control rail** (right of the chart on wide screens, below it on phones) — laid out like the stock app's side column: a **Target temp** tile and a **PID** tile, **Heater −/+** and **Fan −/+** steppers showing the live values, a green **event-tagging** button that tags **DE** then **FC**, and a red **Stop / Drop**. Both steppers move 1 % per tap. This is where you mark events, adjust the fan and end the roast. Heater ± takes **manual control**: it switches the PID off and stops any running profile or cycle (you are asked to confirm), then sets the heater directly. Stop ends the roast: heater off, fan back to the charge speed, roast saved.
 
 **Manual mode** — in the **Between batches / charge** panel, choose **🎛 Manual** under *At bean drop* instead of running a profile. The cycle cools, charges and lights **DROP BEANS NOW** exactly as before. When the beans go in the app marks Charge, starts the timer and batch code, runs the charge soak if it is on, then sets your **opening heater %** and **fan %** with the PID **off** and hands over. From there you drive the roast with the Heater and Fan ± steppers on the Controls rail, tag DE and FC with the green button, and press Stop / Drop to end and save. Your opening values are remembered.
 
@@ -170,7 +169,7 @@ Optional, but it makes batch planning and weight tracking automatic.
 1. In **Green coffee inventory** press **+ Add bean** and enter the name, origin, available weight, and notes. Or press **📷 Photo label (OCR)** and photograph the bag's spec label — on-device text recognition (English and Chinese) fills the fields for you to check.
 2. Set your roaster's **Batch size** range (e.g. 100–200 g). Each bean card then shows a suggested even split (e.g. *5 × 170 g*) so you do not end up with an awkward leftover. **⚖️ Batch planner** does the same for any weight you type in.
 3. When starting a roast, pick the bean and the green weight in the dialog that opens from **Start between-batch cycle**.
-4. At **Heater Off / Drop** the batch's green weight is deducted from stock. Out-of-stock beans are flagged in the list.
+4. At **Stop / Drop** the batch's green weight is deducted from stock. Out-of-stock beans are flagged in the list.
 
 **AI label reading (optional)** — inside **🤖 AI label reading**, you can point the photo reader at Claude or Gemini for much better results on messy or multi-language labels. Paste **your own** API key (stored in this browser only and never synced), or set a **Proxy Worker URL** so the key never lives on the device. The photo is sent to your own account and billed to you. Leave both fields empty to keep using on-device OCR.
 
@@ -188,7 +187,7 @@ The sync code is the password: anyone with it can read and write your data, so k
 
 ## 10. Advanced mode (experienced users only)
 
-Ticking **Advanced mode** (below the Profile designer) reveals two open-loop tools that drive the heater **directly in manual mode**. Stay at the machine while they run; **Heater Off / Drop** still works.
+Ticking **Advanced mode** (below the Profile designer) reveals two open-loop tools that drive the heater **directly in manual mode**. Stay at the machine while they run; **Stop / Drop** on the Controls rail still works.
 
 - **ET-track roast** — replays a saved roast by its *exhaust* temperature, using the reference's recorded heater % as feedforward with trim on the ET error, and replays its fan curve. The run ends when the bean temperature reaches the **Drop at BT** you set. Arm it for auto-charge to use it in the between-batch flow instead of a profile.
 - **Power profile** — distils a saved roast's heater curve into a fixed schedule of power steps (`time heater% [fan%]`, one per line) and runs it with zero mid-roast adjustments. Set **Drop at BT** as a safety net.
@@ -203,7 +202,7 @@ Both are experimental. Do a few normal profile roasts first so you know how your
 - **Enable control** is per session — it resets when you reload, which is intentional.
 - Stay with the machine. Alarms and warnings are aids, not supervision.
 - Losing the Bluetooth link stops every automated run and the app shows **disconnected** — but the roaster's own state persists. If a roast is in progress when the link drops, reconnect immediately or turn the roaster's heater off at the machine.
-- If in doubt: **Heater Off / Drop**.
+- If in doubt: **Stop / Drop** on the Controls rail.
 
 ---
 
