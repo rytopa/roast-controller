@@ -42,6 +42,7 @@
   textarea{resize:vertical;min-height:52px;font-size:13px;line-height:1.35}
   label.ck{display:flex;gap:9px;align-items:flex-start;font-size:13.5px;color:var(--dim);cursor:pointer}
   input[type=checkbox]{width:20px;height:20px;margin-top:1px;accent-color:var(--bt);flex:none}
+  input[type=radio]{width:18px;height:18px;margin-top:2px;accent-color:var(--bt);flex:none}
   .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:7px}
   @media(max-width:620px){.tiles{grid-template-columns:repeat(3,1fr)}}
@@ -234,6 +235,21 @@
 
   <div class="panel">
     <h2>Between batches / charge</h2>
+    <button id="bbpStart" class="blue" style="width:100%">🔄 Start between-batch cycle</button>
+    <div id="bbpStatus" class="small" style="margin-top:7px">Cools the machine (fan 100%, heater off) to the cool-to temp, then ramps gradually to your charge temp over <b>1 min</b> at the charge fan speed, holds it <b>30 s</b>, and lights up when it's time to drop the beans.</div>
+    <div id="bbpLight" class="droplight" style="display:none">⬇ DROP BEANS NOW</div>
+    <hr style="margin:10px 0">
+    <div class="row" style="margin-bottom:6px;align-items:center;gap:12px">
+      <span class="small"><b>At bean drop</b></span>
+      <label class="ck" style="margin:0"><input type="radio" name="bbpMode" id="bbpModeProf" value="profile" checked><span><b>📈 Run the profile</b> (or an armed replay)</span></label>
+      <label class="ck" style="margin:0"><input type="radio" name="bbpMode" id="bbpModeMan" value="manual"><span><b>🎛 Manual</b> — hand control from the Controls rail</span></label>
+    </div>
+    <div id="bbpManRow" class="row" style="display:none;align-items:center;margin-bottom:8px">
+      <span class="small">Opening heater</span><input id="bbpManHeat" type="number" min="0" max="100" value="60" style="width:66px"><span class="small">% · fan</span>
+      <input id="bbpManFan" type="number" min="0" max="100" value="60" style="width:66px"><span class="small">% — set at Charge (after the charge soak if it is on), PID stays <b>off</b>; from there you drive Heater / Fan ± yourself. Stop / Drop ends and saves the roast as usual.</span>
+    </div>
+    <div id="bbpPreview" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 11px;margin-bottom:8px"></div>
+    <hr style="margin:10px 0">
     <div class="row" style="margin-bottom:8px">
       <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Cool to °C</div><input id="bbpCool" type="number" min="40" max="150" value="100"></div>
       <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge temp °C</div><input id="bbpCharge" type="number" min="120" max="240" value="180"></div>
@@ -249,19 +265,6 @@
     </div>
     <div class="small" style="margin-bottom:8px">Fixed heater power right after <b>Charge</b> (open loop, PID off) — then the control loop takes over. Applies to profile runs <b>and ET-track runs</b> started at charge. <b>Untick to skip the soak</b> — the control loop then engages on the curve from the first second after charge. Saved in this browser. ⚡ Charging and the between-batch cycle are <b>hard-capped at 85% power</b> — above that the app pauses the PID and holds 85% until the temperature is nearly there.</div>
     <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="bbpAuto" checked><span><b>Auto-charge</b> — when the beans drop (BT plunges), mark Charge and start the profile loaded in the designer automatically. <b>No need to press ▶ Run profile</b> — the whole roast runs from this one button.</span></label>
-    <div class="row" style="margin-bottom:6px;align-items:center;gap:12px">
-      <span class="small"><b>At bean drop</b></span>
-      <label class="ck" style="margin:0"><input type="radio" name="bbpMode" id="bbpModeProf" value="profile" checked><span><b>📈 Run the profile</b> (or an armed replay)</span></label>
-      <label class="ck" style="margin:0"><input type="radio" name="bbpMode" id="bbpModeMan" value="manual"><span><b>🎛 Manual</b> — hand control from the Controls rail</span></label>
-    </div>
-    <div id="bbpManRow" class="row" style="display:none;align-items:center;margin-bottom:8px">
-      <span class="small">Opening heater</span><input id="bbpManHeat" type="number" min="0" max="100" value="60" style="width:66px"><span class="small">% · fan</span>
-      <input id="bbpManFan" type="number" min="0" max="100" value="60" style="width:66px"><span class="small">% — set at Charge (after the charge soak if it is on), PID stays <b>off</b>; from there you drive Heater / Fan ± yourself. Stop / Drop ends and saves the roast as usual.</span>
-    </div>
-    <div id="bbpPreview" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 11px;margin-bottom:8px"></div>
-    <button id="bbpStart" class="blue" style="width:100%">🔄 Start between-batch cycle</button>
-    <div id="bbpStatus" class="small" style="margin-top:7px">Cools the machine (fan 100%, heater off) to the cool-to temp, then ramps gradually to your charge temp over <b>1 min</b> at the charge fan speed, holds it <b>30 s</b>, and lights up when it's time to drop the beans.</div>
-    <div id="bbpLight" class="droplight" style="display:none">⬇ DROP BEANS NOW</div>
   </div>
 
   <div class="panel">
