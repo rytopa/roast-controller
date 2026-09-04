@@ -1890,7 +1890,7 @@ function saveBbpCfg(){try{localStorage.setItem('rc_bbp',JSON.stringify({cool:$('
 // ---- Manual mode: at bean drop the app marks Charge, sets an opening heater/fan and hands over ----
 function bbpMode(){return $('bbpModeMan').checked?'manual':'profile';}
 function bbpManOpen(){return{heat:clampPct($('bbpManHeat').value),fan:clampPct($('bbpManFan').value)};}
-function bbpModeUI(){$('bbpManRow').style.display=bbpMode()==='manual'?'':'none';bbpPreviewDraw();saveBbpCfg();}
+function bbpModeUI(){$('bbpManRow').style.display=bbpMode()==='manual'?'':'none';bbpPreviewDraw();saveBbpCfg();drawChart();}
 ['bbpModeProf','bbpModeMan'].forEach(id=>$(id).addEventListener('change',bbpModeUI));
 let manRun=null;                                          // only alive while the charge soak runs before the hand-over
 function stopManRun(){if(manRun){clearInterval(manRun.tid);manRun=null;}}
@@ -2392,7 +2392,7 @@ function drawChart(){
   const pw=W-pL-pR;
   // ---- time domain ----
   const yMax=260;let tMax=Math.max(300,samples.length?samples[samples.length-1].t:0);
-  const planPts=profile?profile.points:getPoints();
+  const planPts=profile?profile.points:(bbpMode()==='manual'?[]:getPoints());   // manual mode: no designer plan on the chart (a profile actually running still shows)
   const planStart=profile?profile.startT:(chargeMs&&connectMs?(chargeMs-connectMs)/1000:0);
   if(planPts.length>=2)tMax=Math.max(tMax,planStart+planPts[planPts.length-1].t);
   if(chargeMs&&events.drop==null&&samples.length)tMax=Math.max(tMax,samples[samples.length-1].t+70);
