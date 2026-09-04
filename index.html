@@ -626,7 +626,8 @@ function noteStartFan(v){if(chargeMs&&Date.now()-chargeMs<20000&&v!=null&&!Numbe
 const samples=[];          // {t,bt,et,heat,fan,sv,raw}
 const btHist=[];           // {ms,bt} for RoR
 const events={charge:null,dry:null,fc:null,drop:null};
-const liveCross={de:null,fc:null};                 // BT crossings of the DE/FC temps this roast
+const liveCross={de:null,fc:null};
+const AUTO_DE_BT=180;                             // manual mode: BT at which an untagged Dry End is tagged automatically (at the DE-temp crossing)                 // BT crossings of the DE/FC temps this roast
 const liveTP={min:null,t:null,armed:false};        // post-charge turning point: don't trust the hot-probe reading until BT bottoms out; t = elapsed s of the BT minimum
 const alarms={temp:false};
 let bg=null,bgIdx=0;                               // background roast overlay
@@ -1890,7 +1891,7 @@ function saveBbpCfg(){try{localStorage.setItem('rc_bbp',JSON.stringify({cool:$('
 // ---- Manual mode: at bean drop the app marks Charge, sets an opening heater/fan and hands over ----
 function bbpMode(){return $('bbpModeMan').checked?'manual':'profile';}
 function bbpManOpen(){return{heat:clampPct($('bbpManHeat').value),fan:clampPct($('bbpManFan').value)};}
-function bbpModeUI(){$('bbpManRow').style.display=bbpMode()==='manual'?'':'none';bbpPreviewDraw();saveBbpCfg();}
+function bbpModeUI(){$('bbpManRow').style.display=bbpMode()==='manual'?'':'none';bbpPreviewDraw();saveBbpCfg();drawChart();}
 ['bbpModeProf','bbpModeMan'].forEach(id=>$(id).addEventListener('change',bbpModeUI));
 let manRun=null;                                          // only alive while the charge soak runs before the hand-over
 function stopManRun(){if(manRun){clearInterval(manRun.tid);manRun=null;}}
@@ -2079,6 +2080,10 @@ function liveTrack(bt,ror){
   if(liveTP.armed){
     if(liveCross.de==null&&bt>=deT)liveCross.de=e;
     if(liveCross.fc==null&&bt>=fcT)liveCross.fc=e;
+    if(bbpMode()==='manual'&&events.dry==null&&events.drop==null&&bt>=AUTO_DE_BT){   // manual mode only — DE never tagged by hand: stamp it at the DE-temp crossing
+      events.dry=liveCross.de!=null?liveCross.de:e;
+      renderEvents();drawChart();
+      log('🌾 Dry End auto-tagged at '+fmt(events.dry)+' (BT reached '+AUTO_DE_BT+'° with no DE mark — placed at the '+deT+'° crossing)');}
   }
   updateLiveBar();
   if(bg){const b=bgBtAt(e);
@@ -2392,7 +2397,7 @@ function drawChart(){
   const pw=W-pL-pR;
   // ---- time domain ----
   const yMax=260;let tMax=Math.max(300,samples.length?samples[samples.length-1].t:0);
-  const planPts=profile?profile.points:getPoints();
+  const planPts=profile?profile.points:(bbpMode()==='manual'?[]:getPoints());   // manual mode: no designer plan on the chart (a profile actually running still shows)
   const planStart=profile?profile.startT:(chargeMs&&connectMs?(chargeMs-connectMs)/1000:0);
   if(planPts.length>=2)tMax=Math.max(tMax,planStart+planPts[planPts.length-1].t);
   if(chargeMs&&events.drop==null&&samples.length)tMax=Math.max(tMax,samples[samples.length-1].t+70);
