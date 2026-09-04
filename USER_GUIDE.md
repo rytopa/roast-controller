@@ -30,7 +30,6 @@ A step-by-step walkthrough for your first roasts with the Roast Controller web a
 3. The status pill turns to **connected** and the **Live** tiles start showing **Bean °C**, **ET °C**, **Heater %** and **Fan %**. If the numbers appear, the link is working.
 4. Tick **Enable control** (in the fan row under the chart). Until this is ticked the app only *reads* from the roaster.
 5. Test the fan: type `50` next to **Set fan** and press it. You should hear the roaster's fan change speed and see **Fan %** update. This confirms commands are reaching the machine.
-6. Optional but useful: in the **Roast session** panel enter your heater's **Heater rating** in watts (e.g. 1500). This enables the energy (kWh) estimate on every roast summary.
 
 If the tiles stay at `—` after connecting, open **Connection details / advanced** and follow the troubleshooting notes in section 12.
 
@@ -58,7 +57,7 @@ In the **Between batches / charge** panel:
 
 **C. Run the cycle**
 
-1. Press **🔄 Start between-batch cycle**. A small dialog asks for the **bean** (pick one from inventory, or leave it untracked) and the **green weight** (150 g, 100 g, or a custom figure). Press **▶ Start cycle**.
+1. Press **🔄 Start between-batch cycle**. A small dialog asks for the **bean** (pick one from inventory, or leave it untracked) and the **green weight** (150 g, 100 g, or a custom figure). Both are stored with the roast, and the green weight is taken out of that bean's stock at Drop. Press **▶ Start cycle**.
 2. The app fans the machine down to the cool-to temperature, then ramps to the charge temperature over about a minute and holds it for 30 s.
 3. When the drum is stable the panel flashes **⬇ DROP BEANS NOW** and the device beeps/vibrates. Pour the beans in.
 4. With **Auto-charge** on, the app sees the bean-probe plunge, marks **Charge**, starts the timer, and begins the profile. You do not need to press **▶ Run profile**.
@@ -74,9 +73,8 @@ In the **Between batches / charge** panel:
 
 1. When the beans reach the colour you want, press **Heater Off / Drop**. The heater goes to 0, the fan returns to the charge speed, the roast is stamped with a 3-character **batch code** (e.g. `#K7Q`) and is **saved automatically**. Write the code on the bag.
 2. If you let the profile run to its last point instead, the heater switches off by itself and an alert sounds — you still press **Heater Off / Drop** to end and save the roast.
-3. A **roast summary card** appears in the Roast session panel: phase times and percentages, drop and peak temperatures, average heater %, and energy used.
-4. Weigh the roasted beans and type the figure into **Roasted g**. Weight-loss % is calculated and stored with the roast, even if you enter it later.
-5. Tip the beans out to cool and let the machine idle with the fan on before the next batch.
+3. The saved roast appears at the top of the saved-roasts list in the **Data** panel, named by its batch code, time and bean. Type tasting notes there whenever you like.
+4. Tip the beans out to cool and let the machine idle with the fan on before the next batch.
 
 That is the whole loop. The next batch starts again at step C.
 
@@ -87,10 +85,10 @@ That is the whole loop. The next batch starts again at step C.
 ```
 Connect → Enable control → pick profile → Start between-batch cycle
    → DROP BEANS NOW → (auto-charge) → mark Dry End / First Crack
-   → Heater Off / Drop → enter roasted weight → notes / star → next batch
+   → Heater Off / Drop → notes / star → next batch
 ```
 
-Between batches the app does the cooling and re-heating for you, so the rhythm is: *tip out, weigh, note, press Start cycle, wait for the light, pour*.
+Between batches the app does the cooling and re-heating for you, so the rhythm is: *tip out, note, press Start cycle, wait for the light, pour*.
 
 ---
 
@@ -137,7 +135,7 @@ Select it in the drop-down and press **▶ Run profile**. If you pressed **▶ C
 
 **Under the chart**
 
-- **Mark** buttons for Dry End and First Crack (the same as those in the Roast session panel).
+- **Mark** buttons for Dry End and First Crack.
 - **⚡ Hold power at FC** — when you mark First Crack, freezes the heater at its recent average and pauses the automated fan for a set number of seconds, then returns to the PID. Useful to ride through the first-crack crash. Off by default.
 - **Fan row** — quick ±5 nudges, **Set fan**, **Fan 0**, **Heater Off / Drop**, and the **Enable control** tick.
 - **Alert at BT** — beeps when the bean temperature reaches this value. **RoR window** and **RoR smooth** tune how responsive vs. how calm the RoR trace is.
@@ -156,7 +154,7 @@ Everything in the **Data** panel.
 - **Roast notes** follows the current roast — the one roasting, just dropped, or loaded from the list — and saves as you type. **☆ Star** marks an excellent roast so it stands out in the list.
 - **Download CSV** exports the current chart's samples (time, bean and exhaust temperatures, heater, fan, target, events) with the roast details in a header, for Excel or Artisan.
 - **Overlay as background** ghosts a saved roast onto the chart, aligned at Charge, and shows a live **BT delta vs background** readout so you can roast to match it. **✕ clear BG** removes it.
-- The **Roast session** panel keeps bean details and green/roasted weights with the roast, and shows the summary card.
+- The bean and green weight you chose in the Start cycle dialog are stored with each roast and shown in its list entry.
 
 ---
 
@@ -166,8 +164,8 @@ Optional, but it makes batch planning and weight tracking automatic.
 
 1. In **Green coffee inventory** press **+ Add bean** and enter the name, origin, available weight, and notes. Or press **📷 Photo label (OCR)** and photograph the bag's spec label — on-device text recognition (English and Chinese) fills the fields for you to check.
 2. Set your roaster's **Batch size** range (e.g. 100–200 g). Each bean card then shows a suggested even split (e.g. *5 × 170 g*) so you do not end up with an awkward leftover. **⚖️ Batch planner** does the same for any weight you type in.
-3. When starting a roast, pick the bean in the **Roast session** panel (or in the dialog that opens from **Start between-batch cycle**). The **Use N g** button loads one balanced batch into **Green g**.
-4. At **Heater Off / Drop** the batch's green weight is deducted from stock. Correcting the weight afterwards adjusts the stock; switching the bean moves it. Out-of-stock beans are flagged.
+3. When starting a roast, pick the bean and the green weight in the dialog that opens from **Start between-batch cycle**.
+4. At **Heater Off / Drop** the batch's green weight is deducted from stock. Out-of-stock beans are flagged in the list.
 
 **AI label reading (optional)** — inside **🤖 AI label reading**, you can point the photo reader at Claude or Gemini for much better results on messy or multi-language labels. Paste **your own** API key (stored in this browser only and never synced), or set a **Proxy Worker URL** so the key never lives on the device. The photo is sent to your own account and billed to you. Leave both fields empty to keep using on-device OCR.
 
@@ -213,11 +211,10 @@ Both are experimental. Do a few normal profile roasts first so you know how your
 | Connected but tiles show `—` | Open **Connection details / advanced**. If the Notify/Write fields are `—`, the service was not found: use the free **nRF Connect** app to read the roaster's Service UUID and paste it into the custom Service UUID box, then reconnect. |
 | Buttons do nothing | **Enable control** is not ticked, or the roaster is disconnected. |
 | Heater will not fire | The fan is at 0. Set a fan speed first. |
-| Auto-charge did not trigger | The bean-probe drop was too small or slow (small batch, low charge temp). Press **▶ Charge** by hand and then **▶ Run profile**. |
+| Auto-charge did not trigger | The bean-probe drop was too small or slow (small batch, low charge temp). Press **▶ Run profile** to start the curve now; next time use a larger batch or a higher charge temperature so the plunge is clearer. |
 | RoR trace is jagged | Increase **RoR smooth** or lengthen **RoR window** under the chart. |
 | Profile started but the fan stayed put | No fan values in the profile and Auto fan off — control the fan by hand, or tick **Auto fan** and re-run. |
 | My saved data is gone | Data is stored per browser and per site URL. Check you are on the same URL and browser, or set up Cloud sync. Clearing site data deletes it. |
-| Weight-loss % is blank | Enter both **Green g** and **Roasted g** in the Roast session panel. |
 | I want °F | Not supported yet; the app works in °C throughout. |
 
 Still stuck? Open the **Raw fields & log** section at the bottom of the Data panel — it shows the raw telemetry frames and a log of every command sent, which is the first thing to include when asking for help.

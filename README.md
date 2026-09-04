@@ -6,7 +6,7 @@ It talks to the roaster over the open **TC4 / Artisan "Matchbox" serial protocol
 
 > ⚠️ **Safety:** This drives a real heating element. Controls are locked until you explicitly enable them. Keep the fan running, never leave a roast unattended, and use **HEATER OFF / DROP** if anything looks wrong. Use at your own risk.
 
-**New here?** Start with the **[User guide](USER_GUIDE.md)** — a step-by-step walkthrough of setup, your first roast, and the everyday roasting loop.
+**New here?** Start with the **[User guide](USER_GUIDE.md)** — a step-by-step walkthrough of setup, your first roast, and the everyday roasting loop — or the illustrated **[User manual (PDF)](USER_MANUAL.pdf)** with screenshots of every panel.
 
 ## Features
 
