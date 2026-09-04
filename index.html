@@ -626,7 +626,8 @@ function noteStartFan(v){if(chargeMs&&Date.now()-chargeMs<20000&&v!=null&&!Numbe
 const samples=[];          // {t,bt,et,heat,fan,sv,raw}
 const btHist=[];           // {ms,bt} for RoR
 const events={charge:null,dry:null,fc:null,drop:null};
-const liveCross={de:null,fc:null};                 // BT crossings of the DE/FC temps this roast
+const liveCross={de:null,fc:null};
+const AUTO_DE_BT=180;                             // BT at which an untagged Dry End is tagged automatically (at the DE-temp crossing)                 // BT crossings of the DE/FC temps this roast
 const liveTP={min:null,t:null,armed:false};        // post-charge turning point: don't trust the hot-probe reading until BT bottoms out; t = elapsed s of the BT minimum
 const alarms={temp:false};
 let bg=null,bgIdx=0;                               // background roast overlay
@@ -2079,6 +2080,10 @@ function liveTrack(bt,ror){
   if(liveTP.armed){
     if(liveCross.de==null&&bt>=deT)liveCross.de=e;
     if(liveCross.fc==null&&bt>=fcT)liveCross.fc=e;
+    if(events.dry==null&&events.drop==null&&bt>=AUTO_DE_BT){   // DE never tagged by hand: stamp it at the DE-temp crossing
+      events.dry=liveCross.de!=null?liveCross.de:e;
+      renderEvents();drawChart();
+      log('🌾 Dry End auto-tagged at '+fmt(events.dry)+' (BT reached '+AUTO_DE_BT+'° with no DE mark — placed at the '+deT+'° crossing)');}
   }
   updateLiveBar();
   if(bg){const b=bgBtAt(e);

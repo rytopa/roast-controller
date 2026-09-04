@@ -68,6 +68,7 @@ In the **Between batches / charge** panel:
 
 - Watch **Bean °C** climb and the **RoR** tile settle. The chart shows the plan as a dashed line and the actual bean temperature as a solid one.
 - Press the green **DE** button on the Controls rail when the beans turn from green/yellow to tan (around 150–165 °C bean temp); it then becomes **FC**, which you press when you hear the first pops. These marks drive the phase bar and the development-time percentage.
+- Forgot to tag DE? When the bean temperature reaches 180 °C with no Dry End mark, the app tags it for you at the moment BT crossed the DE temperature (160 °C by default) and the button moves on to FC.
 - If the beans are not tumbling well, bump the fan with **Fan +** on the rail. This pauses the automated fan; **Resume profile fan** under the chart hands it back.
 
 **E. Drop**
