@@ -68,7 +68,6 @@ In the **Between batches / charge** panel:
 
 - Watch **Bean °C** climb and the **RoR** tile settle. The chart shows the plan as a dashed line and the actual bean temperature as a solid one.
 - Press the green **DE** button on the Controls rail when the beans turn from green/yellow to tan (around 150–165 °C bean temp); it then becomes **FC**, which you press when you hear the first pops. These marks drive the phase bar and the development-time percentage.
-- Forgot to tag DE? When the bean temperature reaches 180 °C with no Dry End mark, the app tags it for you at the moment BT crossed the DE temperature (160 °C by default) and the button moves on to FC.
 - If the beans are not tumbling well, bump the fan with **Fan +** on the rail. This pauses the automated fan; **Resume profile fan** under the chart hands it back.
 
 **E. Drop**
@@ -143,7 +142,7 @@ Select it in the drop-down and press **▶ Run profile**. If you pressed **▶ C
 
 **Control rail** (right of the chart on wide screens, below it on phones) — laid out like the stock app's side column: a **Target temp** tile and a **PID** tile, **Heater −/+** and **Fan −/+** steppers showing the live values, a green **event-tagging** button that tags **DE** then **FC**, and a red **Stop / Drop**. Both steppers move 1 % per tap. This is where you mark events, adjust the fan and end the roast. Heater ± takes **manual control**: it switches the PID off and stops any running profile or cycle (you are asked to confirm), then sets the heater directly. Stop ends the roast: heater off, fan back to the charge speed, roast saved.
 
-**Manual mode** — in the **Between batches / charge** panel, choose **🎛 Manual** under *At bean drop* instead of running a profile. The cycle cools, charges and lights **DROP BEANS NOW** exactly as before. When the beans go in the app marks Charge, starts the timer and batch code, runs the charge soak if it is on, then sets your **opening heater %** and **fan %** with the PID **off** and hands over. From there you drive the roast with the Heater and Fan ± steppers on the Controls rail, tag DE and FC with the green button, and press Stop / Drop to end and save. Your opening values are remembered.
+**Manual mode** — in the **Between batches / charge** panel, choose **🎛 Manual** under *At bean drop* instead of running a profile. The cycle cools, charges and lights **DROP BEANS NOW** exactly as before. When the beans go in the app marks Charge, starts the timer and batch code, runs the charge soak if it is on, then sets your **opening heater %** and **fan %** with the PID **off** and hands over. From there you drive the roast with the Heater and Fan ± steppers on the Controls rail, tag DE and FC with the green button, and press Stop / Drop to end and save. Forgot to tag DE? In Manual mode, when the bean temperature reaches 180 °C with no Dry End mark, the app tags it for you at the moment BT crossed the DE temperature (160 °C by default) and the button moves on to FC. Your opening values are remembered.
 
 **Live guidance** — a live phase bar, a dotted 60 s projection of where the bean temperature is heading, an FC countdown, and automatic **RoR crash / flick** warnings. If **Between batches** is running, that panel shows a status line and the DROP BEANS light.
 
