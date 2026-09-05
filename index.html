@@ -70,6 +70,7 @@
   .stepper .slabel i{display:block;width:16px;height:5px;border-radius:3px;background:var(--line);margin-top:5px}
   .stepper .slabel i.on{background:var(--ok)}
   .stepper button{padding:0;font-size:24px;font-weight:700;border-radius:11px;min-height:56px}
+  .stepper button.slabel{font-size:14px;padding:0;min-height:56px;line-height:1.1}   /* the label tile is itself the OFF button */
   .stepper .sval{background:var(--panel2);border:1px solid var(--line);border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;font-variant-numeric:tabular-nums;min-width:0;overflow:hidden}
   .bigrow{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
   .bigbtn{padding:12px 6px;border-radius:14px;display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1.1;min-height:74px;justify-content:center}
@@ -218,18 +219,18 @@
         <div class="ctile"><div class="v" id="crPid">OFF</div><div class="u">PID</div></div>
       </div>
       <div class="stepper">
-        <div class="slabel">Heater<i id="crHeatLed"></i></div>
+        <button class="slabel" id="crHeatOff" title="Heater OFF (manual control)">Heater<i id="crHeatLed"></i></button>
         <button id="crHeatM" title="Heater −1% (manual)">−</button><div class="sval" id="crHeat">—</div><button id="crHeatP" title="Heater +1% (manual)">+</button>
       </div>
       <div class="stepper">
-        <div class="slabel">Fan<i id="crFanLed"></i></div>
+        <button class="slabel" id="crFanOff" title="Fan OFF">Fan<i id="crFanLed"></i></button>
         <button id="crFanM" title="Fan −1%">−</button><div class="sval" id="crFan">—</div><button id="crFanP" title="Fan +1%">+</button>
       </div>
       <div class="bigrow">
         <button id="crEvent" class="bigbtn green" disabled><b>DE</b><span>Event tagging</span></button>
         <button id="crStop" class="bigbtn stop"><b>Stop</b><span>Drop</span></button>
       </div>
-      <div class="small" style="margin-top:8px">Heater ± takes <b>manual control</b> (PID off, any running profile or cycle stops). Fan ± nudges the fan 1% at a time (during a profile this pauses the automated fan — resume options appear under the chart). The green button tags the next event (DE, then FC); <b>Stop</b> is Heater Off / Drop.</div>
+      <div class="small" style="margin-top:8px">Heater ± takes <b>manual control</b> (PID off, any running profile or cycle stops). Fan ± nudges the fan 1% at a time; tap the <b>Heater</b> or <b>Fan</b> tile itself to switch that output <b>OFF</b> (during a profile this pauses the automated fan — resume options appear under the chart). The green button tags the next event (DE, then FC); <b>Stop</b> is Heater Off / Drop.</div>
     </div>
   </div>
 
@@ -808,7 +809,9 @@ function crRefresh(){
   $('crHeat').textContent=heat==null?'—':heat;$('crFan').textContent=fan==null?'—':fan;
   $('crHeatLed').className=heat>0?'on':'';$('crFanLed').className=fan>0?'on':'';
   const b=$('crEvent'),bb=b.querySelector('b'),bs=b.querySelector('span');
-  if(!chargeMs||events.drop!=null){bb.textContent='DE';bs.textContent='Event tagging';b.disabled=true;}
+  const d=devSinceFc();                          // FC marked: count development up from 0 (live), holding the final value once dropped
+  if(d){bb.textContent='+'+fmt(d.dev);bs.textContent='Dev '+d.pct.toFixed(1)+'% · FC '+fmt(events.fc);b.disabled=true;}
+  else if(!chargeMs||events.drop!=null){bb.textContent='DE';bs.textContent='Event tagging';b.disabled=true;}
   else if(events.dry==null){bb.textContent='DE';bs.textContent='Tag Dry End';b.disabled=false;}
   else if(events.fc==null){bb.textContent='FC';bs.textContent='Tag First Crack';b.disabled=false;}
   else{bb.textContent='✓';bs.textContent='DE · FC tagged';b.disabled=true;}
@@ -828,6 +831,12 @@ $('crHeatM').addEventListener('click',()=>{if(fanCtlOk())manualHeat(curHeat()-1)
 $('crHeatP').addEventListener('click',()=>{if(fanCtlOk())manualHeat(curHeat()+1);});
 $('crFanM').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()-1);});
 $('crFanP').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()+1);});
+// The Heater / Fan label tiles are OFF buttons: Heater = manual heater 0 % (same path as Heater ±);
+// Fan = fan 0 %, with a confirmation while the heater is still delivering power.
+$('crHeatOff').addEventListener('click',()=>{if(fanCtlOk())manualHeat(0);});
+$('crFanOff').addEventListener('click',()=>{if(!fanCtlOk())return;
+  const h=curHeat();if(h>0&&!confirm('The heater is at '+h+'% — switch the fan OFF anyway? (Airflow carries the heat away from the element.)'))return;
+  manualFan(0);log('Fan OFF');});
 $('crEvent').addEventListener('click',()=>{if(!chargeMs)return;if(events.dry==null)$('cEvDry').click();else if(events.fc==null)$('cEvFc').click();});
 $('crStop').addEventListener('click',()=>$('cPow0').click());
 // Heater Off / Drop is the stop button — gated on connection only, NOT the Enable-control
@@ -2368,10 +2377,16 @@ function renderEvents(){crRefresh();
   else if(events.fc==null&&liveCross.fc==null)$('tDev').textContent='';
   updateEvBtns();
 }
-function updateEvBtns(){                           // the chart's Mark buttons carry their marked time
-  const set=(id,base,t)=>{const b=$(id);if(!b)return;b.textContent=t!=null?base+' '+fmt(t):base;b.classList.toggle('blue',t!=null);};
+function devSinceFc(){                            // live development: time since the FC mark and its share of the roast (frozen at Drop)
+  if(events.fc==null||!(chargeMs||(chartFrozen&&events.drop!=null)))return null;
+  const now=events.drop!=null?events.drop:(Date.now()-chargeMs)/1000,dev=Math.max(0,now-events.fc);
+  return{dev,pct:now>0?dev/now*100:0};
+}
+function updateEvBtns(){                           // the chart's Mark buttons carry their marked time; FC also counts development up from 0
+  const set=(id,base,t,extra)=>{const b=$(id);if(!b)return;b.textContent=t!=null?base+' '+fmt(t)+(extra||''):base;b.classList.toggle('blue',t!=null);};
+  const d=devSinceFc();
   set('cEvDry','🌾 Dry End',events.dry);
-  set('cEvFc','💥 First Crack',events.fc);
+  set('cEvFc','💥 First Crack',events.fc,d?' · +'+fmt(d.dev)+' · '+d.pct.toFixed(1)+'%':'');
 }
 
 // ---------- Theme ----------
@@ -2631,7 +2646,7 @@ function requestChartDraw(){if(chartRaf)return;chartRaf=true;requestAnimationFra
  cc.addEventListener('pointerdown',setH);
  cc.addEventListener('pointerleave',()=>{chartHover=null;requestChartDraw();});}
 window.addEventListener('resize',()=>{drawChart();drawProfEditor();drawPProf();});
-setInterval(()=>{if(connectMs){updateTimer();updateLiveBar();}},1000);
+setInterval(()=>{if(connectMs){updateTimer();updateLiveBar();if(events.fc!=null){updateEvBtns();crRefresh();}}},1000);
 
 // ---------- Data: CSV + saved roasts ----------
 function evAt(t){for(const kl of [['charge','CHARGE'],['dry','DRY_END'],['fc','FIRST_CRACK'],['drop','DROP']]){if(events[kl[0]]!=null&&chargeMs&&connectMs){const et=(chargeMs-connectMs)/1000+events[kl[0]];if(Math.abs(t-et)<1)return kl[1];}}return'';}

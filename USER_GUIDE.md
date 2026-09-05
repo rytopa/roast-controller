@@ -85,7 +85,7 @@ That is the whole loop. The next batch starts again at step C.
 
 ```
 Connect → Enable control → pick profile → Start between-batch cycle
-   → DROP BEANS NOW → (auto-charge) → mark Dry End / First Crack
+   → DROP BEANS NOW → (auto-charge) → mark Dry End / First Crack (once First Crack is marked, both FC buttons count development up from 0:00 with its % of the roast, and hold the final value at Drop)
    → Stop / Drop → notes / star → next batch
 ```
 
@@ -140,7 +140,7 @@ Select it in the drop-down and press **▶ Run profile**. If you pressed **▶ C
 - When you have adjusted the fan by hand during a profile, the **Resume profile fan** and **Resume — shift curve to my fan** buttons appear here.
 - **RoR window** and **RoR smooth** tune how responsive vs. how calm the RoR trace is.
 
-**Control rail** (right of the chart on wide screens, below it on phones) — laid out like the stock app's side column: a **Target temp** tile and a **PID** tile, **Heater −/+** and **Fan −/+** steppers showing the live values, a green **event-tagging** button that tags **DE** then **FC**, and a red **Stop / Drop**. Both steppers move 1 % per tap. This is where you mark events, adjust the fan and end the roast. Heater ± takes **manual control**: it switches the PID off and stops any running profile or cycle (you are asked to confirm), then sets the heater directly. Stop ends the roast: heater off, fan back to the charge speed, roast saved.
+**Control rail** (right of the chart on wide screens, below it on phones) — laid out like the stock app's side column: a **Target temp** tile and a **PID** tile, **Heater −/+** and **Fan −/+** steppers showing the live values, a green **event-tagging** button that tags **DE** then **FC**, and a red **Stop / Drop**. Both steppers move 1 % per tap, and the **Heater** and **Fan** label tiles are buttons too: tap one to switch that output **off** (Heater off takes manual control like Heater ±; Fan off asks you to confirm while the heater is still on). This is where you mark events, adjust the fan and end the roast. Heater ± takes **manual control**: it switches the PID off and stops any running profile or cycle (you are asked to confirm), then sets the heater directly. Stop ends the roast: heater off, fan back to the charge speed, roast saved.
 
 **Manual mode** — in the **Between batches / charge** panel, choose **🎛 Manual** under *At bean drop* instead of running a profile. The cycle cools, charges and lights **DROP BEANS NOW** exactly as before. When the beans go in the app marks Charge, starts the timer and batch code, runs the charge soak if it is on, then sets your **opening heater %** and **fan %** with the PID **off** and hands over. From there you drive the roast with the Heater and Fan ± steppers on the Controls rail, tag DE and FC with the green button, and press Stop / Drop to end and save. Forgot to tag DE? In every mode (a profile run included), when the bean temperature reaches 180 °C with no Dry End mark, the app tags it for you at the moment BT crossed the DE temperature (160 °C by default) and the button moves on to FC. Your opening values are remembered.
 
