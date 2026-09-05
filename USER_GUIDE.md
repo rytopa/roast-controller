@@ -72,7 +72,7 @@ In the **Between batches / charge** panel:
 
 **E. Drop**
 
-1. When the beans reach the colour you want, press **Stop / Drop** on the Controls rail. The heater goes to 0, the fan returns to the charge speed, the roast is stamped with a 3-character **batch code** (e.g. `#K7Q`) and is **saved automatically**. Write the code on the bag.
+1. When the beans reach the colour you want, press **Stop / Drop** on the Controls rail. The heater goes to 0, the fan returns to the charge speed, the roast is stamped with a 3-character **batch code** (e.g. `#K7Q`) and is **saved automatically**. Recording stops but the finished curve stays on the chart so you can look it over — it clears when you press **Charge** for the next batch (or start the between-batch cycle / **Clear chart**). Write the code on the bag.
 2. If you let the profile run to its last point instead, the heater switches off by itself and an alert sounds — you still press **Stop / Drop** to end and save the roast.
 3. The saved roast appears at the top of the saved-roasts list in the **Data** panel, named by its batch code, time and bean. Type tasting notes there whenever you like.
 4. Tip the beans out to cool and let the machine idle with the fan on before the next batch.

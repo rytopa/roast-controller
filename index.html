@@ -626,6 +626,7 @@ function noteStartFan(v){if(chargeMs&&Date.now()-chargeMs<20000&&v!=null&&!Numbe
 const samples=[];          // {t,bt,et,heat,fan,sv,raw}
 const btHist=[];           // {ms,bt} for RoR
 const events={charge:null,dry:null,fc:null,drop:null};
+let chartFrozen=false;                             // set at Drop: recording stops but the finished roast stays on the chart until Charge / the between-batch cycle / Clear chart
 const liveCross={de:null,fc:null};
 const AUTO_DE_BT=180;                             // manual mode: BT at which an untagged Dry End is tagged automatically (at the DE-temp crossing)                 // BT crossings of the DE/FC temps this roast
 const liveTP={min:null,t:null,armed:false};        // post-charge turning point: don't trust the hot-probe reading until BT bottoms out; t = elapsed s of the BT minimum
@@ -711,6 +712,7 @@ function processLine(line){
     liveTrack(bt,typeof ror==='number'?ror:null);
   }
   $('tSv').textContent=curSV==null?'—':curSV;
+  if(chartFrozen){crRefresh();return;}             // roast dropped: the tiles stay live, the chart keeps the finished curve
   samples.push({t:nowT(),bt,et,heat,fan,sv:curSV,raw:clean});
   $('rowCount').textContent=samples.length+' samples';
   updateTimer(); drawChart(); crRefresh();
@@ -2143,7 +2145,7 @@ function roastEventList(){                         // [name, elapsed s] of this 
 }
 function updateLiveBar(){
   const el=$('liveBar');
-  if(!chargeMs){el.style.display='none';$('evPrev').textContent='—';return;}
+  if(!chargeMs&&!(chartFrozen&&events.drop!=null)){el.style.display='none';$('evPrev').textContent='—';return;}
   const now=events.drop!=null?events.drop:(Date.now()-chargeMs)/1000;
   const evl=roastEventList().filter(x=>x[1]<=now);
   $('evPrev').textContent=evl.length?evl[evl.length-1][0]:'—';
@@ -2227,7 +2229,8 @@ $('heaterW').addEventListener('change',()=>{
 });
 
 // ---------- Roast timer + events ----------
-$('evCharge').addEventListener('click',()=>{chargeMs=Date.now();events.charge=0;events.dry=events.fc=events.drop=null;
+$('evCharge').addEventListener('click',()=>{if(chartFrozen)resetRoastView();   // the previous roast leaves the chart now, not at its Drop
+  chargeMs=Date.now();events.charge=0;events.dry=events.fc=events.drop=null;
   roastFan0=curFan();                              // the fan the beans went in at — restored when the roast is dropped
   batchCode=newBatchCode();showBatchCode(batchCode);   // label for the bag
   startNotesForLiveRoast();
@@ -2324,10 +2327,19 @@ function dropRoast(){                              // end of roast: mark Drop, c
   autoSaveRoast();
   invUse.dropped=true;applyInvDeduction();        // take the batch's green weight out of the selected bean's stock
   renderStatsCard(roastStats(),+$('wIn').value,+$('wOut').value,batchCode);
-  resetRoastView();
+  freezeRoastView();
+}
+function freezeRoastView(){                        // Drop: recording stops, the finished curve (events, phases, TP) stays up for review
+  chartFrozen=true;
+  chargeMs=null;                                   // the roast is closed — Charge starts (and clears for) the next batch
+  invUse.dropped=false;invUse.deducted=0;roastFan0=null;   // the batch's stock deduction is final — a new bean/weight typed now is the NEXT batch's
+  alarms.temp=false;
+  curSV=null;$('tSv').textContent='—';
+  $('evTimes').innerHTML+=' — <b>roast saved</b>; the curve stays on the chart until you press <b>Charge</b> for the next batch (or Clear chart).';
+  clearFcHold();updateEvBtns();updateTimer();updateLiveBar();drawChart();
 }
 function resetRoastView(){                         // fresh chart for the next batch (the roast was just auto-saved)
-  samples.length=0;btHist.length=0;rxBuffer='';
+  chartFrozen=false;samples.length=0;btHist.length=0;rxBuffer='';
   Object.assign(events,{charge:null,dry:null,fc:null,drop:null});
   chargeMs=null;if(connectMs)connectMs=Date.now(); // rebase the time axis
   invUse.dropped=false;invUse.deducted=0;roastFan0=null;   // the batch's stock deduction is final — a new bean/weight typed now is the NEXT batch's
@@ -2338,7 +2350,7 @@ function resetRoastView(){                         // fresh chart for the next b
   $('evTimes').innerHTML='Roast saved &amp; chart reset — press <b>Charge</b> for the next batch (or Load the saved roast to review it).';
   clearFcHold();updateEvBtns();updateTimer();updateLiveBar();drawChart();
 }
-function updateTimer(){$('tTimer').textContent=chargeMs?fmt((Date.now()-chargeMs)/1000):'0:00';}
+function updateTimer(){$('tTimer').textContent=chargeMs?fmt((Date.now()-chargeMs)/1000):(chartFrozen&&events.drop!=null?fmt(events.drop):'0:00');}
 function updateLoss(){
   const a=+$('wIn').value,b=+$('wOut').value;
   $('wLoss').innerHTML=(a>0&&b>0&&b<=a)?'Weight loss: <b style="color:var(--text)">'+((1-b/a)*100).toFixed(1)+'%</b> ('+a+' g → '+b+' g)':'';
@@ -2350,7 +2362,7 @@ $('wOut').addEventListener('input',updateLoss);
 function renderEvents(){crRefresh();
   const parts=[];for(const kl of [['dry','Dry End'],['fc','First Crack'],['drop','Drop']])if(events[kl[0]]!=null)parts.push(kl[1]+' '+fmt(events[kl[0]]));
   $('evTimes').innerHTML=parts.length?parts.join(' · '):'Timer running…';
-  const fc=events.fc!=null?events.fc:(chargeMs?liveCross.fc:reviewCross().fc);   // reviewed roasts get dev % too
+  const fc=events.fc!=null?events.fc:((chargeMs||chartFrozen)?liveCross.fc:reviewCross().fc);   // reviewed roasts get dev % too
   const end=events.drop!=null?events.drop:((!chargeMs&&samples.length)?samples[samples.length-1].t:null);
   if(fc!=null&&end!=null&&end>fc){const dev=end-fc,pct=(dev/end*100).toFixed(1);$('tDev').innerHTML='Development <b style="color:var(--text)">'+fmt(dev)+' ('+pct+'%)</b>';}
   else if(events.fc==null&&liveCross.fc==null)$('tDev').textContent='';
@@ -2501,7 +2513,7 @@ function drawChart(){
   // ---- event markers: full-height lines with rotated name + temp labels (ROEST-style);
   //      includes the auto-detected turning point and DE/FC crossings, not just marked events ----
   const btAtT=t=>{let best=null,bd=1e9;for(const s of samples){if(s.bt==null||Number.isNaN(s.bt))continue;const d=Math.abs(s.t-t);if(d<bd){bd=d;best=s.bt;}}return bd<6?best:null;};
-  if(chargeMs&&connectMs){const base=(chargeMs-connectMs)/1000,tp=liveTpMark();
+  if((chargeMs&&connectMs)||chartFrozen){const base=(chargeMs&&connectMs)?(chargeMs-connectMs)/1000:0,tp=liveTpMark();   // a dropped roast sits at base 0 (Charge rebased the axis)
     const cols={'Charge':P.ev.charge,'Turning point':P.ev.charge,'Dry end':P.ev.dry,'First crack':P.ev.fc,'Drop':P.ev.drop};
     ctx.font='600 10.5px system-ui';ctx.lineWidth=1.5;
     for(const[name,t] of roastEventList()){
@@ -2516,8 +2528,8 @@ function drawChart(){
   // ---- phase strip ----
   {ctx.fillStyle=P.grid;ctx.globalAlpha=.5;ctx.fillRect(pL,stripY,pw,stripH);ctx.globalAlpha=1;
    let spans=null;
-   if(chargeMs&&connectMs){
-     const base=(chargeMs-connectMs)/1000;
+   if((chargeMs&&connectMs)||chartFrozen){
+     const base=(chargeMs&&connectMs)?(chargeMs-connectMs)/1000:0;
      const now=events.drop!=null?events.drop:(Date.now()-chargeMs)/1000;
      if(now>=5){const de=events.dry!=null?events.dry:liveCross.de,fc=events.fc!=null?events.fc:liveCross.fc;
        spans={base,t0:0,de:de!=null?Math.min(de,now):null,fc:fc!=null?Math.min(fc,now):null,t1:now};}
@@ -2578,7 +2590,7 @@ function drawChart(){
     if(bgv!=null)rows1.push([P.bt,'BG BT '+bgv.toFixed(1)+'\u00b0']);
     const baseH=(chargeMs&&connectMs)?(chargeMs-connectMs)/1000:0,rt=ht-baseH;   // roast time at the hovered moment
     let fcH=null,devEnd=null;                      // dev % past FC — live and when reviewing a loaded/finished roast
-    if(chargeMs&&connectMs)fcH=events.fc!=null?events.fc:liveCross.fc;
+    if((chargeMs&&connectMs)||chartFrozen){fcH=events.fc!=null?events.fc:liveCross.fc;devEnd=events.drop;}
     else if(samples.length){fcH=events.fc!=null?events.fc:reviewCross().fc;
       devEnd=events.drop!=null?events.drop:samples[samples.length-1].t;}
     if(fcH!=null&&rt>fcH&&(devEnd==null||rt<=devEnd+2))
@@ -2645,7 +2657,7 @@ $('btnCsv').addEventListener('click',()=>{
   setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},4000);
   log('CSV exported: '+samples.length+' rows');
 });
-$('btnClear').addEventListener('click',()=>{samples.length=0;btHist.length=0;$('log').textContent='';$('rowCount').textContent='0 samples';drawChart();});
+$('btnClear').addEventListener('click',()=>{chartFrozen=false;samples.length=0;btHist.length=0;$('log').textContent='';$('rowCount').textContent='0 samples';drawChart();});
 
 const LOG_KEY='rc_logs_v1';
 function loadLogs(){try{return JSON.parse(localStorage.getItem(LOG_KEY)||'[]');}catch(e){return[];}}
@@ -2726,7 +2738,7 @@ $('btnSaveRoast').addEventListener('click',()=>{
 $('btnLoadRoast').addEventListener('click',()=>{
   const id=$('roastSelect').value;if(!id)return;const r=loadLogs().find(x=>x.id===id);if(!r)return;
   if(device&&device.gatt&&device.gatt.connected&&!confirm('Load a saved roast into the chart (replaces the current view)?'))return;
-  samples.length=0;r.samples.forEach(s=>samples.push(Object.assign({raw:''},s)));
+  chartFrozen=false;samples.length=0;r.samples.forEach(s=>samples.push(Object.assign({raw:''},s)));
   Object.assign(events,{charge:null,dry:null,fc:null,drop:null},r.events||{});
   $('beanInfo').value=r.bean||'';$('wIn').value=r.weightIn||'';$('wOut').value=r.weightOut||'';updateLoss();
   if(r.stats){if(r.stats.avgHeat==null&&r.samples&&r.samples.length){       // backfill power for roasts saved before this feature
