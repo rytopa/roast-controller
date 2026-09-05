@@ -85,7 +85,7 @@ That is the whole loop. The next batch starts again at step C.
 
 ```
 Connect → Enable control → pick profile → Start between-batch cycle
-   → DROP BEANS NOW → (auto-charge) → mark Dry End / First Crack
+   → DROP BEANS NOW → (auto-charge) → mark Dry End / First Crack (once First Crack is marked, both FC buttons count development up from 0:00 with its % of the roast, and hold the final value at Drop)
    → Stop / Drop → notes / star → next batch
 ```
 

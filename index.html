@@ -808,7 +808,9 @@ function crRefresh(){
   $('crHeat').textContent=heat==null?'—':heat;$('crFan').textContent=fan==null?'—':fan;
   $('crHeatLed').className=heat>0?'on':'';$('crFanLed').className=fan>0?'on':'';
   const b=$('crEvent'),bb=b.querySelector('b'),bs=b.querySelector('span');
-  if(!chargeMs||events.drop!=null){bb.textContent='DE';bs.textContent='Event tagging';b.disabled=true;}
+  const d=devSinceFc();                          // FC marked: count development up from 0 (live), holding the final value once dropped
+  if(d){bb.textContent='+'+fmt(d.dev);bs.textContent='Dev '+d.pct.toFixed(1)+'% · FC '+fmt(events.fc);b.disabled=true;}
+  else if(!chargeMs||events.drop!=null){bb.textContent='DE';bs.textContent='Event tagging';b.disabled=true;}
   else if(events.dry==null){bb.textContent='DE';bs.textContent='Tag Dry End';b.disabled=false;}
   else if(events.fc==null){bb.textContent='FC';bs.textContent='Tag First Crack';b.disabled=false;}
   else{bb.textContent='✓';bs.textContent='DE · FC tagged';b.disabled=true;}
@@ -2368,10 +2370,16 @@ function renderEvents(){crRefresh();
   else if(events.fc==null&&liveCross.fc==null)$('tDev').textContent='';
   updateEvBtns();
 }
-function updateEvBtns(){                           // the chart's Mark buttons carry their marked time
-  const set=(id,base,t)=>{const b=$(id);if(!b)return;b.textContent=t!=null?base+' '+fmt(t):base;b.classList.toggle('blue',t!=null);};
+function devSinceFc(){                            // live development: time since the FC mark and its share of the roast (frozen at Drop)
+  if(events.fc==null||!(chargeMs||(chartFrozen&&events.drop!=null)))return null;
+  const now=events.drop!=null?events.drop:(Date.now()-chargeMs)/1000,dev=Math.max(0,now-events.fc);
+  return{dev,pct:now>0?dev/now*100:0};
+}
+function updateEvBtns(){                           // the chart's Mark buttons carry their marked time; FC also counts development up from 0
+  const set=(id,base,t,extra)=>{const b=$(id);if(!b)return;b.textContent=t!=null?base+' '+fmt(t)+(extra||''):base;b.classList.toggle('blue',t!=null);};
+  const d=devSinceFc();
   set('cEvDry','🌾 Dry End',events.dry);
-  set('cEvFc','💥 First Crack',events.fc);
+  set('cEvFc','💥 First Crack',events.fc,d?' · +'+fmt(d.dev)+' · '+d.pct.toFixed(1)+'%':'');
 }
 
 // ---------- Theme ----------
@@ -2631,7 +2639,7 @@ function requestChartDraw(){if(chartRaf)return;chartRaf=true;requestAnimationFra
  cc.addEventListener('pointerdown',setH);
  cc.addEventListener('pointerleave',()=>{chartHover=null;requestChartDraw();});}
 window.addEventListener('resize',()=>{drawChart();drawProfEditor();drawPProf();});
-setInterval(()=>{if(connectMs){updateTimer();updateLiveBar();}},1000);
+setInterval(()=>{if(connectMs){updateTimer();updateLiveBar();if(events.fc!=null){updateEvBtns();crRefresh();}}},1000);
 
 // ---------- Data: CSV + saved roasts ----------
 function evAt(t){for(const kl of [['charge','CHARGE'],['dry','DRY_END'],['fc','FIRST_CRACK'],['drop','DROP']]){if(events[kl[0]]!=null&&chargeMs&&connectMs){const et=(chargeMs-connectMs)/1000+events[kl[0]];if(Math.abs(t-et)<1)return kl[1];}}return'';}
