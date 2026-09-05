@@ -154,7 +154,7 @@ Select it in the drop-down and press **▶ Run profile**. If you pressed **▶ C
 
 Everything in the **Data** panel.
 
-- Roasts are **saved automatically at Drop** with a date/time stamp and batch code. **Save this roast** stores the current chart manually (e.g. after a test run); the drop-down lists saved roasts for **Load** / **Del**. A loaded roast is shown for review — live readings from a connected roaster are not drawn over it until you press **Charge** (or **Clear chart**).
+- Roasts are **saved automatically at Drop** with a date/time stamp and batch code. **Save this roast** stores the current chart manually (e.g. after a test run); the drop-down lists saved roasts for **Load** / **Del**. A loaded roast is shown for review — live readings from a connected roaster are not drawn over it until you press **Charge** (or **Clear chart**). Its Charge, turning point, Dry End, First Crack and Drop are drawn as labelled lines with their times and bean temperatures (e.g. *First crack 8:02 · 196.4 °C*); DE/FC fall back to the DE/FC-temp crossings when they were not tagged.
 - **Roast notes** follows the current roast — the one roasting, just dropped, or loaded from the list — and saves as you type. **☆ Star** marks an excellent roast so it stands out in the list.
 - **Download CSV** exports the current chart's samples (time, bean and exhaust temperatures, heater, fan, target, events) with the roast details in a header, for Excel or Artisan.
 - **Overlay as background** ghosts a saved roast onto the chart, aligned at Charge, and shows a live **BT delta vs background** readout so you can roast to match it. **✕ clear BG** removes it.

@@ -2122,34 +2122,45 @@ function segHTML(label,secs,total,col,txt){
 function liveTpMark(){                             // confirmed turning point: BT bottomed out below the DE temp and climbed again
   return(liveTP.armed&&liveTP.t!=null&&liveTP.min!=null&&liveTP.min<(+$('phDE').value||160))?{t:liveTP.t,bt:liveTP.min}:null;
 }
-function reviewCross(){                            // DE/FC crossings of the roast on the chart, for reviewing a loaded/finished
-  // roast — a live roast keeps using liveCross, and connected pre-charge warm-up
-  // telemetry (which also climbs past the DE/FC temps) must not fake a roast
-  if(chargeMs||(device&&device.gatt&&device.gatt.connected))return{de:null,fc:null};
+function reviewCross(){                            // TP + DE/FC crossings of the roast on the chart, for reviewing a dropped/loaded
+  // roast — a live roast keeps using liveCross/liveTP, and connected pre-charge warm-up
+  // telemetry (which also climbs past the DE/FC temps) must not fake a roast. Times are
+  // seconds from the roast's charge (frozenBase for a frozen chart).
+  const none={de:null,fc:null,tp:null};
+  if(chargeMs||(!chartFrozen&&device&&device.gatt&&device.gatt.connected))return none;
+  const base=chartFrozen?frozenBase:0;
   const deT=+$('phDE').value||160,fcT=Math.max(deT,+$('phFC').value||200);
   const t1=samples.length?samples[samples.length-1].t:0;
   const c=reviewCross.cache;
-  if(c&&c.n===samples.length&&c.t1===t1&&c.deT===deT&&c.fcT===fcT)return c;
-  let min=null,armed=false,de=null,fc=null;
+  if(c&&c.n===samples.length&&c.t1===t1&&c.base===base&&c.deT===deT&&c.fcT===fcT)return c;
+  let min=null,minT=null,armed=false,de=null,fc=null;
   for(const s of samples){
+    if(s.t<base)continue;
     const bt=s.bt;if(bt==null||Number.isNaN(bt))continue;
+    const e=s.t-base;
     if(!armed){                                    // same turning-point guard as liveTrack
-      if(min==null||bt<min)min=bt;
-      if((min<deT&&bt>=min+3)||s.t>=90)armed=true;
+      if(min==null||bt<min){min=bt;minT=e;}
+      if((min<deT&&bt>=min+3)||e>=90)armed=true;
     }
     if(armed){
-      if(de==null&&bt>=deT)de=s.t;
-      if(fc==null&&bt>=fcT){fc=s.t;break;}
+      if(de==null&&bt>=deT)de=e;
+      if(fc==null&&bt>=fcT){fc=e;break;}
     }
   }
-  return reviewCross.cache={n:samples.length,t1,deT,fcT,de,fc};
+  const tp=(armed&&min!=null&&min<deT&&minT>0)?{t:minT,bt:min}:null;   // a real dip after charge, same acceptance as liveTpMark
+  return reviewCross.cache={n:samples.length,t1,base,deT,fcT,de,fc,tp};
+}
+function roastMarks(){                             // auto-detected milestones of the roast on the chart: live tracking while
+  if(chargeMs)return{tp:liveTpMark(),de:liveCross.de,fc:liveCross.fc};   // roasting, from the samples once dropped / loaded
+  const rc=reviewCross();
+  return{tp:liveTpMark()||rc.tp,de:liveCross.de!=null?liveCross.de:rc.de,fc:liveCross.fc!=null?liveCross.fc:rc.fc};
 }
 function roastEventList(){                         // [name, elapsed s] of this roast's milestones, marked or auto-detected
-  const l=[];if(!chargeMs)return l;
+  const l=[];if(!chargeMs&&!chartFrozen)return l;
   l.push(['Charge',0]);
-  const tp=liveTpMark();if(tp)l.push(['Turning point',tp.t]);
-  const de=events.dry!=null?events.dry:liveCross.de;if(de!=null)l.push(['Dry end',de]);
-  const fc=events.fc!=null?events.fc:liveCross.fc;if(fc!=null)l.push(['First crack',fc]);
+  const m=roastMarks();if(m.tp)l.push(['Turning point',m.tp.t]);
+  const de=events.dry!=null?events.dry:m.de;if(de!=null)l.push(['Dry end',de]);
+  const fc=events.fc!=null?events.fc:m.fc;if(fc!=null)l.push(['First crack',fc]);
   if(events.drop!=null)l.push(['Drop',events.drop]);
   return l.sort((a,b)=>a[1]-b[1]);
 }
@@ -2159,10 +2170,10 @@ function updateLiveBar(){
   const now=events.drop!=null?events.drop:(Date.now()-chargeMs)/1000;
   const evl=roastEventList().filter(x=>x[1]<=now);
   $('evPrev').textContent=evl.length?evl[evl.length-1][0]:'—';
-  const fcE=events.fc!=null?events.fc:liveCross.fc;
+  const m=roastMarks(),fcE=events.fc!=null?events.fc:m.fc;
   if(fcE!=null&&now>fcE)$('tDev').innerHTML='Development <b style="color:var(--text)">'+fmt(now-fcE)+' ('+(100*(now-fcE)/now).toFixed(1)+'%)</b>';
   if(now<5){el.style.display='none';return;}
-  const de=events.dry!=null?events.dry:liveCross.de,fc=events.fc!=null?events.fc:liveCross.fc;
+  const de=events.dry!=null?events.dry:m.de,fc=events.fc!=null?events.fc:m.fc;
   const dry=de!=null?Math.min(de,now):now;
   const mai=de!=null?((fc!=null?Math.min(fc,now):now)-de):0;
   const dev=fc!=null?now-fc:0;
@@ -2372,7 +2383,7 @@ $('wOut').addEventListener('input',updateLoss);
 function renderEvents(){crRefresh();
   const parts=[];for(const kl of [['dry','Dry End'],['fc','First Crack'],['drop','Drop']])if(events[kl[0]]!=null)parts.push(kl[1]+' '+fmt(events[kl[0]]));
   $('evTimes').innerHTML=parts.length?parts.join(' · '):'Timer running…';
-  const fc=events.fc!=null?events.fc:((chargeMs||chartFrozen)?liveCross.fc:reviewCross().fc);   // reviewed roasts get dev % too
+  const fc=events.fc!=null?events.fc:roastMarks().fc;   // reviewed roasts get dev % too
   const end=events.drop!=null?events.drop:((!chargeMs&&samples.length)?samples[samples.length-1].t:null);
   if(fc!=null&&end!=null&&end>fc){const dev=end-fc,pct=(dev/end*100).toFixed(1);$('tDev').innerHTML='Development <b style="color:var(--text)">'+fmt(dev)+' ('+pct+'%)</b>';}
   else if(events.fc==null&&liveCross.fc==null)$('tDev').textContent='';
@@ -2529,9 +2540,9 @@ function drawChart(){
   // ---- event markers: full-height lines with rotated name + temp labels (ROEST-style);
   //      includes the auto-detected turning point and DE/FC crossings, not just marked events ----
   const btAtT=t=>{let best=null,bd=1e9;for(const s of samples){if(s.bt==null||Number.isNaN(s.bt))continue;const d=Math.abs(s.t-t);if(d<bd){bd=d;best=s.bt;}}return bd<6?best:null;};
-  if((chargeMs&&connectMs)||chartFrozen){const base=(chargeMs&&connectMs)?(chargeMs-connectMs)/1000:frozenBase,tp=liveTpMark();   // a dropped roast sits at base 0 (Charge rebased the axis)
+  if((chargeMs&&connectMs)||chartFrozen){const base=(chargeMs&&connectMs)?(chargeMs-connectMs)/1000:frozenBase,tp=roastMarks().tp;   // a dropped roast sits at base 0 (Charge rebased the axis); a loaded one at its own base
     const cols={'Charge':P.ev.charge,'Turning point':P.ev.charge,'Dry end':P.ev.dry,'First crack':P.ev.fc,'Drop':P.ev.drop};
-    ctx.font='600 10.5px system-ui';ctx.lineWidth=1.5;
+    ctx.font='700 11px system-ui';ctx.lineWidth=1.5;
     for(const[name,t] of roastEventList()){
       const x=X(base+t),col=cols[name]||P.ev.charge;
       ctx.strokeStyle=col;ctx.globalAlpha=.8;
@@ -2539,7 +2550,7 @@ function drawChart(){
       const b=(name==='Turning point'&&tp)?tp.bt:btAtT(base+t);
       ctx.fillStyle=col;
       ctx.save();ctx.translate(x+14>W-pR?x-11:x+3,tpY+4);ctx.rotate(Math.PI/2);   // flip the label left of the line near the right edge
-      ctx.fillText(name+(b!=null?' ('+b.toFixed(1)+'\u00b0C)':''),0,0);ctx.restore();}
+      ctx.fillText(name+' '+fmt(t)+(b!=null?' \u00b7 '+b.toFixed(1)+'\u00b0C':''),0,0);ctx.restore();}   // e.g. "First crack 8:02 · 196.4°C"
     ctx.lineWidth=1;ctx.font='10px system-ui';}
   // ---- phase strip ----
   {ctx.fillStyle=P.grid;ctx.globalAlpha=.5;ctx.fillRect(pL,stripY,pw,stripH);ctx.globalAlpha=1;
@@ -2547,7 +2558,7 @@ function drawChart(){
    if((chargeMs&&connectMs)||chartFrozen){
      const base=(chargeMs&&connectMs)?(chargeMs-connectMs)/1000:frozenBase;
      const now=events.drop!=null?events.drop:(Date.now()-chargeMs)/1000;
-     if(now>=5){const de=events.dry!=null?events.dry:liveCross.de,fc=events.fc!=null?events.fc:liveCross.fc;
+     if(now>=5){const m=roastMarks(),de=events.dry!=null?events.dry:m.de,fc=events.fc!=null?events.fc:m.fc;
        spans={base,t0:0,de:de!=null?Math.min(de,now):null,fc:fc!=null?Math.min(fc,now):null,t1:now};}
    }else if(samples.length>=2){                    // reviewing a loaded/finished roast: its own phases, not the plan's
      const rc=reviewCross();
@@ -2606,7 +2617,7 @@ function drawChart(){
     if(bgv!=null)rows1.push([P.bt,'BG BT '+bgv.toFixed(1)+'\u00b0']);
     const baseH=(chargeMs&&connectMs)?(chargeMs-connectMs)/1000:(chartFrozen?frozenBase:0),rt=ht-baseH;   // roast time at the hovered moment
     let fcH=null,devEnd=null;                      // dev % past FC — live and when reviewing a loaded/finished roast
-    if((chargeMs&&connectMs)||chartFrozen){fcH=events.fc!=null?events.fc:liveCross.fc;devEnd=events.drop;}
+    if((chargeMs&&connectMs)||chartFrozen){fcH=events.fc!=null?events.fc:roastMarks().fc;devEnd=events.drop;}
     else if(samples.length){fcH=events.fc!=null?events.fc:reviewCross().fc;
       devEnd=events.drop!=null?events.drop:samples[samples.length-1].t;}
     if(fcH!=null&&rt>fcH&&(devEnd==null||rt<=devEnd+2))
