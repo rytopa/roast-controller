@@ -627,7 +627,8 @@ function noteStartFan(v){if(chargeMs&&Date.now()-chargeMs<20000&&v!=null&&!Numbe
 const samples=[];          // {t,bt,et,heat,fan,sv,raw}
 const btHist=[];           // {ms,bt} for RoR
 const events={charge:null,dry:null,fc:null,drop:null};
-let chartFrozen=false;                             // set at Drop: recording stops but the finished roast stays on the chart until Charge / the between-batch cycle / Clear chart
+let frozenBase=0;                                  // sample-time of Charge for the frozen roast: 0 after Drop (Charge rebased the axis), a saved roast's own base when loaded
+let chartFrozen=false;                             // set at Drop (and Load): recording stops but the finished roast stays on the chart until Charge / the between-batch cycle / Clear chart
 const liveCross={de:null,fc:null};
 const AUTO_DE_BT=180;                             // any roast: BT at which an untagged Dry End is tagged automatically (at the DE-temp crossing)                 // BT crossings of the DE/FC temps this roast
 const liveTP={min:null,t:null,armed:false};        // post-charge turning point: don't trust the hot-probe reading until BT bottoms out; t = elapsed s of the BT minimum
@@ -2339,7 +2340,7 @@ function dropRoast(){                              // end of roast: mark Drop, c
   freezeRoastView();
 }
 function freezeRoastView(){                        // Drop: recording stops, the finished curve (events, phases, TP) stays up for review
-  chartFrozen=true;
+  chartFrozen=true;frozenBase=0;
   chargeMs=null;                                   // the roast is closed — Charge starts (and clears for) the next batch
   invUse.dropped=false;invUse.deducted=0;roastFan0=null;   // the batch's stock deduction is final — a new bean/weight typed now is the NEXT batch's
   alarms.temp=false;
@@ -2528,7 +2529,7 @@ function drawChart(){
   // ---- event markers: full-height lines with rotated name + temp labels (ROEST-style);
   //      includes the auto-detected turning point and DE/FC crossings, not just marked events ----
   const btAtT=t=>{let best=null,bd=1e9;for(const s of samples){if(s.bt==null||Number.isNaN(s.bt))continue;const d=Math.abs(s.t-t);if(d<bd){bd=d;best=s.bt;}}return bd<6?best:null;};
-  if((chargeMs&&connectMs)||chartFrozen){const base=(chargeMs&&connectMs)?(chargeMs-connectMs)/1000:0,tp=liveTpMark();   // a dropped roast sits at base 0 (Charge rebased the axis)
+  if((chargeMs&&connectMs)||chartFrozen){const base=(chargeMs&&connectMs)?(chargeMs-connectMs)/1000:frozenBase,tp=liveTpMark();   // a dropped roast sits at base 0 (Charge rebased the axis)
     const cols={'Charge':P.ev.charge,'Turning point':P.ev.charge,'Dry end':P.ev.dry,'First crack':P.ev.fc,'Drop':P.ev.drop};
     ctx.font='600 10.5px system-ui';ctx.lineWidth=1.5;
     for(const[name,t] of roastEventList()){
@@ -2544,7 +2545,7 @@ function drawChart(){
   {ctx.fillStyle=P.grid;ctx.globalAlpha=.5;ctx.fillRect(pL,stripY,pw,stripH);ctx.globalAlpha=1;
    let spans=null;
    if((chargeMs&&connectMs)||chartFrozen){
-     const base=(chargeMs&&connectMs)?(chargeMs-connectMs)/1000:0;
+     const base=(chargeMs&&connectMs)?(chargeMs-connectMs)/1000:frozenBase;
      const now=events.drop!=null?events.drop:(Date.now()-chargeMs)/1000;
      if(now>=5){const de=events.dry!=null?events.dry:liveCross.de,fc=events.fc!=null?events.fc:liveCross.fc;
        spans={base,t0:0,de:de!=null?Math.min(de,now):null,fc:fc!=null?Math.min(fc,now):null,t1:now};}
@@ -2603,7 +2604,7 @@ function drawChart(){
       if(q)rows1.push([P.sv,'Plan '+Math.round(q.sv)+'\u00b0']);
     }
     if(bgv!=null)rows1.push([P.bt,'BG BT '+bgv.toFixed(1)+'\u00b0']);
-    const baseH=(chargeMs&&connectMs)?(chargeMs-connectMs)/1000:0,rt=ht-baseH;   // roast time at the hovered moment
+    const baseH=(chargeMs&&connectMs)?(chargeMs-connectMs)/1000:(chartFrozen?frozenBase:0),rt=ht-baseH;   // roast time at the hovered moment
     let fcH=null,devEnd=null;                      // dev % past FC — live and when reviewing a loaded/finished roast
     if((chargeMs&&connectMs)||chartFrozen){fcH=events.fc!=null?events.fc:liveCross.fc;devEnd=events.drop;}
     else if(samples.length){fcH=events.fc!=null?events.fc:reviewCross().fc;
@@ -2753,7 +2754,9 @@ $('btnSaveRoast').addEventListener('click',()=>{
 $('btnLoadRoast').addEventListener('click',()=>{
   const id=$('roastSelect').value;if(!id)return;const r=loadLogs().find(x=>x.id===id);if(!r)return;
   if(device&&device.gatt&&device.gatt.connected&&!confirm('Load a saved roast into the chart (replaces the current view)?'))return;
-  chartFrozen=false;samples.length=0;r.samples.forEach(s=>samples.push(Object.assign({raw:''},s)));
+  chartFrozen=true;frozenBase=bgBaseOf(r);          // review mode: live readings must not draw over the loaded roast (Charge / Clear chart go live again)
+  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;   // no stale crossings/turning point from the last live roast
+  samples.length=0;r.samples.forEach(s=>samples.push(Object.assign({raw:''},s)));
   Object.assign(events,{charge:null,dry:null,fc:null,drop:null},r.events||{});
   $('beanInfo').value=r.bean||'';$('wIn').value=r.weightIn||'';$('wOut').value=r.weightOut||'';updateLoss();
   if(r.stats){if(r.stats.avgHeat==null&&r.samples&&r.samples.length){       // backfill power for roasts saved before this feature
@@ -2762,7 +2765,7 @@ $('btnLoadRoast').addEventListener('click',()=>{
     renderStatsCard(r.stats,r.weightIn,r.weightOut,r.code);}
   else $('statsCard').style.display='none';
   setCurRoast(r);
-  $('rowCount').textContent=samples.length+' samples · '+(r.code?'#'+r.code+' ':'')+r.name;renderEvents();drawChart();log('Loaded roast: '+(r.code?'#'+r.code+' ':'')+r.name);
+  $('rowCount').textContent=samples.length+' samples · '+(r.code?'#'+r.code+' ':'')+r.name;renderEvents();updateTimer();updateLiveBar();drawChart();log('Loaded roast: '+(r.code?'#'+r.code+' ':'')+r.name);
 });
 $('btnDelRoast').addEventListener('click',()=>{const id=$('roastSelect').value;if(!id)return;if(!confirm('Delete this saved roast?'))return;cloudTomb(id);saveLogs(loadLogs().filter(r=>r.id!==id));refreshRoastSelect();if(id===curRoastId){curRoastId=null;curStar=false;$('roastNotes').value='';$('roastNotesBox').style.display='none';}});
 
