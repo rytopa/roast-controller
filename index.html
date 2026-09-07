@@ -449,10 +449,8 @@
     </div>
     <div class="row">
       <div style="flex:2.2;min-width:170px"><div class="small" style="margin-bottom:3px">Bean / batch details</div><input id="beanInfo" type="text" placeholder="e.g. Timor Hybrid washed, crop 2025"></div>
-      <div style="flex:1;min-width:86px"><div class="small" style="margin-bottom:3px">Green g</div><input id="wIn" type="number" min="0" inputmode="decimal"></div>
-      <div style="flex:1;min-width:86px"><div class="small" style="margin-bottom:3px">Roasted g</div><input id="wOut" type="number" min="0" inputmode="decimal"></div>
     </div>
-    <div class="small" id="wLoss" style="margin-top:6px"></div>
+    <!-- Green g / Roasted g / weight loss live in the Data panel (roast box) so they stay visible. -->
     <div class="row" style="margin-top:6px;align-items:center">
       <span class="small">Heater rating</span><input id="heaterW" type="number" min="0" placeholder="e.g. 1500" style="width:96px"><span class="small">W — optional, for the kWh estimate in the roast summary.</span>
     </div>
@@ -472,6 +470,11 @@
       <div class="row" style="align-items:center;gap:6px;margin-bottom:4px">
         <span class="small" id="roastNotesTitle" style="flex:1"><b>Roast notes</b></span>
         <button id="btnStar" class="star" title="Mark this roast as excellent">☆ Star</button>
+      </div>
+      <div class="row" style="align-items:flex-end;gap:10px;margin-top:8px;margin-bottom:6px">
+        <div style="flex:0 0 auto;min-width:92px"><div class="small" style="margin-bottom:3px">Batch size (green)</div><div class="row" style="align-items:center;gap:4px"><input id="wIn" type="number" min="0" inputmode="decimal" placeholder="g" style="width:82px"><span class="small">g</span></div></div>
+        <div style="flex:0 0 auto;min-width:92px"><div class="small" style="margin-bottom:3px">Roasted weight</div><div class="row" style="align-items:center;gap:4px"><input id="wOut" type="number" min="0" inputmode="decimal" placeholder="g" style="width:82px"><span class="small">g</span></div></div>
+        <div style="flex:1;min-width:150px"><div class="small" style="margin-bottom:3px">Weight loss</div><div id="wLoss" style="min-height:34px;display:flex;align-items:center;font-variant-numeric:tabular-nums"></div></div>
       </div>
       <textarea id="roastNotes" rows="3" placeholder="Tasting / roast notes — saved with the roast as you type"></textarea>
     </div>
@@ -2374,7 +2377,10 @@ function resetRoastView(){                         // fresh chart for the next b
 function updateTimer(){$('tTimer').textContent=chargeMs?fmt((Date.now()-chargeMs)/1000):(chartFrozen&&events.drop!=null?fmt(events.drop):'0:00');}
 function updateLoss(){
   const a=+$('wIn').value,b=+$('wOut').value;
-  $('wLoss').innerHTML=(a>0&&b>0&&b<=a)?'Weight loss: <b style="color:var(--text)">'+((1-b/a)*100).toFixed(1)+'%</b> ('+a+' g → '+b+' g)':'';
+  $('wLoss').innerHTML=(a>0&&b>0&&b<=a)?'<b style="color:var(--text);font-size:20px;line-height:1">'+((1-b/a)*100).toFixed(1)+'%</b><span class="small" style="margin-left:8px">'+(+a.toFixed(1))+' g → '+(+b.toFixed(1))+' g (−'+(+(a-b).toFixed(1))+' g)</span>'
+    :(a>0&&b>a)?'<span class="small" style="color:var(--danger,#e66)">Roasted weight is more than the green weight</span>'
+    :(a>0)?'<span class="small">Enter the roasted weight to see the loss</span>'
+    :'<span class="small">Enter the green weight (batch size) and the roasted weight</span>';
   syncAutoSaved();
   if(chargeMs&&events.drop!=null)renderStatsCard(roastStats(),a,b);
 }
@@ -2719,8 +2725,9 @@ let curRoastId=null,curStar=false;
 function withCurRoast(fn){const a=loadLogs(),r=a.find(x=>x.id===curRoastId);if(!r)return false;fn(r);r.mtime=Date.now();saveLogs(a);return true;}
 function roastLabel(r){return (r.code?'#'+r.code+' ':'')+(r.name||'');}
 function paintStar(){const b=$('btnStar');b.textContent=curStar?'★ Starred':'☆ Star';b.classList.toggle('on',curStar);b.title=curStar?'Excellent roast — click to remove the star':'Mark this roast as excellent';}
-function showNotesBox(title){$('roastNotesBox').style.display='';$('roastNotesTitle').innerHTML='<b>Roast notes</b>'+(title?' — '+escapeHtml(title):'');paintStar();}
+function showNotesBox(title){$('roastNotesBox').style.display='';updateLoss();$('roastNotesTitle').innerHTML='<b>Roast notes</b>'+(title?' — '+escapeHtml(title):'');paintStar();}
 function setCurRoast(r){curRoastId=r?r.id:null;curStar=!!(r&&r.star);$('roastNotes').value=(r&&r.notes)||'';showNotesBox(r?roastLabel(r):null);}
+function detachCurRoast(){curRoastId=null;curStar=false;$('roastNotes').value='';$('roastNotesBox').style.display='none';}
 function startNotesForLiveRoast(){curRoastId=null;curStar=false;$('roastNotes').value='';showNotesBox((batchCode?'#'+batchCode+' ':'')+'(this roast)');}
 $('roastNotes').addEventListener('input',()=>{withCurRoast(r=>{r.notes=$('roastNotes').value;});});   // live roast: picked up at save
 $('btnStar').addEventListener('click',()=>{curStar=!curStar;paintStar();
@@ -2743,8 +2750,10 @@ function autoSaveRoast(){                                   // roast lands in th
   if(saveLogs(a)){autoSaved={charge:chargeMs,id:rec.id};setCurRoast(rec);refreshRoastSelect();log('💾 Roast auto-saved to the log: '+rec.name+(rec.code?' · batch #'+rec.code:''));}
 }
 function syncAutoSaved(){                                   // weights/bean typed after saving update the record
-  if(!autoSaved.id||autoSaved.charge!==chargeMs)return;
-  const a=loadLogs(),r=a.find(x=>x.id===autoSaved.id);if(!r)return;
+  // Target: the live auto-saved roast, else the roast shown in the box (just dropped / loaded) —
+  // so a roasted weight typed after Drop or after Load lands in that roast's record.
+  const id=(autoSaved.id&&autoSaved.charge===chargeMs)?autoSaved.id:curRoastId;if(!id)return;
+  const a=loadLogs(),r=a.find(x=>x.id===id);if(!r)return;
   r.bean=$('beanInfo').value.trim();r.weightIn=+$('wIn').value||null;r.weightOut=+$('wOut').value||null;r.mtime=Date.now();
   if(r.autoName)r.name=r.bean||'Unknown';                  // keep the auto-name in step with the bean field
   saveLogs(a);refreshRoastSelect();
@@ -2774,7 +2783,7 @@ $('btnLoadRoast').addEventListener('click',()=>{
   liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;   // no stale crossings/turning point from the last live roast
   samples.length=0;r.samples.forEach(s=>samples.push(Object.assign({raw:''},s)));
   Object.assign(events,{charge:null,dry:null,fc:null,drop:null},r.events||{});
-  $('beanInfo').value=r.bean||'';$('wIn').value=r.weightIn||'';$('wOut').value=r.weightOut||'';updateLoss();
+  $('beanInfo').value=r.bean||'';$('wIn').value=r.weightIn||'';$('wOut').value=r.weightOut||'';   // loss readout refreshes in setCurRoast below (after the box is bound to this roast)
   if(r.stats){if(r.stats.avgHeat==null&&r.samples&&r.samples.length){       // backfill power for roasts saved before this feature
       const b=bgBaseOf(r),end=r.events&&r.events.drop!=null?b+r.events.drop:1e12;
       const p=heatLoadOver(r.samples,b,end);r.stats.heatLoad=p.load;r.stats.avgHeat=p.avg;r.stats.avgFan=p.fanAvg;}
@@ -2783,7 +2792,7 @@ $('btnLoadRoast').addEventListener('click',()=>{
   setCurRoast(r);
   $('rowCount').textContent=samples.length+' samples · '+(r.code?'#'+r.code+' ':'')+r.name;renderEvents();updateTimer();updateLiveBar();drawChart();log('Loaded roast: '+(r.code?'#'+r.code+' ':'')+r.name);
 });
-$('btnDelRoast').addEventListener('click',()=>{const id=$('roastSelect').value;if(!id)return;if(!confirm('Delete this saved roast?'))return;cloudTomb(id);saveLogs(loadLogs().filter(r=>r.id!==id));refreshRoastSelect();if(id===curRoastId){curRoastId=null;curStar=false;$('roastNotes').value='';$('roastNotesBox').style.display='none';}});
+$('btnDelRoast').addEventListener('click',()=>{const id=$('roastSelect').value;if(!id)return;if(!confirm('Delete this saved roast?'))return;cloudTomb(id);saveLogs(loadLogs().filter(r=>r.id!==id));refreshRoastSelect();if(id===curRoastId)detachCurRoast();});
 
 // ---------- Cloud sync (Cloudflare Worker + KV) ----------
 const cloud={url:'',code:'',rev:0,pushTid:null,pulling:false,pushing:false,lastMs:0};
@@ -3139,6 +3148,7 @@ $('bbmCancel').addEventListener('click',()=>{$('batchBeanModal').style.display='
 $('bbmGo').addEventListener('click',()=>{
   const w=bbmWeight();
   $('batchBeanModal').style.display='none';
+  detachCurRoast();                                   // the roast shown in the Data box is finished — the weights below are the NEW batch's
   invUse.dropped=false;invUse.deducted=0;             // new batch: fresh deduction session before touching the fields,
   $('invUseSel').value=bbmSel.itemId;                 // so the previous roast's deduction is never put back or re-adjusted
   $('invUseSel').dispatchEvent(new Event('change'));  // sets invUse.itemId, bean-details line, saved pick
