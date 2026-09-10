@@ -69,6 +69,7 @@ In the **Between batches / charge** panel:
 - Watch **Bean °C** climb and the **RoR** tile settle. The chart shows the plan as a dashed line and the actual bean temperature as a solid one.
 - Press the green **DE** button on the Controls rail when the beans turn from green/yellow to tan (around 150–165 °C bean temp); it then becomes **FC**, which you press when you hear the first pops. These marks drive the phase bar and the development-time percentage.
 - If the beans are not tumbling well, bump the fan with **Fan +** on the rail. This pauses the automated fan; **Resume profile fan** under the chart hands it back.
+- Want to ride through the first-crack crash? Tick **⚡ Hold power at FC** under the chart before the roast: tagging FC then holds the heater at its recent average and keeps the fan steady for the seconds you set, then the PID takes over again.
 
 **E. Drop**
 
@@ -137,6 +138,7 @@ Select it in the drop-down and press **▶ Run profile**. If you pressed **▶ C
 **Under the chart**
 
 - The **Enable control** tick.
+- **⚡ Hold power at FC** — when you tag First Crack, freezes the heater at its **last-30 s average %** and keeps the fan where it is (the automated fan is paused) for a set number of seconds, then hands back to the PID by itself; blank or 0 holds until Drop. While it is active a notice shows the held %, the countdown and a **▶ Resume PID** button. Useful to ride through the first-crack crash. Off by default; the setting is remembered.
 - When you have adjusted the fan by hand during a profile, the **Resume profile fan** and **Resume — shift curve to my fan** buttons appear here.
 - **RoR window** and **RoR smooth** tune how responsive vs. how calm the RoR trace is.
 
