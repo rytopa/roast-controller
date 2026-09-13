@@ -922,8 +922,8 @@ try{const rs=localStorage.getItem('rc_rorsmooth');if(rs!=null)$('rorSmooth').val
 
 // ---------- Graph-driven profile editor ----------
 const pcv=$('profCanvas');let pcGeom=null,pcDrag=null;
-let pcLocked=true;                                 // locked by default: an accidental swipe must not bend the curve
-try{pcLocked=(localStorage.getItem('rc_pclock')??'1')==='1';}catch(e){}
+let pcLocked=true;                                 // always locked on load: an accidental swipe must not bend the curve (unlock is per visit, not remembered)
+try{localStorage.removeItem('rc_pclock');}catch(e){}   // older builds remembered the unlocked state; forget it
 let pcEdit='temp';                                 // which curve the unlocked graph edits: 'temp' | 'fan' (fan only offered when Auto fan is off)
 function applyPcMode(){
   const fanable=!pcLocked&&!uiAutoFan();
@@ -941,7 +941,7 @@ function applyPcLock(){
   pcv.style.opacity=pcLocked?'.85':'1';
   applyPcMode();
 }
-$('pcLock').addEventListener('click',()=>{pcLocked=!pcLocked;try{localStorage.setItem('rc_pclock',pcLocked?'1':'0');}catch(e){}applyPcLock();drawProfEditor();});
+$('pcLock').addEventListener('click',()=>{pcLocked=!pcLocked;applyPcLock();drawProfEditor();});
 applyPcLock();
 function drawProfEditor(){
   const ctx=pcv.getContext('2d'),dpr=window.devicePixelRatio||1;
