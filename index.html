@@ -71,7 +71,13 @@
   .stepper .slabel i.on{background:var(--ok)}
   .stepper button{padding:0;font-size:24px;font-weight:700;border-radius:11px;min-height:56px}
   .stepper button.slabel{font-size:14px;padding:0;min-height:56px;line-height:1.1}   /* the label tile is itself the OFF button */
-  .stepper .sval{background:var(--panel2);border:1px solid var(--line);border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;font-variant-numeric:tabular-nums;min-width:0;overflow:hidden}
+  .stepper .sval{background:var(--panel2);border:1px solid var(--line);border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;font-variant-numeric:tabular-nums;min-width:0;overflow:hidden;cursor:pointer;user-select:none}
+  .stepper .sval.open{border-color:var(--et);box-shadow:inset 0 0 0 1px var(--et)}
+  .qrow{display:none;grid-template-columns:60px 1fr 1fr;gap:6px;margin:-2px 0 8px}   /* ±5 row under a stepper: opens when its value tile is tapped */
+  .qrow.open{display:grid}
+  .qrow .qlbl{font-size:11px;color:var(--dim);display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.15}
+  .qrow button{padding:0;min-height:46px;font-size:20px;font-weight:700;border-radius:11px}
+  @media(max-width:859px){.qrow{max-width:520px}}
   .bigrow{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
   .bigbtn{padding:12px 6px;border-radius:14px;display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1.1;min-height:74px;justify-content:center}
   .bigbtn b{font-size:22px} .bigbtn span{font-size:12px;font-weight:600;opacity:.9}
@@ -221,17 +227,19 @@
       </div>
       <div class="stepper">
         <button class="slabel" id="crHeatOff" title="Heater OFF (manual control)">Heater<i id="crHeatLed"></i></button>
-        <button id="crHeatM" title="Heater −1% (manual)">−</button><div class="sval" id="crHeat">—</div><button id="crHeatP" title="Heater +1% (manual)">+</button>
+        <button id="crHeatM" title="Heater −1% (manual)">−</button><div class="sval" id="crHeat" role="button" tabindex="0" title="Tap for −5 / +5">—</div><button id="crHeatP" title="Heater +1% (manual)">+</button>
       </div>
+      <div class="qrow" id="crHeatQ"><span class="qlbl">Heater ±5</span><button id="crHeatM5" title="Heater −5% (manual)">−5</button><button id="crHeatP5" title="Heater +5% (manual)">+5</button></div>
       <div class="stepper">
         <button class="slabel" id="crFanOff" title="Fan OFF">Fan<i id="crFanLed"></i></button>
-        <button id="crFanM" title="Fan −1%">−</button><div class="sval" id="crFan">—</div><button id="crFanP" title="Fan +1%">+</button>
+        <button id="crFanM" title="Fan −1%">−</button><div class="sval" id="crFan" role="button" tabindex="0" title="Tap for −5 / +5">—</div><button id="crFanP" title="Fan +1%">+</button>
       </div>
+      <div class="qrow" id="crFanQ"><span class="qlbl">Fan ±5</span><button id="crFanM5" title="Fan −5%">−5</button><button id="crFanP5" title="Fan +5%">+5</button></div>
       <div class="bigrow">
         <button id="crEvent" class="bigbtn green" disabled><b>DE</b><span>Event tagging</span></button>
         <button id="crStop" class="bigbtn stop"><b>Stop</b><span>Drop</span></button>
       </div>
-      <div class="small" style="margin-top:8px">Heater ± takes <b>manual control</b> (PID off, any running profile or cycle stops). Fan ± nudges the fan 1% at a time; tap the <b>Heater</b> or <b>Fan</b> tile itself to switch that output <b>OFF</b> (during a profile this pauses the automated fan — resume options appear under the chart). The green button tags the next event (DE, then FC); <b>Stop</b> is Heater Off / Drop.</div>
+      <div class="small" style="margin-top:8px">Heater ± takes <b>manual control</b> (PID off, any running profile or cycle stops). Fan ± nudges the fan 1% at a time; tap the <b>value</b> itself for <b>−5 / +5</b> buttons; tap the <b>Heater</b> or <b>Fan</b> tile itself to switch that output <b>OFF</b> (during a profile this pauses the automated fan — resume options appear under the chart). The green button tags the next event (DE, then FC); <b>Stop</b> is Heater Off / Drop.</div>
     </div>
   </div>
 
@@ -914,6 +922,14 @@ function manualHeat(v){runGen++;
   else go();
 }
 $('crHeatM').addEventListener('click',()=>{if(fanCtlOk())manualHeat(curHeat()-1);});
+// Tapping a value tile opens a −5 / +5 row under that stepper (tap again to close); the buttons go the same way as ±1.
+function qrowToggle(valId,rowId){const v=$(valId),r=$(rowId),open=!r.classList.contains('open');r.classList.toggle('open',open);v.classList.toggle('open',open);}
+[['crHeat','crHeatQ'],['crFan','crFanQ']].forEach(([v,r])=>{$(v).addEventListener('click',()=>qrowToggle(v,r));
+  $(v).addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();qrowToggle(v,r);}});});
+$('crHeatM5').addEventListener('click',()=>{if(fanCtlOk())manualHeat(curHeat()-5);});
+$('crHeatP5').addEventListener('click',()=>{if(fanCtlOk())manualHeat(curHeat()+5);});
+$('crFanM5').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()-5);});
+$('crFanP5').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()+5);});
 $('crHeatP').addEventListener('click',()=>{if(fanCtlOk())manualHeat(curHeat()+1);});
 $('crFanM').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()-1);});
 $('crFanP').addEventListener('click',()=>{if(fanCtlOk())manualFan(curFan()+1);});
