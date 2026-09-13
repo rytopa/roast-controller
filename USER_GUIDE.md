@@ -124,7 +124,7 @@ Open the **Profile designer** panel. A profile is a target bean-temperature curv
 
 **Running a profile without the between-batch cycle**
 
-Select it in the drop-down and press **▶ Run profile**. If you pressed **▶ Charge** within the last 10 seconds the charge soak applies (and the *profile clock* setting decides whether the curve's 0:00 is the charge or the end of the soak); otherwise the PID engages on the curve immediately (useful for restarting mid-roast).
+Select it in the drop-down and press **▶ Run profile**. If no roast is in progress the app marks **Charge** for you at that moment — the previous roast leaves the chart, recording and the timer start, the DE / FC buttons come alive — and the charge soak applies (the *profile clock* setting decides whether the curve's 0:00 is the charge or the end of the soak). If a Charge is already active (a restart mid-roast) the PID engages on the curve immediately. The same applies to a hand-started ET-track or power-schedule run.
 
 ---
 
