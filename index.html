@@ -254,7 +254,7 @@
     <div class="row" style="margin-bottom:8px">
       <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Cool to °C</div><input id="bbpCool" type="number" min="40" max="150" value="100"></div>
       <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge temp °C</div><input id="bbpCharge" type="number" min="120" max="240" value="180"></div>
-      <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge fan %</div><input id="bbpFan" type="number" min="10" max="100" value="50"></div>
+      <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge fan %</div><input id="bbpFan" type="number" min="10" max="100" value="35"></div>
     </div>
     <div class="row" style="margin:0 0 4px;align-items:center">
       <label class="ck" style="margin:0"><input type="checkbox" id="soakOn" checked><span class="small"><b>Charge soak</b></span></label>
@@ -1883,18 +1883,29 @@ function latestHeat(){for(let i=samples.length-1;i>=0;i--){const s=samples[i];if
 // Charge-cycle heater control. The firmware PID is never engaged between batches: its output
 // limit isn't adjustable over BLE and it slams the heater to 100% every time it is switched on
 // or the temperature drops (cool → heat, each cap release, and the bean drop itself) — the
-// surge that trips breakers. The app drives the heater open-loop instead: a slow P+I on BT,
-// capped at MAX_CHARGE_PWR, with the output rate-limited so power only ever ramps
-// (BBP_SLEW_UP %/s up, BBP_SLEW_DN %/s down; 0 → 85% takes about a minute). The integral
-// pauses while the output is capped or still catching up through the rate limit (no wind-up
-// during the ramp) and its steady value is remembered to seed the next cycle.
-const BBP_KP=2.5,BBP_KI=0.05,BBP_SLEW_UP=1.5,BBP_SLEW_DN=4,BBP_TELEM_S=20;
+// surge that trips breakers. The app drives the heater open-loop instead, capped at
+// MAX_CHARGE_PWR with the output rate-limited so power only ever ramps (BBP_SLEW_UP %/s up,
+// BBP_SLEW_DN %/s down; 0 → 85% takes about a minute).
+// The drum answers the heater 30–60 s late, so plain P on BT hunts (heater still climbing when
+// BT is about to overshoot, then dumps): the loop acts on where BT is HEADING — BT plus its
+// slope over the last BBP_SLOPE_S seconds projected BBP_LEAD_S ahead — with a gentle gain and
+// a slow integral that pauses while the output is capped or still catching up through the rate
+// limit. The settled hold power is remembered to seed the next cycle.
+const BBP_KP=1.0,BBP_KI=0.03,BBP_LEAD_S=35,BBP_SLOPE_S=16,BBP_SLEW_UP=1.5,BBP_SLEW_DN=3,BBP_TELEM_S=20;
+function btSlope(win){                                    // °C/s, least-squares over the last `win` s of BT samples (0 if too few)
+  const t1=nowT();let n=0,sx=0,sy=0,sxx=0,sxy=0;
+  for(let i=samples.length-1;i>=0;i--){const s=samples[i];if(t1-s.t>win)break;if(s.bt==null||Number.isNaN(s.bt))continue;
+    n++;sx+=s.t;sy+=s.bt;sxx+=s.t*s.t;sxy+=s.t*s.bt;}
+  if(n<4)return 0;const d=n*sxx-sx*sx;return d>0?(n*sxy-sx*sy)/d:0;
+}
 function bbpDrive(b,bt){
-  const err=b.chargeT-bt,raw=b.base+BBP_KP*err;
+  const heading=bt+btSlope(BBP_SLOPE_S)*BBP_LEAD_S;      // where BT will be in BBP_LEAD_S s at the current rate
+  const err=b.chargeT-heading,raw=b.base+BBP_KP*err;
   const limited=(raw>b.out+BBP_SLEW_UP&&err>0)||(raw<b.out-BBP_SLEW_DN&&err<0)||(raw>=MAX_CHARGE_PWR&&err>0)||(raw<=0&&err<0);
   if(!limited)b.base=Math.max(0,Math.min(MAX_CHARGE_PWR,b.base+BBP_KI*err));
   const want=Math.max(0,Math.min(MAX_CHARGE_PWR,b.base+BBP_KP*err));
   b.out=Math.max(b.out-BBP_SLEW_DN,Math.min(b.out+BBP_SLEW_UP,want));   // one tick = 1 s
+  b.heading=heading;
   const o=Math.round(b.out);
   if(o!==b.sent){send('OT1,'+o);b.sent=o;}
   return o;
@@ -1970,7 +1981,7 @@ async function startBBP(){
   if(!$('enableControl').checked){alert('Tick "Enable control" next to the chart first.');return;}
   const coolTo=Math.max(40,Math.min(150,+$('bbpCool').value||100));
   const chargeT=Math.max(coolTo+10,Math.min(240,+$('bbpCharge').value||180));
-  const fanLow=Math.max(10,Math.min(100,+$('bbpFan').value||50));
+  const fanLow=Math.max(10,Math.min(100,+$('bbpFan').value||35));
   // ---- confirmation summary: what will actually run at bean drop + the air flow it uses ----
   const auto=$('bbpAuto').checked,pts=getPoints(),haveProfile=pts.length>=2;
   const pname=$('profName').value.trim(),af=uiAutoFan();
@@ -2058,7 +2069,7 @@ function bbpTick(){
       log('BBP: cooled — heating to '+b.chargeT+'°C at fan '+b.fanLow+'% (open loop, heater ramps ≤'+BBP_SLEW_UP+'%/s to a '+MAX_CHARGE_PWR+'% cap)');}
   }else if(b.phase==='heat'){
     const e=(Date.now()-b.heatStart)/1000,o=bbpDrive(b,bt);
-    $('bbpStatus').innerHTML='🔥 Charging — ramping heater to reach '+b.chargeT+' °C (fan '+b.fanLow+'%) · heater '+o+'% · BT '+Math.round(bt)+'° · '+fmt(e);
+    $('bbpStatus').innerHTML='🔥 Charging — ramping heater to reach '+b.chargeT+' °C (fan '+b.fanLow+'%) · heater '+o+'% · BT '+Math.round(bt)+'° (heading '+Math.round(b.heading)+'°) · '+fmt(e);
     if(bt>=b.chargeT-3){b.phase='soak';b.soakStart=Date.now();}
   }else if(b.phase==='soak'){
     const o=bbpDrive(b,bt);
