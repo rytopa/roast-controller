@@ -62,7 +62,7 @@ In the **Between batches / charge** panel:
 2. The app fans the machine down to the cool-to temperature, then ramps to the charge temperature over about a minute and holds it for 30 s.
 3. When the drum is stable the panel flashes **⬇ DROP BEANS NOW** and the device beeps/vibrates. Pour the beans in.
 4. With **Auto-charge** on, the app sees the bean-probe plunge, marks **Charge**, starts the timer, and begins the profile. You do not need to press **▶ Run profile**.
-5. For the first 45 s the heater runs at a fixed low power (the *charge soak*), then the PID takes over and follows your curve.
+5. For the first 45 s the heater runs at a fixed low power (the *charge soak*), then the PID takes over and follows your curve. The **profile clock** drop-down next to the soak settings decides where the curve starts: **runs from charge** (the curve's 0:00 is the charge, so the PID joins it at 0:45) or **starts after the soak** (the curve's 0:00 is the end of the soak, so the PID begins at your first point and the full curve plays after the soak).
 
 **D. During the roast**
 
@@ -124,7 +124,7 @@ Open the **Profile designer** panel. A profile is a target bean-temperature curv
 
 **Running a profile without the between-batch cycle**
 
-Select it in the drop-down and press **▶ Run profile**. If you pressed **▶ Charge** within the last 10 seconds the charge soak applies; otherwise the PID engages on the curve immediately (useful for restarting mid-roast).
+Select it in the drop-down and press **▶ Run profile**. If you pressed **▶ Charge** within the last 10 seconds the charge soak applies (and the *profile clock* setting decides whether the curve's 0:00 is the charge or the end of the soak); otherwise the PID engages on the curve immediately (useful for restarting mid-roast).
 
 ---
 
