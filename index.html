@@ -602,7 +602,7 @@
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
 <script>
 "use strict";
-const APP_VERSION='1.1.0',APP_DATE='2026-09-13';   // bump both on every release — shown in the header, logged at start-up
+const APP_VERSION='1.1.1',APP_DATE='2026-09-13';   // bump both on every release — shown in the header, logged at start-up
 const CANDIDATE_SERVICES=[0xffe0,0xfff0,'6e400001-b5a3-f393-e0a9-e50e24dcca9e','49535343-fe7d-4ae5-8fa9-9fafd205e455',0xffe5,0xfee0,0xff00];
 const $=id=>document.getElementById(id);
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -1890,31 +1890,46 @@ function latestHeat(){for(let i=samples.length-1;i>=0;i--){const s=samples[i];if
 // surge that trips breakers. The app drives the heater open-loop instead, capped at
 // MAX_CHARGE_PWR with the output rate-limited so power only ever ramps (BBP_SLEW_UP %/s up,
 // BBP_SLEW_DN %/s down; 0 → 85% takes about a minute).
-// The drum answers the heater 30–60 s late, so plain P on BT hunts (heater still climbing when
-// BT is about to overshoot, then dumps): the loop acts on where BT is HEADING — BT plus its
-// slope over the last BBP_SLOPE_S seconds projected BBP_LEAD_S ahead — with a gentle gain and
-// a slow integral that pauses while the output is capped or still catching up through the rate
-// limit. The settled hold power is remembered to seed the next cycle.
-const BBP_KP=1.0,BBP_KI=0.03,BBP_LEAD_S=35,BBP_SLOPE_S=16,BBP_SLEW_UP=1.5,BBP_SLEW_DN=3,BBP_TELEM_S=20;
+// The probe sees the hot air within ~10 s of a heater change (a fast path of roughly 1 °C per
+// %) on top of the slowly warming drum, so any brisk feedback on BT hunts with a ~45 s period
+// (both a P gain of 2.5 and a 35 s lead did). Two stages instead:
+//   approach — heater ramps up until BT, projected BBP_SWITCH_LEAD_S s ahead at its current
+//              rate, reaches the charge temp; then the output drops to the hold power
+//   hold     — a gentle P (BBP_KP) on the raw error plus a slow integral (BBP_KI) that pauses
+//              while the output is capped or rate-limited; no lead, so nothing to amplify
+// The hold power that held the charge temp is remembered (with the temp it held) and scaled
+// to seed the next cycle; the first cycle guesses from BBP_K_GUESS °C per % above ambient.
+const BBP_KP=0.5,BBP_KI=0.02,BBP_SWITCH_LEAD_S=25,BBP_SLOPE_S=16,BBP_SLEW_UP=1.5,BBP_SLEW_DN=3,BBP_TELEM_S=20,BBP_K_GUESS=3.4,BBP_AMBIENT=25;
 function btSlope(win){                                    // °C/s, least-squares over the last `win` s of BT samples (0 if too few)
   const t1=nowT();let n=0,sx=0,sy=0,sxx=0,sxy=0;
   for(let i=samples.length-1;i>=0;i--){const s=samples[i];if(t1-s.t>win)break;if(s.bt==null||Number.isNaN(s.bt))continue;
     n++;sx+=s.t;sy+=s.bt;sxx+=s.t*s.t;sxy+=s.t*s.bt;}
   if(n<4)return 0;const d=n*sxx-sx*sx;return d>0?(n*sxy-sx*sy)/d:0;
 }
+function bbpHoldSeed(chargeT){                            // hold power to start from: last cycle's, scaled to this charge temp, else a physics guess
+  let seed=(chargeT-BBP_AMBIENT)/BBP_K_GUESS;
+  try{const h=JSON.parse(localStorage.getItem('rc_bbp_hold')||'null');
+    if(h&&Number.isFinite(h.p)&&Number.isFinite(h.t)&&h.t>BBP_AMBIENT+20)seed=h.p*(chargeT-BBP_AMBIENT)/(h.t-BBP_AMBIENT);}catch(e){}
+  return Math.max(5,Math.min(70,Math.round(seed)));
+}
 function bbpDrive(b,bt){
-  const heading=bt+btSlope(BBP_SLOPE_S)*BBP_LEAD_S;      // where BT will be in BBP_LEAD_S s at the current rate
-  const err=b.chargeT-heading,raw=b.base+BBP_KP*err;
-  const limited=(raw>b.out+BBP_SLEW_UP&&err>0)||(raw<b.out-BBP_SLEW_DN&&err<0)||(raw>=MAX_CHARGE_PWR&&err>0)||(raw<=0&&err<0);
-  if(!limited)b.base=Math.max(0,Math.min(MAX_CHARGE_PWR,b.base+BBP_KI*err));
-  const want=Math.max(0,Math.min(MAX_CHARGE_PWR,b.base+BBP_KP*err));
-  b.out=Math.max(b.out-BBP_SLEW_DN,Math.min(b.out+BBP_SLEW_UP,want));   // one tick = 1 s
-  b.heading=heading;
+  const err=b.chargeT-bt;
+  b.heading=bt+btSlope(BBP_SLOPE_S)*BBP_SWITCH_LEAD_S;    // where BT will be in BBP_SWITCH_LEAD_S s at the current rate
+  if(b.mode==='approach'){
+    if(b.heading>=b.chargeT-1){b.mode='hold';log('BBP: BT '+Math.round(bt)+'° heading for '+b.chargeT+'° — dropping to hold power ~'+b.base+'%');}
+    else b.out=Math.min(MAX_CHARGE_PWR,b.out+BBP_SLEW_UP);
+  }
+  if(b.mode==='hold'){
+    const raw=b.base+BBP_KP*err;
+    const limited=(raw>b.out+BBP_SLEW_UP&&err>0)||(raw<b.out-BBP_SLEW_DN&&err<0)||(raw>=MAX_CHARGE_PWR&&err>0)||(raw<=0&&err<0);
+    if(!limited)b.base=Math.max(0,Math.min(MAX_CHARGE_PWR,b.base+BBP_KI*err));
+    const want=Math.max(0,Math.min(MAX_CHARGE_PWR,b.base+BBP_KP*err));
+    b.out=Math.max(b.out-BBP_SLEW_DN,Math.min(b.out+BBP_SLEW_UP,want));   // one tick = 1 s
+  }
   const o=Math.round(b.out);
   if(o!==b.sent){send('OT1,'+o);b.sent=o;}
   return o;
 }
-function bbpHoldSeed(){try{const v=+localStorage.getItem('rc_bbp_hold');return Number.isFinite(v)?Math.max(0,Math.min(MAX_CHARGE_PWR,v)):0;}catch(e){return 0;}}
 function beepReady(){
   try{const ac=new (window.AudioContext||window.webkitAudioContext)();
     const o=ac.createOscillator(),g=ac.createGain();o.connect(g);g.connect(ac.destination);
@@ -2046,7 +2061,7 @@ async function startBBP(){
   if(chargeMs||samples.length)resetRoastView();                     // fresh graph for the new batch (idle warm-up telemetry isn't saved)
   await send('PID,OFF ');pidEngaged=false;setPidPill();
   await delay(200);await send('OT1,0');await delay(200);await send('IO3,100');
-  bbp={phase:'cool',coolTo,chargeT,fanLow,heatStart:null,soakStart:null,readyMax:null,out:0,sent:0,base:0,tid:setInterval(bbpTick,1000)};
+  bbp={phase:'cool',coolTo,chargeT,fanLow,heatStart:null,soakStart:null,readyMax:null,out:0,sent:0,base:0,mode:'approach',heading:null,tid:setInterval(bbpTick,1000)};
   $('bbpStart').textContent='■ Cancel cycle';$('bbpStart').classList.remove('blue');$('bbpStart').classList.add('danger');
   log('BBP: cooling to '+coolTo+'°C (fan 100%, heater off), charge '+chargeT+'°C, fan '+fanLow+'%');
   if(auto&&!manual&&!ppArmedSteps&&!etArmed&&!haveProfile)log('⚠️ Auto-charge is on but no valid profile is loaded — load one before the beans go in.');
@@ -2068,12 +2083,12 @@ function bbpTick(){
     $('bbpStatus').textContent='Waiting for telemetry…';return;}
   if(b.phase==='cool'){
     $('bbpStatus').innerHTML='🧊 Cooling — fan 100%, heater off · BT '+Math.round(bt)+' → '+b.coolTo+' °C';
-    if(bt<=b.coolTo){b.phase='heat';b.heatStart=Date.now();b.out=0;b.sent=0;b.base=bbpHoldSeed();
+    if(bt<=b.coolTo){b.phase='heat';b.heatStart=Date.now();b.out=0;b.sent=0;b.mode='approach';b.base=bbpHoldSeed(b.chargeT);
       send('IO3,'+b.fanLow);
-      log('BBP: cooled — heating to '+b.chargeT+'°C at fan '+b.fanLow+'% (open loop, heater ramps ≤'+BBP_SLEW_UP+'%/s to a '+MAX_CHARGE_PWR+'% cap)');}
+      log('BBP: cooled — heating to '+b.chargeT+'°C at fan '+b.fanLow+'% (open loop, heater ramps ≤'+BBP_SLEW_UP+'%/s to a '+MAX_CHARGE_PWR+'% cap, then holds ~'+b.base+'%)');}
   }else if(b.phase==='heat'){
     const e=(Date.now()-b.heatStart)/1000,o=bbpDrive(b,bt);
-    $('bbpStatus').innerHTML='🔥 Charging — ramping heater to reach '+b.chargeT+' °C (fan '+b.fanLow+'%) · heater '+o+'% · BT '+Math.round(bt)+'° (heading '+Math.round(b.heading)+'°) · '+fmt(e);
+    $('bbpStatus').innerHTML='🔥 Charging — '+(b.mode==='approach'?'ramping heater':'holding ~'+Math.round(b.base)+'%')+' to reach '+b.chargeT+' °C (fan '+b.fanLow+'%) · heater '+o+'% · BT '+Math.round(bt)+'° (heading '+Math.round(b.heading)+'°) · '+fmt(e);
     if(bt>=b.chargeT-3){b.phase='soak';b.soakStart=Date.now();}
   }else if(b.phase==='soak'){
     const o=bbpDrive(b,bt);
@@ -2081,7 +2096,7 @@ function bbpTick(){
     const left=BBP_HOLD_S-(Date.now()-b.soakStart)/1000;
     $('bbpStatus').innerHTML='⏳ At temp — stabilising '+Math.ceil(Math.max(0,left))+' s · heater '+o+'%';
     if(left<=0){b.phase='ready';b.readyMax=bt;$('bbpLight').style.display='block';beepReady();
-      try{localStorage.setItem('rc_bbp_hold',String(Math.round(b.base)));}catch(e){}   // remembered hold power seeds the next cycle
+      try{localStorage.setItem('rc_bbp_hold',JSON.stringify({t:b.chargeT,p:Math.round(b.base)}));}catch(e){}   // remembered hold power (and the temp it held) seeds the next cycle
       log('BBP: READY — drop the beans (holding ~'+o+'%)');}
   }else if(b.phase==='ready'){
     bbpDrive(b,bt);
