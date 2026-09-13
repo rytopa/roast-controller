@@ -117,6 +117,8 @@ It's a single static `index.html` — host it anywhere that serves HTTPS:
 - **GitHub Pages:** put `index.html` in a public repo → *Settings → Pages → Deploy from a branch → main → /(root)*.
 - Or drag it onto **Netlify Drop** / **Cloudflare Pages** for an instant HTTPS URL.
 
+**Version.** The app shows its version next to the title (and in the tab title and the first line of the log). It comes from `APP_VERSION` / `APP_DATE` at the top of the script in `index.html` — bump both when you release a change, so a device that is still showing the old number is a device that hasn't picked up the new build yet (hard-reload it).
+
 ## Data & privacy
 
 Profiles and roast logs are stored in your **browser's local storage** on the device you use — nothing leaves your machine unless you enable **Cloud sync** (below). Storage is per-site, so saves live with the hosted URL.

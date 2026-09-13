@@ -111,7 +111,7 @@
 </head>
 <body>
   <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:nowrap">
-    <h1>🔥 Roast Controller</h1>
+    <h1>🔥 Roast Controller <span id="appVer" class="small" style="font-weight:500;font-size:13px;opacity:.7;white-space:nowrap"></span></h1>
     <button id="themeBtn" title="Toggle day / night mode" style="padding:6px 11px">☀️</button>
   </div>
   <div class="sub">Web-Bluetooth controller for Hamid / Matchbox (TC4) roasters — no vendor app, no WeChat.</div>
@@ -602,9 +602,12 @@
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
 <script>
 "use strict";
+const APP_VERSION='1.1.0',APP_DATE='2026-09-13';   // bump both on every release — shown in the header, logged at start-up
 const CANDIDATE_SERVICES=[0xffe0,0xfff0,'6e400001-b5a3-f393-e0a9-e50e24dcca9e','49535343-fe7d-4ae5-8fa9-9fafd205e455',0xffe5,0xfee0,0xff00];
 const $=id=>document.getElementById(id);
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
+$('appVer').textContent='v'+APP_VERSION+' · '+APP_DATE;
+document.title='Roast Controller v'+APP_VERSION;
 let device=null,server=null,notifyChar=null,writeChar=null,rxBuffer='';
 let connectMs=null,chargeMs=null,curSV=null,ramp=null,profile=null,pidEngaged=false;
 // Batch code: 3 characters, unique among the saved roasts, assigned at Charge so it can go
@@ -639,6 +642,7 @@ let bg=null,bgIdx=0;                               // background roast overlay
 
 function setState(t,on){const s=$('state');s.textContent=t;s.className='pill '+(on?'on':'off');}
 function log(m){const el=$('log');const ts=connectMs?((Date.now()-connectMs)/1000).toFixed(0)+'s ':'';el.textContent+=ts+m+'\n';el.scrollTop=el.scrollHeight;}
+log('Roast Controller v'+APP_VERSION+' ('+APP_DATE+')');
 function nowT(){return connectMs?(Date.now()-connectMs)/1000:0;}
 function fmt(s){s=Math.max(0,Math.floor(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
 if(!navigator.bluetooth){$('supportBanner').style.display='block';$('btnConnect').disabled=true;}
