@@ -116,6 +116,7 @@
   </div>
   <div class="sub">Web-Bluetooth controller for Hamid / Matchbox (TC4) roasters — no vendor app, no WeChat.</div>
 
+  <div id="linkBanner" class="banner err" style="display:none;align-items:center;gap:10px;flex-wrap:wrap"><span id="linkMsg" style="flex:1;min-width:200px"></span><button id="linkRetryBtn" style="padding:6px 11px">🔄 Reconnect now</button><button id="linkStopBtn" style="padding:6px 11px">Stop trying</button></div>
   <div id="supportBanner" class="banner err" style="display:none">
     <b>Web Bluetooth isn't available.</b> Use <b>Chrome</b> or Edge on Android or Windows/macOS/Linux, Bluetooth on. iOS Safari is unsupported.
   </div>
@@ -602,7 +603,7 @@
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
 <script>
 "use strict";
-const APP_VERSION='1.1.2',APP_DATE='2026-09-13';   // bump both on every release — shown in the header, logged at start-up
+const APP_VERSION='1.2.0',APP_DATE='2026-09-13';   // bump both on every release — shown in the header, logged at start-up
 const CANDIDATE_SERVICES=[0xffe0,0xfff0,'6e400001-b5a3-f393-e0a9-e50e24dcca9e','49535343-fe7d-4ae5-8fa9-9fafd205e455',0xffe5,0xfee0,0xff00];
 const $=id=>document.getElementById(id);
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -651,6 +652,35 @@ function rorSmoothS(){return Math.max(0,Math.min(60,+document.getElementById('ro
 
 
 // ---------- Connect ----------
+// Link-loss protocol. A Bluetooth drop mid-roast must not throw the roast away: the roaster keeps
+// its last heater / PID setting on its own, so the app (1) keeps the roast session and every run
+// object alive but PAUSED (linkLost gates every tick), (2) alarms and reconnects to the same
+// device by itself every LINK_RETRY_MS for LINK_GIVEUP_S, keeping the time base continuous, and
+// (3) on relink puts each running controller's current command back on the wire, since the
+// roaster's state after the gap is unknown. A deliberate Disconnect, or a drop with nothing
+// running, is a plain stop as before.
+let userDisc=false,linkLost=false,linkLostAt=null,linkRetry=null;
+const LINK_RETRY_MS=3000,LINK_GIVEUP_S=180;
+async function attachDevice(){                       // (re)connect the granted device: discover the channels, start telemetry
+  const server=await device.gatt.connect();
+  const svcs=await server.getPrimaryServices();
+  let picked=null,n=null,w=null;
+  for(const s of svcs){
+    const cs=await s.getCharacteristics(); let ln=null,lw=null;
+    for(const c of cs){if((c.properties.notify||c.properties.indicate)&&!ln)ln=c;if((c.properties.write||c.properties.writeWithoutResponse)&&!lw)lw=c;}
+    log('service '+s.uuid+(ln?' [notify]':'')+(lw?' [write]':''));
+    if(ln&&lw&&!picked){picked=s;n=ln;w=lw;} else if(ln&&!n){picked=s;n=ln;w=lw;}
+  }
+  if(!n)throw new Error('No notify characteristic. Use nRF Connect to find the Service UUID and paste it in advanced.');
+  notifyChar=n;writeChar=w;
+  $('svcUuid').textContent=picked.uuid;$('notifyUuid').textContent=n.uuid;$('writeUuid').textContent=w?w.uuid:'(read-only)';
+  $('ctlNote').innerHTML=w?'':'⚠️ Connected read-only — no writable channel found; control unavailable.';
+  await notifyChar.startNotifications();
+  notifyChar.addEventListener('characteristicvaluechanged',onNotify);
+  if(!connectMs||(!chargeMs&&!samples.length))connectMs=Date.now();   // time base stays continuous across a mid-roast reconnect
+  setState('connected',true);
+  $('btnConnect').disabled=true;$('btnDisconnect').disabled=false;
+}
 $('btnConnect').addEventListener('click',async()=>{
   try{
     const opt={optionalServices:CANDIDATE_SERVICES.slice()};
@@ -658,34 +688,77 @@ $('btnConnect').addEventListener('click',async()=>{
     if($('acceptAll').checked)opt.acceptAllDevices=true;
     else opt.filters=[{namePrefix:'MATCHBOX'},{namePrefix:'MBOX'},{namePrefix:'Matchbox'},{namePrefix:'Mbox'}];
     log('Requesting device…');
+    stopLinkRetry();
     device=await navigator.bluetooth.requestDevice(opt);
     $('devName').textContent=device.name||'(unnamed)';
     device.addEventListener('gattserverdisconnected',onDisc);
+    userDisc=false;
     setState('connecting…',false);
-    server=await device.gatt.connect();
-    const svcs=await server.getPrimaryServices();
-    let picked=null,n=null,w=null;
-    for(const s of svcs){
-      const cs=await s.getCharacteristics(); let ln=null,lw=null;
-      for(const c of cs){if((c.properties.notify||c.properties.indicate)&&!ln)ln=c;if((c.properties.write||c.properties.writeWithoutResponse)&&!lw)lw=c;}
-      log('service '+s.uuid+(ln?' [notify]':'')+(lw?' [write]':''));
-      if(ln&&lw&&!picked){picked=s;n=ln;w=lw;} else if(ln&&!n){picked=s;n=ln;w=lw;}
-    }
-    if(!n)throw new Error('No notify characteristic. Use nRF Connect to find the Service UUID and paste it in advanced.');
-    notifyChar=n;writeChar=w;
-    $('svcUuid').textContent=picked.uuid;$('notifyUuid').textContent=n.uuid;$('writeUuid').textContent=w?w.uuid:'(read-only)';
-    $('ctlNote').innerHTML=w?'':'⚠️ Connected read-only — no writable channel found; control unavailable.';
-    await notifyChar.startNotifications();
-    notifyChar.addEventListener('characteristicvaluechanged',onNotify);
-    connectMs=Date.now();
-    setState('connected',true);
-    $('btnConnect').disabled=true;$('btnDisconnect').disabled=false;
-    log('✅ Connected.');
+    await attachDevice();
+    if(linkLost)onRelink(); else log('✅ Connected.');
   }catch(err){log('❌ '+err.message);setState('disconnected',false);}
 });
-$('btnDisconnect').addEventListener('click',()=>{if(device&&device.gatt.connected)device.gatt.disconnect();});
-function onDisc(){setState('disconnected',false);$('btnConnect').disabled=false;$('btnDisconnect').disabled=true;notifyChar=writeChar=null;stopRamp();stopProfile();stopBBP('disconnected',true);stopEtRun('disconnected',true);stopPProf('disconnected',true);pidEngaged=false;setPidPill();log('Disconnected.');}
-
+$('btnDisconnect').addEventListener('click',()=>{userDisc=true;stopLinkRetry();if(device&&device.gatt.connected)device.gatt.disconnect();});
+function anythingRunning(){return !!(chargeMs||profile||etRun||pprof||manRun||bbp||fcHold);}
+function onDisc(){
+  notifyChar=writeChar=null;
+  setState('disconnected',false);$('btnConnect').disabled=false;$('btnDisconnect').disabled=true;
+  if(userDisc||!anythingRunning()){                    // deliberate, or nothing to protect: plain stop as before
+    stopRamp();stopProfile();stopManRun();stopBBP('disconnected',true);stopEtRun('disconnected',true);stopPProf('disconnected',true);clearFcHold();
+    pidEngaged=false;setPidPill();log('Disconnected.');return;}
+  if(!linkLost){linkLost=true;linkLostAt=Date.now();
+    log('🔗 BLUETOOTH LOST mid-roast — runs paused, session kept; the roaster keeps its last heater setting. Reconnecting…');
+    fireAlarm('🔗 BLUETOOTH LOST — the roaster keeps its last heater setting. Reconnecting… if it does not come back, cut the heat at the machine.');}
+  startLinkRetry();
+}
+function setLinkBanner(kind,extra){
+  const b=$('linkBanner'),m=$('linkMsg');
+  if(kind==='hide'){b.style.display='none';return;}
+  b.style.display='flex';
+  const gap=linkLostAt?Math.round((Date.now()-linkLostAt)/1000):0;
+  if(kind==='trying')m.innerHTML='<b>🔗 Bluetooth lost '+fmt(gap)+' ago</b> — runs paused, roast kept. Reconnecting (attempt '+extra+')… The roaster is holding its last heater setting on its own: <b>if this does not come back within a minute, cut the heat at the machine.</b>';
+  else if(kind==='gaveup')m.innerHTML='<b>🔗 Bluetooth still lost after '+fmt(gap)+'</b> — automatic reconnection stopped. <b>Cut the heat at the machine</b>, then press Reconnect now (or Connect roaster).';
+  else if(kind==='ok'){m.innerHTML='<b>✅ Reconnected</b> after '+fmt(extra)+' — runs resumed and the heater command re-sent. Check the heater % and the chart gap.';
+    clearTimeout(setLinkBanner.tid);setLinkBanner.tid=setTimeout(()=>{b.style.display='none';},20000);}
+  $('linkRetryBtn').style.display=kind==='ok'?'none':'';$('linkStopBtn').style.display=kind==='trying'?'':'none';
+}
+function startLinkRetry(){stopLinkRetry();linkRetry={attempts:0,busy:false};linkAttempt();linkRetry.tid=setInterval(linkAttempt,LINK_RETRY_MS);}
+function stopLinkRetry(){if(linkRetry){clearInterval(linkRetry.tid);linkRetry=null;}}
+async function linkAttempt(){
+  if(!linkRetry||linkRetry.busy||!device)return;
+  if((Date.now()-linkLostAt)/1000>LINK_GIVEUP_S){stopLinkRetry();setLinkBanner('gaveup');log('🔗 Gave up reconnecting after '+LINK_GIVEUP_S+' s — cut the heat at the machine.');beepReady();return;}
+  linkRetry.busy=true;linkRetry.attempts++;setLinkBanner('trying',linkRetry.attempts);
+  if(linkRetry.attempts%3===1)beepReady();            // keep sounding while the link is down
+  try{await attachDevice();onRelink();}
+  catch(e){log('reconnect attempt '+linkRetry.attempts+' failed: '+e.message);}
+  finally{if(linkRetry)linkRetry.busy=false;}
+}
+$('linkRetryBtn').addEventListener('click',()=>{if(!device){$('btnConnect').click();return;}if(!linkRetry)startLinkRetry();else linkAttempt();});
+$('linkStopBtn').addEventListener('click',()=>{stopLinkRetry();setLinkBanner('gaveup');});
+function onRelink(){
+  stopLinkRetry();const gap=(Date.now()-linkLostAt)/1000;linkLost=false;
+  log('✅ Reconnected after '+fmt(gap)+' — re-sending the current heater command');
+  setLinkBanner('ok',gap);
+  reassertRuns().catch(e=>log('⚠️ re-assert failed: '+e.message));
+}
+async function reassertRuns(){                        // the roaster's state after a gap is unknown: put the running controller's command back
+  const pidOff=async()=>{await send('PID,OFF ');pidEngaged=false;setPidPill();};
+  if(bbp){const b=bbp;await pidOff();
+    if(b.phase==='cool'){await send('OT1,0');await send('IO3,100');}
+    else{await send('IO3,'+b.fanLow);b.sent=-1;}         // heat / stabilise / ready: the next tick re-sends the heater
+    return;}
+  if(profile){profile.lastFan=null;                    // the next tick re-sends the fan
+    const fixed=profile.holdPct!=null?profile.holdPct:profile.soakPct;
+    if(fixed!=null){await pidOff();await send('OT1,'+fixed);}
+    else{const p=interpAt(profile.points,nowT()-profile.startT);pidEngaged=false;await engagePID(p?p.sv:(curSV!=null?curSV:0));}
+    return;}
+  if(etRun){etRun.lastFan=null;await pidOff();const fixed=etRun.holdPct!=null?etRun.holdPct:(etRun.soakPct!=null?etRun.soakPct:etRun.lastOut);await send('OT1,'+fixed);return;}
+  if(pprof){pprof.lastFan=null;await pidOff();await send('OT1,'+pprof.lastOut);return;}
+  if(manRun){manRun.soakPct=null;await pidOff();return;}   // the next tick re-sends the soak step
+  if(fcHold){await pidOff();await send('OT1,'+fcHold.pct);return;}
+  if(pidEngaged&&curSV!=null){pidEngaged=false;await engagePID(curSV);return;}
+  log('Reconnected with hand control active — heater / fan not changed; check the rail.');
+}
 // ---------- Telemetry ----------
 function onNotify(e){
   rxBuffer+=new TextDecoder().decode(e.target.value);
@@ -757,7 +830,7 @@ function setSV(v){v=Math.max(0,Math.min(260,Math.round(v)));curSV=v;$('tSv').tex
 function setPidPill(){const p=$('pidPill');if(p){p.textContent='PID '+(pidEngaged?'ON':'off');p.className='pill '+(pidEngaged?'on':'off');}crRefresh();}
 let engaging=false;
 async function engagePID(target){
-  if(engaging)return; engaging=true;
+  if(engaging||!writeChar)return; engaging=true;      // no channel: nothing goes out, so never claim the PID is on
   try{
     target=Math.max(0,Math.min(260,Math.round(target)));
     setSV(target); await delay(200);
@@ -1439,6 +1512,7 @@ async function startProfile(){
   // Curve time 0:00 on the app clock: now, or (clock after soak) the moment the last soak step ends on the charge clock
   const startT=clockAfter?(chargeMs+soakEnd*1000-connectMs)/1000:nowT();
   profile={points:pts,startT,autoFan:af,lastFan:null,fanSentAt:null,btMin:null,fanArmed:false,fanOfs:0,soak,soakPct:soaking?soak[0].pct:null,tid:setInterval(()=>{   // lastFan null: first tick re-sends the fan even if the start command was lost
+    if(linkLost)return;                                  // Bluetooth lost: paused, resumed by reassertRuns()
     const e=nowT()-startT,p=interpAt(pts,e);
     if(p){
       if(profile.holdPct!=null){                             // FC hold: fixed heater (PID off) — just verify against telemetry
@@ -1602,7 +1676,7 @@ function etMean(t0,t1){                                // mean ET over samples w
   return n?sum/n:null;
 }
 function etTick(){
-  if(!etRun||!etRef)return;
+  if(!etRun||!etRef||linkLost)return;
   const e=nowT()-etRun.startT;
   const kp=+$('etKp').value||0.5,ki=+$('etKi').value||0.02,kd=+$('etKd').value||0;
   const slew=Math.max(2,Math.min(50,+$('etSlew').value||4)),etMax=+$('etMax').value||240;
@@ -1854,7 +1928,7 @@ function finishPProf(msg){
   fireAlarm(msg||'✅ Power profile complete — heater OFF & roast saved. Drop the beans.');
 }
 function ppTick(){
-  if(!pprof)return;
+  if(!pprof||linkLost)return;
   const e=nowT()-pprof.startT;
   const s=samples[samples.length-1];
   const fresh=s&&(nowT()-s.t)<8;
@@ -1962,7 +2036,7 @@ function startManualRoast(){
   const handOver=()=>{send('OT1,'+o.heat);log('🎛 Manual roast — heater '+o.heat+'%, fan '+o.fan+'%. Drive Heater / Fan ± from the Controls rail; Stop / Drop ends the roast.');};
   if(!soak){setTimeout(handOver,400);return;}
   const tick=()=>{
-    if(!manRun)return;
+    if(!manRun||linkLost)return;
     if(!chargeMs||events.drop!=null||profile||etRun||pprof||bbp){stopManRun();return;}   // something else took over
     const e=(Date.now()-chargeMs)/1000,st=soak.find(x=>e<x.until);
     if(st){if(st.pct!==manRun.soakPct){send('OT1,'+st.pct);manRun.soakPct=st.pct;log('Charge soak: heater '+st.pct+'%');}}
@@ -2084,10 +2158,11 @@ function stopBBP(reason,keepHeat){
   log('BBP '+(reason==='charge'?'→ CHARGE':'stopped: '+reason));
 }
 function bbpTick(){
-  if(!bbp)return;const b=bbp,bt=latestBT();
+  if(!bbp||linkLost)return;const b=bbp,bt=latestBT();
   const last=samples[samples.length-1];
   if(bt==null||(b.phase!=='cool'&&last&&nowT()-last.t>BBP_TELEM_S)){   // open-loop heater with no readings: cut it rather than cook an empty drum
     if(b.sent!==0){send('OT1,0');b.sent=0;b.out=0;log('BBP: no telemetry for '+BBP_TELEM_S+' s — heater off until readings return');}
+    if(b.phase==='soak'||b.phase==='ready'){b.phase='heat';b.readyMax=null;$('bbpLight').style.display='none';log('BBP: back to heating — the drum cooled while readings were missing');}   // never "detect" a bean drop from that sag
     $('bbpStatus').textContent='Waiting for telemetry…';return;}
   if(b.phase==='cool'){
     $('bbpStatus').innerHTML='🧊 Cooling — fan 100%, heater off · BT '+Math.round(bt)+' → '+b.coolTo+' °C';
@@ -2352,7 +2427,8 @@ async function applyFcHold(){
   }
   const secs=Math.max(0,Math.min(600,Math.round(+$('fcHoldSecs').value)||0));
   if(secs>0){fcHold.until=Date.now()+secs*1000;      // timed hold: hand back to the PID by itself
-    fcHold.tid=setTimeout(()=>{if(fcHold)resumeFromFcHold();},secs*1000);
+    const fire=()=>{if(!fcHold)return;if(linkLost){fcHold.tid=setTimeout(fire,3000);return;}resumeFromFcHold();};   // link down: wait for it
+    fcHold.tid=setTimeout(fire,secs*1000);
     fcHold.cid=setInterval(setFcHoldNote,1000);}
   setFcHoldNote();
   log('⚡ FC hold — heater fixed at '+avg+'% (avg of last 30 s)'+((profile||etRun)?', automated fan paused':'')
