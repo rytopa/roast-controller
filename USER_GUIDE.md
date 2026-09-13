@@ -59,7 +59,7 @@ In the **Between batches / charge** panel:
 **C. Run the cycle**
 
 1. Press **🔄 Start between-batch cycle**. A small dialog asks for the **bean** (pick one from inventory, or leave it untracked) and the **green weight** (150 g, 100 g, or a custom figure). Both are stored with the roast, and the green weight is taken out of that bean's stock at Drop. Press **▶ Start cycle**.
-2. The app fans the machine down to the cool-to temperature, then ramps to the charge temperature over about a minute and holds it for 30 s.
+2. The app fans the machine down to the cool-to temperature, then ramps the heater up gently (at most 1.5% per second, capped at 85%) until the drum reaches the charge temperature, and holds it for 30 s. The roaster's PID is not used here, so there is no power surge; the first cycle after installing may take a minute or two longer to settle while the app learns the hold power, which it remembers for later cycles.
 3. When the drum is stable the panel flashes **⬇ DROP BEANS NOW** and the device beeps/vibrates. Pour the beans in.
 4. With **Auto-charge** on, the app sees the bean-probe plunge, marks **Charge**, starts the timer, and begins the profile. You do not need to press **▶ Run profile**.
 5. For the first 45 s the heater runs at a fixed low power (the *charge soak*), then the PID takes over and follows your curve. The **profile clock** drop-down next to the soak settings decides where the curve starts: **runs from charge** (the curve's 0:00 is the charge, so the PID joins it at 0:45) or **starts after the soak** (the curve's 0:00 is the end of the soak, so the PID begins at your first point and the full curve plays after the soak).
