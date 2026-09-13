@@ -87,6 +87,10 @@
   .tile .v{font-size:23px;font-weight:700;font-variant-numeric:tabular-nums}
   .tile .u{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.04em;margin-top:1px}
   .tile.bt .v{color:var(--bt)} .tile.et .v{color:var(--et)} .tile.ror .v{color:var(--ror)} .tile.sv .v{color:var(--sv)}
+  .ptiles{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}   /* »DE / »FC prediction countdowns under the timer */
+  .ptiles .tile{text-align:center;padding:6px 4px}
+  .ptiles .tile .v{font-size:24px;color:var(--dim)} .ptiles .tile .v.on{color:var(--text)} .ptiles .tile .v.done{color:var(--sv)}
+  .ptiles .tile .u{text-transform:none;letter-spacing:0;font-size:11px}
   .tile.bt{border-bottom:3px solid var(--bt)} .tile.et{border-bottom:3px solid var(--et)}
   .kv{font-size:12px;color:var(--dim);display:flex;justify-content:space-between;gap:10px;padding:1px 0}
   .kv b{color:var(--text);font-weight:600;word-break:break-all;text-align:right}
@@ -157,6 +161,10 @@
         <span id="pidPill" class="pill off">PID off</span>
       </div>
       <div id="tTimer" style="font-size:40px;font-weight:800;line-height:1.05;color:var(--text);font-variant-numeric:tabular-nums;margin-bottom:8px">0:00</div>
+      <div class="ptiles" id="ptiles" title="Predicted time to Dry End / First Crack from the bean-temp trend (dashed curve on the chart)">
+        <div class="tile"><div class="v" id="predDe">--:--</div><div class="u" id="predDeU">»DE</div></div>
+        <div class="tile"><div class="v" id="predFc">--:--</div><div class="u" id="predFcU">»FC</div></div>
+      </div>
       <div class="tiles">
         <div class="tile bt"><div class="v" id="tBt">—</div><div class="u">Bean °C</div></div>
         <div class="tile et"><div class="v" id="tEt">—</div><div class="u">ET °C</div></div>
@@ -216,6 +224,7 @@
         <span style="display:none"><span class="small">Alert at BT</span><input id="alarmTemp" type="number" min="0" max="260" placeholder="e.g. 195" style="width:84px"><span class="small">°C</span></span>
         <span class="small">RoR window</span><input id="rorWin" type="number" min="5" max="60" value="15" style="width:64px"><span class="small">s</span>
         <span class="small">· RoR smooth</span><select id="rorSmooth" style="width:auto"><option value="0">off</option><option value="10" selected>light</option><option value="20">medium</option><option value="40">heavy</option></select>
+        <span class="small">· Predict DE / FC</span><select id="predMode" style="width:auto" title="»DE / »FC countdowns + dashed projection: from the bean-temp slope, bent by the falling RoR (trend) or straight (linear)"><option value="trend" selected>RoR trend</option><option value="linear">linear</option><option value="off">off</option></select>
       </div>
       <div id="alarmBanner" class="banner err" style="display:none;margin:8px 0 0"></div>
     </div>
@@ -648,6 +657,7 @@ const events={charge:null,dry:null,fc:null,drop:null};
 let frozenBase=0;                                  // sample-time of Charge for the frozen roast: 0 after Drop (Charge rebased the axis), a saved roast's own base when loaded
 let chartFrozen=false;                             // set at Drop (and Load): recording stops but the finished roast stays on the chart until Charge / the between-batch cycle / Clear chart
 const liveCross={de:null,fc:null};
+let pred=null;                                     // DE / FC prediction (see updatePred): {t0,bt0,r0,a,rf,deTau,fcTau,de:{at},fc:{at}}
 const AUTO_DE_BT=180;                             // any roast: BT at which an untagged Dry End is tagged automatically (at the DE-temp crossing)                 // BT crossings of the DE/FC temps this roast
 const liveTP={min:null,t:null,armed:false};        // post-charge turning point: don't trust the hot-probe reading until BT bottoms out; t = elapsed s of the BT minimum
 const alarms={temp:false};
@@ -2240,6 +2250,85 @@ function bbpTick(){
   }
 }
 
+// ---------- DE / FC prediction (Artisan-style »DRY / »FCs countdowns) ----------
+// Projects the bean temp forward from the slope of the last 45 s, bent by the RoR trend of the
+// last 60 s (RoR normally falls through the roast, so a straight line arrives too early — the
+// "linear" setting keeps the straight line), and solves for the DE / FC temps. Shown as »DE / »FC
+// countdown tiles under the timer and as the dashed curve + ~DE / ~FC markers on the chart.
+// Live only: predictions are never stored with the roast.
+const PRED_FIT_S=45,PRED_TREND_S=60,PRED_MAX_S=1200,PRED_ROR_FLOOR=1;   // slope window, trend window, horizon (20 min), RoR floor °C/min
+function predMode(){const el=$('predMode'),v=el?el.value:'trend';return v==='off'||v==='linear'?v:'trend';}
+function rorSeries(bp){                              // [{t,r}] RoR °C/min over the RoR window, then the RoR-smooth moving average (chart + predictor share it)
+  let out=[];const wn=rorWinS();let j=0;
+  for(let i=0;i<bp.length;i++){const s=bp[i];
+    while(j<i&&s.t-bp[j].t>wn)j++;
+    const p0=bp[j];if(s.t-p0.t<Math.max(4,wn*0.5))continue;
+    out.push({t:s.t,r:(s.bt-p0.bt)/(s.t-p0.t)*60});}
+  const rs=rorSmoothS();                              // centred moving average over ±rs/2 seconds
+  if(rs>0&&out.length>1)out=out.map((p,i)=>{let sum=0,n=0;
+    for(let k=i;k>=0&&p.t-out[k].t<=rs/2;k--){sum+=out[k].r;n++;}
+    for(let k=i+1;k<out.length&&out[k].t-p.t<=rs/2;k++){sum+=out[k].r;n++;}
+    return{t:p.t,r:sum/n};});
+  return out;
+}
+function linFit(pts){                                // least squares y = m·x + b over [{x,y}]
+  const n=pts.length;if(n<2)return null;let sx=0,sy=0,sxx=0,sxy=0;
+  for(const p of pts){sx+=p.x;sy+=p.y;sxx+=p.x*p.x;sxy+=p.x*p.y;}
+  const d=n*sxx-sx*sx;if(Math.abs(d)<1e-9)return null;
+  const m=(n*sxy-sx*sy)/d;return{m,b:(sy-m*sx)/n};
+}
+function predBtAt(P,tau){                            // projected BT tau seconds after P.t0. RoR decays exponentially from r0 (°C/s) towards the
+  if(P.a<0&&P.r0>P.rf){const T=(P.r0-P.rf)/-P.a;     // floor rf with the time constant the current RoR slope a (°C/s²) implies — the way RoR
+    return P.bt0+P.rf*tau+(P.r0-P.rf)*T*(1-Math.exp(-tau/T));}   // really falls through a roast (a constant deceleration bends far too much)
+  return P.bt0+P.r0*tau;                             // linear mode / RoR still rising: straight line at the current slope
+}
+function predSolve(P,T){                             // seconds until the projection reaches T °C, or null (never / beyond the horizon)
+  if(P.bt0>=T||P.r0<=0)return null;
+  if(!(P.a<0&&P.r0>P.rf)){const tau=(T-P.bt0)/P.r0;return tau>PRED_MAX_S?null:tau;}
+  if(predBtAt(P,PRED_MAX_S)<T)return null;
+  let lo=0,hi=PRED_MAX_S;                            // BT(tau) is monotonic (RoR never drops below the floor): bisection
+  for(let i=0;i<40;i++){const mid=(lo+hi)/2;if(predBtAt(P,mid)<T)lo=mid;else hi=mid;}
+  return hi;
+}
+function updatePred(){                               // called on every live frame from liveTrack
+  const mode=predMode();
+  if(mode==='off'||!chargeMs||!connectMs||events.drop!=null||!liveTP.armed){pred=null;renderPred();return;}
+  const bp=[];for(let i=samples.length-1;i>=0;i--){const s=samples[i];if(s.bt==null||Number.isNaN(s.bt))continue;
+    if(bp.length&&bp[0].t-s.t>PRED_TREND_S+rorWinS()+rorSmoothS()+10)break;bp.unshift(s);}
+  if(bp.length<5){pred=null;renderPred();return;}
+  const tNow=bp[bp.length-1].t,base=(chargeMs-connectMs)/1000;
+  const tpT=liveTP.t!=null?base+liveTP.t:-1e9;       // the dip to the turning point is not part of the climb: fit only after it
+  const fitPts=bp.filter(s=>tNow-s.t<=PRED_FIT_S&&s.t>tpT).map(s=>({x:s.t-tNow,y:s.bt}));
+  const fit=fitPts.length>=5&&fitPts[0].x<=-20?linFit(fitPts):null;   // need ≥5 points over ≥20 s
+  if(!fit||fit.m*60<=0.5){pred=null;renderPred();return;}            // BT not climbing (turning point, stall): no prediction
+  let a=0;
+  if(mode==='trend'){const rs=rorSeries(bp).filter(q=>tNow-q.t<=PRED_TREND_S&&q.t-rorWinS()>tpT).map(q=>({x:q.t-tNow,y:q.r}));   // RoR points whose window is fully past the turning point
+    const tf=rs.length>=5&&rs[0].x<=-30?linFit(rs):null;             // RoR trend needs ≥5 points over ≥30 s
+    if(tf)a=Math.max(-0.25/60,Math.min(0,tf.m/60));}                   // only a falling RoR bends the curve (≤0.25 °C/min per s)
+  const P={t0:tNow,bt0:fit.b,r0:fit.m,a,rf:PRED_ROR_FLOOR/60,deTau:null,fcTau:null,de:null,fc:null};
+  const deT=+$('phDE').value||160,fcT=Math.max(deT,+$('phFC').value||200),e0=tNow-base;
+  const sm=(prev,at)=>prev==null?at:prev+0.3*(at-prev);              // the predicted clock time is smoothed, the countdown just runs down
+  if(events.dry==null&&liveCross.de==null){P.deTau=predSolve(P,deT);if(P.deTau!=null)P.de={at:sm(pred&&pred.de?pred.de.at:null,e0+P.deTau)};}
+  if(events.fc==null&&liveCross.fc==null){P.fcTau=predSolve(P,fcT);if(P.fcTau!=null)P.fc={at:sm(pred&&pred.fc?pred.fc.at:null,e0+P.fcTau)};}
+  pred=P;renderPred();
+}
+function renderPred(){                               // the »DE / »FC tiles (+ the vs-background line)
+  const now=chargeMs?(Date.now()-chargeMs)/1000:null,bgDiff=[];
+  for(const[k,vId,uId,name,ev,bgEv] of [['de','predDe','predDeU','DE',events.dry!=null?events.dry:liveCross.de,bg&&bg.events?bg.events.dry:null],
+                                        ['fc','predFc','predFcU','FC',events.fc!=null?events.fc:liveCross.fc,bg&&bg.events?bg.events.fc:null]]){
+    const v=$(vId),u=$(uId);if(!v)continue;
+    if(chargeMs&&ev!=null){v.textContent=fmt(ev);v.className='v done';u.textContent=name+' reached';
+      if(bgEv!=null)bgDiff.push(name+' vs BG '+(ev-bgEv>=0?'+':'−')+fmt(Math.abs(ev-bgEv)));}
+    else if(pred&&pred[k]&&now!=null){const at=pred[k].at,eta=Math.max(0,Math.round((at-now)/5)*5);
+      v.textContent=fmt(eta);v.className='v on';u.textContent='»'+name+' · at '+fmt(at);
+      if(bgEv!=null)bgDiff.push(name+' vs BG '+(at-bgEv>=0?'+':'−')+fmt(Math.abs(at-bgEv)));}
+    else{v.textContent='--:--';v.className='v';u.textContent='»'+name;}
+  }
+  const ei=$('etaInfo');if(ei)ei.textContent=bgDiff.length?bgDiff.join(' · ')+' ·':'';
+}
+$('predMode').addEventListener('change',()=>{try{localStorage.setItem('rc_predict',predMode());}catch(e){}if(predMode()==='off')pred=null;renderPred();drawChart();});
+try{const pm=localStorage.getItem('rc_predict');if(pm)$('predMode').value=pm;}catch(e){}
+
 // ---------- Live tracking: phases, alarms, background delta ----------
 function liveTrack(bt,ror){
   if(!chargeMs||bt==null)return;
@@ -2260,8 +2349,7 @@ function liveTrack(bt,ror){
   updateLiveBar();
   if(bg){const b=bgBtAt(e);
     $('bgDelta').innerHTML=b!=null?'· vs BG <b style="color:var(--text)">'+((bt-b)>=0?'+':'')+(bt-b).toFixed(1)+'°</b>':'';}
-  if(events.drop==null&&ror!=null&&ror>0.5&&bt<fcT)$('etaInfo').textContent='FC in ~'+fmt((fcT-bt)/ror*60)+' ·';
-  else $('etaInfo').textContent='';
+  updatePred();                                    // »DE / »FC countdowns + the chart's projection curve
   if(liveTP.armed)checkAlarms(bt);
 }
 function checkAlarms(bt){
@@ -2420,7 +2508,7 @@ $('evCharge').addEventListener('click',()=>{if(bbp)stopBBP('charge',true);   // 
   startNotesForLiveRoast();
   invUse.dropped=false;invUse.deducted=0;         // new batch: fresh inventory-deduction session
   clearFcHold();
-  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=false;bgIdx=0;
+  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=false;bgIdx=0;pred=null;renderPred();
   if(connectMs){                                   // drop pre-charge telemetry and make Charge the chart's zero point
     const base=(chargeMs-connectMs)/1000;
     const keep=samples.filter(s=>s.t>=base).map(s=>Object.assign({},s,{t:+((s.t-base).toFixed(1))}));
@@ -2516,8 +2604,9 @@ function dropRoast(){runGen++;                              // end of roast: mar
   freezeRoastView();
 }
 function freezeRoastView(){                        // Drop: recording stops, the finished curve (events, phases, TP) stays up for review
-  chartFrozen=true;frozenBase=0;
+  chartFrozen=true;frozenBase=0;pred=null;
   chargeMs=null;                                   // the roast is closed — Charge starts (and clears for) the next batch
+  renderPred();
   roastFan0=null;                                  // invUse stays: a weight or bean corrected after Drop still adjusts this batch's deduction (Charge / reset / the batch popup close it)
   alarms.temp=false;
   curSV=null;$('tSv').textContent='—';
@@ -2532,7 +2621,7 @@ function resetRoastView(){                         // fresh chart for the next b
   manMode=false;manStatus();
   invUse.dropped=false;invUse.deducted=0;roastFan0=null;   // the batch's stock deduction is final — a new bean/weight typed now is the NEXT batch's
   batchCode=null;showBatchCode(null);
-  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=false;bgIdx=0;
+  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=false;bgIdx=0;pred=null;renderPred();
   curSV=null;$('tSv').textContent='—';
   $('rowCount').textContent='0 samples';
   $('evTimes').innerHTML='Roast saved &amp; chart reset — press <b>Charge</b> for the next batch (or Load the saved roast to review it).';
@@ -2607,6 +2696,8 @@ function drawChart(){
   const planStart=profile?profile.startT:((chargeMs&&connectMs?(chargeMs-connectMs)/1000:0)+(chargeMs&&!manMode&&soakClockAfter()?chargeSoak()[1].until:0));   // "clock after soak": the plan sits after the soak steps
   if(planPts.length>=2&&!chartFrozen)tMax=Math.max(tMax,planStart+planPts[planPts.length-1].t);   // reviewing a dropped/loaded roast: fit the axis to the roast, not the plan
   if(chargeMs&&events.drop==null&&samples.length)tMax=Math.max(tMax,samples[samples.length-1].t+70);
+  if(chargeMs&&connectMs&&events.drop==null&&pred){const far=pred.fc?pred.fc.at:(pred.de?pred.de.at:null);   // keep the predicted FC (or DE) marker on the axis
+    if(far!=null)tMax=Math.max(tMax,(chargeMs-connectMs)/1000+far+30);}
   if(chartFrozen&&samples.length)tMax=Math.max(300,samples[samples.length-1].t+30);   // finished roast fills the width (small margin past the drop)
   let bgShift=0;
   if(bg&&bg.samples.length){bgShift=((chargeMs&&connectMs)?(chargeMs-connectMs)/1000:0)-bg.base;
@@ -2678,33 +2769,29 @@ function drawChart(){
      const lbl=hw>0?(wh>=1000?(wh/1000).toFixed(2)+' kWh':Math.round(wh)+' Wh')
        :Math.round(cumMax)+' %·min';
      ctx.fillStyle=P.cum;ctx.font='600 10px system-ui';ctx.fillText('Σ '+lbl,pL+3,cpY+10);ctx.font='10px system-ui';}}
-  let rorPts=[];                                                    // actual RoR (kept for hover lookup)
-  {const bp=samples.filter(s=>s.bt!=null&&!Number.isNaN(s.bt));
-   const wn=rorWinS();let j=0;
-   for(let i=0;i<bp.length;i++){const s=bp[i];
-     while(j<i&&s.t-bp[j].t>wn)j++;
-     const p0=bp[j];if(s.t-p0.t<Math.max(4,wn*0.5))continue;
-     rorPts.push({t:s.t,r:(s.bt-p0.bt)/(s.t-p0.t)*60});}
-   const rs=rorSmoothS();                                          // centred moving average over ±rs/2 seconds
-   if(rs>0&&rorPts.length>1)rorPts=rorPts.map((p,i)=>{let sum=0,n=0;
-     for(let k=i;k>=0&&p.t-rorPts[k].t<=rs/2;k--){sum+=rorPts[k].r;n++;}
-     for(let k=i+1;k<rorPts.length&&rorPts[k].t-p.t<=rs/2;k++){sum+=rorPts[k].r;n++;}
-     return{t:p.t,r:sum/n};});
-   ctx.strokeStyle=P.ror;ctx.lineWidth=1.4;ctx.beginPath();let st=false;
+  let rorPts=rorSeries(samples.filter(s=>s.bt!=null&&!Number.isNaN(s.bt)));   // actual RoR (kept for hover lookup)
+  {ctx.strokeStyle=P.ror;ctx.lineWidth=1.4;ctx.beginPath();let st=false;
    for(const p of rorPts){const rc=Math.max(0,Math.min(30,p.r));
      const x=X(p.t),y=Yr(rc);if(st)ctx.lineTo(x,y);else{ctx.moveTo(x,y);st=true;}}
    ctx.stroke();}
   line('et',P.et);line('sv',P.sv,[5,4]);line('bt',P.bt);
-  if(connectMs&&chargeMs&&events.drop==null){                        // BT projection
-    const bp2=samples.filter(s=>s.bt!=null&&!Number.isNaN(s.bt));
-    if(bp2.length>3){const lastS=bp2[bp2.length-1];
-      let j0=bp2.length-1;while(j0>0&&lastS.t-bp2[j0-1].t<=30)j0--;
-      const p0=bp2[j0],dt=lastS.t-p0.t;
-      if(dt>=10){const r=(lastS.bt-p0.bt)/dt*60;
-        ctx.strokeStyle=P.bt;ctx.setLineDash([2,5]);ctx.lineWidth=1.5;ctx.beginPath();
-        ctx.moveTo(X(lastS.t),Y(lastS.bt));
-        ctx.lineTo(X(Math.min(tMax,lastS.t+60)),Y(Math.max(0,Math.min(260,lastS.bt+r*Math.min(60,tMax-lastS.t)/60))));
-        ctx.stroke();ctx.setLineDash([]);}}}
+  if(connectMs&&chargeMs&&events.drop==null&&pred){                  // BT projection: the prediction curve out to the predicted FC (or DE), with ~DE / ~FC markers
+    const Pp=pred,base=(chargeMs-connectMs)/1000;
+    const horizon=Math.min(PRED_MAX_S,Pp.fcTau!=null?Pp.fcTau:(Pp.deTau!=null?Pp.deTau:60));
+    ctx.strokeStyle=P.bt;ctx.setLineDash([2,5]);ctx.lineWidth=1.5;ctx.beginPath();
+    ctx.moveTo(X(Pp.t0),Y(Pp.bt0));
+    for(let tau=5;tau<=horizon+4.99;tau+=5){const tt=Math.min(tau,horizon);if(Pp.t0+tt>tMax)break;
+      ctx.lineTo(X(Pp.t0+tt),Y(Math.max(0,Math.min(260,predBtAt(Pp,tt)))));}
+    ctx.stroke();ctx.setLineDash([]);
+    const deT=+$('phDE').value||160,fcT=Math.max(deT,+$('phFC').value||200);
+    ctx.font='700 10px system-ui';
+    for(const[k,T,col,name] of [['de',deT,P.ev.dry,'DE'],['fc',fcT,P.ev.fc,'FC']]){
+      const q=Pp[k];if(!q||base+q.at>tMax)continue;
+      const x=X(base+q.at),y=Y(T);
+      ctx.strokeStyle=col;ctx.fillStyle=P.badgeBg;ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.fill();ctx.stroke();
+      ctx.fillStyle=col;const lbl=name+' ~'+fmt(q.at);const tw=ctx.measureText(lbl).width;
+      ctx.fillText(lbl,x+8+tw>W-pR?x-8-tw:x+8,y-6);}
+    ctx.lineWidth=1;ctx.font='10px system-ui';}
   // ---- event markers: full-height lines with rotated name + temp labels (ROEST-style);
   //      includes the auto-detected turning point and DE/FC crossings, not just marked events ----
   const btAtT=t=>{let best=null,bd=1e9;for(const s of samples){if(s.bt==null||Number.isNaN(s.bt))continue;const d=Math.abs(s.t-t);if(d<bd){bd=d;best=s.bt;}}return bd<6?best:null;};
@@ -2856,7 +2943,7 @@ $('btnCsv').addEventListener('click',()=>{
   setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},4000);
   log('CSV exported: '+samples.length+' rows');
 });
-$('btnClear').addEventListener('click',()=>{chartFrozen=false;samples.length=0;btHist.length=0;$('log').textContent='';$('rowCount').textContent='0 samples';drawChart();});
+$('btnClear').addEventListener('click',()=>{chartFrozen=false;samples.length=0;btHist.length=0;pred=null;renderPred();$('log').textContent='';$('rowCount').textContent='0 samples';drawChart();});
 
 const LOG_KEY='rc_logs_v1';
 function loadLogs(){try{return JSON.parse(localStorage.getItem(LOG_KEY)||'[]');}catch(e){return[];}}
@@ -2948,7 +3035,7 @@ $('btnLoadRoast').addEventListener('click',()=>{
   if(device&&device.gatt&&device.gatt.connected&&!confirm('Load a saved roast into the chart (replaces the current view)?'))return;
   sessionId=null;sessionClosed=false;chartRoastId=r.id;   // review: the chart now shows this record, no live session
   chartFrozen=true;frozenBase=bgBaseOf(r);          // review mode: live readings must not draw over the loaded roast (Charge / Clear chart go live again)
-  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;   // no stale crossings/turning point from the last live roast
+  liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;pred=null;renderPred();   // no stale crossings/turning point from the last live roast
   samples.length=0;r.samples.forEach(s=>samples.push(Object.assign({raw:''},s)));
   Object.assign(events,{charge:null,dry:null,fc:null,drop:null},r.events||{});
   $('beanInfo').value=r.bean||'';$('wIn').value=r.weightIn||'';$('wOut').value=r.weightOut||'';updateLoss();
