@@ -515,7 +515,9 @@
       <span class="small">Worker URL</span><input type="text" id="syncUrl" placeholder="https://roast-sync.you.workers.dev">
     </div>
     <div class="row" style="margin-bottom:8px">
-      <input type="text" id="syncCode" placeholder="sync code" style="flex:1;min-width:150px">
+      <input type="text" id="syncCode" placeholder="sync code" autocomplete="off" autocapitalize="off" spellcheck="false" style="flex:1;min-width:150px">
+      <button id="syncCopy" title="Copy the sync code to the clipboard">📋 Copy</button>
+      <button id="syncPaste" title="Paste a sync code from the clipboard">Paste</button>
       <button id="syncGen">Generate</button>
       <button id="syncConnect" class="green">Connect</button>
     </div>
@@ -3140,6 +3142,27 @@ $('syncGen').addEventListener('click',()=>{
   const b=new Uint8Array(18);crypto.getRandomValues(b);
   $('syncCode').value=btoa(String.fromCharCode(...b)).replace(/[+/=]/g,'').slice(0,24);
   cloudSaveFields();
+});
+// Copy / Paste buttons: the code has to travel to the other device by hand, and selecting text
+// inside an input on a tablet is fiddly. Clipboard API first (needs https — GitHub Pages is),
+// then the select + execCommand fallback; Paste falls back to selecting the field for a long-press paste.
+function syncFlash(msg){const el=$('syncStatus');                    // brief note on the status line, then back to the real sync status
+  if(syncFlash.t)clearTimeout(syncFlash.t);else syncFlash.old=el.textContent;   // chained flashes keep the original status to restore
+  el.textContent=msg;syncFlash.t=setTimeout(()=>{syncFlash.t=null;if(el.textContent===msg)el.textContent=syncFlash.old;},2500);}
+$('syncCopy').addEventListener('click',async()=>{
+  const code=$('syncCode').value.trim();if(!code){syncFlash('Nothing to copy — Generate or type a code first.');return;}
+  try{await navigator.clipboard.writeText(code);syncFlash('Sync code copied.');return;}catch(e){}
+  try{const el=$('syncCode');el.focus();el.select();el.setSelectionRange(0,el.value.length);
+    if(document.execCommand('copy')){syncFlash('Sync code copied.');return;}}catch(e){}
+  syncFlash('Copy blocked by the browser — the code is selected: use Copy from the pop-up menu.');
+});
+$('syncPaste').addEventListener('click',async()=>{
+  const el=$('syncCode');
+  try{const t=(await navigator.clipboard.readText()).trim();
+    if(/^[A-Za-z0-9_-]{16,64}$/.test(t)){el.value=t;cloudSaveFields();syncFlash('Sync code pasted — press Connect.');return;}
+    syncFlash(t?'Clipboard does not hold a sync code (16+ letters/digits).':'Clipboard is empty.');return;}catch(e){}
+  el.focus();el.select();                          // no clipboard read permission: hand over to the system paste menu
+  syncFlash('Long-press the field and choose Paste.');
 });
 $('syncConnect').addEventListener('click',()=>{
   if(cloudConfigured()&&$('syncConnect').textContent==='Disconnect'){

@@ -61,13 +61,13 @@ This is the step people miss — the Worker can't store anything until it's boun
 19. Paste the Worker URL into **Worker URL**.
 20. Click **Generate** to create a fresh sync code.
 21. Click **Connect**. The status line shows **"Synced — …"** and your local data is uploaded.
-22. **Write the code down** — you'll need it on your other devices.
+22. Press **📋 Copy** next to the code (or write it down) — you'll need it on your other devices. Send it to yourself privately (e.g. a note or a message to yourself).
 
 **On every other device:**
 
 23. Open the app → **Cloud sync**.
 24. Paste the **same** Worker URL.
-25. Type the **same** sync code (exactly).
+25. Press **Paste** next to the sync code field (or type the **same** code exactly).
 26. Click **Connect** — it downloads everything.
 
 From now on it stays in sync **automatically**: a change pushes ~1.5 s after you make it, each device pulls every 45 seconds, and it also syncs whenever you switch back to the app's tab. There's a **Sync now** button if you want to force it.
