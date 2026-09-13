@@ -116,6 +116,7 @@
   </div>
   <div class="sub">Web-Bluetooth controller for Hamid / Matchbox (TC4) roasters — no vendor app, no WeChat.</div>
 
+  <div id="linkBanner" class="banner err" style="display:none;align-items:center;gap:10px;flex-wrap:wrap"><span id="linkMsg" style="flex:1;min-width:200px"></span><button id="linkRetryBtn" style="padding:6px 11px">🔄 Reconnect now</button><button id="linkStopBtn" style="padding:6px 11px">Stop trying</button></div>
   <div id="supportBanner" class="banner err" style="display:none">
     <b>Web Bluetooth isn't available.</b> Use <b>Chrome</b> or Edge on Android or Windows/macOS/Linux, Bluetooth on. iOS Safari is unsupported.
   </div>
@@ -602,7 +603,7 @@
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
 <script>
 "use strict";
-const APP_VERSION='1.1.2',APP_DATE='2026-09-13';   // bump both on every release — shown in the header, logged at start-up
+const APP_VERSION='1.2.1',APP_DATE='2026-09-13';   // bump both on every release — shown in the header, logged at start-up
 const CANDIDATE_SERVICES=[0xffe0,0xfff0,'6e400001-b5a3-f393-e0a9-e50e24dcca9e','49535343-fe7d-4ae5-8fa9-9fafd205e455',0xffe5,0xfee0,0xff00];
 const $=id=>document.getElementById(id);
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -610,6 +611,9 @@ $('appVer').textContent='v'+APP_VERSION+' · '+APP_DATE;
 document.title='Roast Controller v'+APP_VERSION;
 let device=null,server=null,notifyChar=null,writeChar=null,rxBuffer='';
 let connectMs=null,chargeMs=null,curSV=null,ramp=null,profile=null,pidEngaged=false;
+let runGen=0;                                      // bumped by every stop path; a start sequence that spans awaits abandons itself when it changes
+const live={heat:null,fan:null};                   // latest heater / fan telemetry, kept even while the chart is frozen (the rail acts on these)
+let sessionId=null,sessionClosed=false,chartRoastId=null;   // roast session (Charge → next Charge/reset); the saved record the chart currently shows
 // Batch code: 3 characters, unique among the saved roasts, assigned at Charge so it can go
 // straight onto the bag. Alphabet skips look-alikes (0/O, 1/I/L, 5/S, 8/B, 2/Z) for handwriting.
 const CODE_CHARS='ACDEFGHJKMNPQRTUVWXY34679';
@@ -651,6 +655,35 @@ function rorSmoothS(){return Math.max(0,Math.min(60,+document.getElementById('ro
 
 
 // ---------- Connect ----------
+// Link-loss protocol. A Bluetooth drop mid-roast must not throw the roast away: the roaster keeps
+// its last heater / PID setting on its own, so the app (1) keeps the roast session and every run
+// object alive but PAUSED (linkLost gates every tick), (2) alarms and reconnects to the same
+// device by itself every LINK_RETRY_MS for LINK_GIVEUP_S, keeping the time base continuous, and
+// (3) on relink puts each running controller's current command back on the wire, since the
+// roaster's state after the gap is unknown. A deliberate Disconnect, or a drop with nothing
+// running, is a plain stop as before.
+let userDisc=false,linkLost=false,linkLostAt=null,linkRetry=null;
+const LINK_RETRY_MS=3000,LINK_GIVEUP_S=180;
+async function attachDevice(){                       // (re)connect the granted device: discover the channels, start telemetry
+  const server=await device.gatt.connect();
+  const svcs=await server.getPrimaryServices();
+  let picked=null,n=null,w=null;
+  for(const s of svcs){
+    const cs=await s.getCharacteristics(); let ln=null,lw=null;
+    for(const c of cs){if((c.properties.notify||c.properties.indicate)&&!ln)ln=c;if((c.properties.write||c.properties.writeWithoutResponse)&&!lw)lw=c;}
+    log('service '+s.uuid+(ln?' [notify]':'')+(lw?' [write]':''));
+    if(ln&&lw&&!picked){picked=s;n=ln;w=lw;} else if(ln&&!n){picked=s;n=ln;w=lw;}
+  }
+  if(!n)throw new Error('No notify characteristic. Use nRF Connect to find the Service UUID and paste it in advanced.');
+  notifyChar=n;writeChar=w;
+  $('svcUuid').textContent=picked.uuid;$('notifyUuid').textContent=n.uuid;$('writeUuid').textContent=w?w.uuid:'(read-only)';
+  $('ctlNote').innerHTML=w?'':'⚠️ Connected read-only — no writable channel found; control unavailable.';
+  await notifyChar.startNotifications();
+  notifyChar.addEventListener('characteristicvaluechanged',onNotify);
+  if(!connectMs||(!chargeMs&&!samples.length))connectMs=Date.now();   // time base stays continuous across a mid-roast reconnect
+  setState('connected',true);
+  $('btnConnect').disabled=true;$('btnDisconnect').disabled=false;
+}
 $('btnConnect').addEventListener('click',async()=>{
   try{
     const opt={optionalServices:CANDIDATE_SERVICES.slice()};
@@ -658,34 +691,77 @@ $('btnConnect').addEventListener('click',async()=>{
     if($('acceptAll').checked)opt.acceptAllDevices=true;
     else opt.filters=[{namePrefix:'MATCHBOX'},{namePrefix:'MBOX'},{namePrefix:'Matchbox'},{namePrefix:'Mbox'}];
     log('Requesting device…');
+    stopLinkRetry();
     device=await navigator.bluetooth.requestDevice(opt);
     $('devName').textContent=device.name||'(unnamed)';
     device.addEventListener('gattserverdisconnected',onDisc);
+    userDisc=false;
     setState('connecting…',false);
-    server=await device.gatt.connect();
-    const svcs=await server.getPrimaryServices();
-    let picked=null,n=null,w=null;
-    for(const s of svcs){
-      const cs=await s.getCharacteristics(); let ln=null,lw=null;
-      for(const c of cs){if((c.properties.notify||c.properties.indicate)&&!ln)ln=c;if((c.properties.write||c.properties.writeWithoutResponse)&&!lw)lw=c;}
-      log('service '+s.uuid+(ln?' [notify]':'')+(lw?' [write]':''));
-      if(ln&&lw&&!picked){picked=s;n=ln;w=lw;} else if(ln&&!n){picked=s;n=ln;w=lw;}
-    }
-    if(!n)throw new Error('No notify characteristic. Use nRF Connect to find the Service UUID and paste it in advanced.');
-    notifyChar=n;writeChar=w;
-    $('svcUuid').textContent=picked.uuid;$('notifyUuid').textContent=n.uuid;$('writeUuid').textContent=w?w.uuid:'(read-only)';
-    $('ctlNote').innerHTML=w?'':'⚠️ Connected read-only — no writable channel found; control unavailable.';
-    await notifyChar.startNotifications();
-    notifyChar.addEventListener('characteristicvaluechanged',onNotify);
-    connectMs=Date.now();
-    setState('connected',true);
-    $('btnConnect').disabled=true;$('btnDisconnect').disabled=false;
-    log('✅ Connected.');
+    await attachDevice();
+    if(linkLost)onRelink(); else log('✅ Connected.');
   }catch(err){log('❌ '+err.message);setState('disconnected',false);}
 });
-$('btnDisconnect').addEventListener('click',()=>{if(device&&device.gatt.connected)device.gatt.disconnect();});
-function onDisc(){setState('disconnected',false);$('btnConnect').disabled=false;$('btnDisconnect').disabled=true;notifyChar=writeChar=null;stopRamp();stopProfile();stopBBP('disconnected',true);stopEtRun('disconnected',true);stopPProf('disconnected',true);pidEngaged=false;setPidPill();log('Disconnected.');}
-
+$('btnDisconnect').addEventListener('click',()=>{userDisc=true;stopLinkRetry();if(device&&device.gatt.connected)device.gatt.disconnect();});
+function anythingRunning(){return !!(chargeMs||profile||etRun||pprof||manRun||bbp||fcHold);}
+function onDisc(){runGen++;
+  notifyChar=writeChar=null;
+  setState('disconnected',false);$('btnConnect').disabled=false;$('btnDisconnect').disabled=true;
+  if(userDisc||!anythingRunning()){                    // deliberate, or nothing to protect: plain stop as before
+    stopRamp();stopProfile();stopManRun();stopBBP('disconnected',true);stopEtRun('disconnected',true);stopPProf('disconnected',true);clearFcHold();
+    pidEngaged=false;setPidPill();log('Disconnected.');return;}
+  if(!linkLost){linkLost=true;linkLostAt=Date.now();
+    log('🔗 BLUETOOTH LOST mid-roast — runs paused, session kept; the roaster keeps its last heater setting. Reconnecting…');
+    fireAlarm('🔗 BLUETOOTH LOST — the roaster keeps its last heater setting. Reconnecting… if it does not come back, cut the heat at the machine.');}
+  startLinkRetry();
+}
+function setLinkBanner(kind,extra){
+  const b=$('linkBanner'),m=$('linkMsg');
+  if(kind==='hide'){b.style.display='none';return;}
+  b.style.display='flex';
+  const gap=linkLostAt?Math.round((Date.now()-linkLostAt)/1000):0;
+  if(kind==='trying')m.innerHTML='<b>🔗 Bluetooth lost '+fmt(gap)+' ago</b> — runs paused, roast kept. Reconnecting (attempt '+extra+')… The roaster is holding its last heater setting on its own: <b>if this does not come back within a minute, cut the heat at the machine.</b>';
+  else if(kind==='gaveup')m.innerHTML='<b>🔗 Bluetooth still lost after '+fmt(gap)+'</b> — automatic reconnection stopped. <b>Cut the heat at the machine</b>, then press Reconnect now (or Connect roaster).';
+  else if(kind==='ok'){m.innerHTML='<b>✅ Reconnected</b> after '+fmt(extra)+' — runs resumed and the heater command re-sent. Check the heater % and the chart gap.';
+    clearTimeout(setLinkBanner.tid);setLinkBanner.tid=setTimeout(()=>{b.style.display='none';},20000);}
+  $('linkRetryBtn').style.display=kind==='ok'?'none':'';$('linkStopBtn').style.display=kind==='trying'?'':'none';
+}
+function startLinkRetry(){stopLinkRetry();linkRetry={attempts:0,busy:false};linkAttempt();linkRetry.tid=setInterval(linkAttempt,LINK_RETRY_MS);}
+function stopLinkRetry(){if(linkRetry){clearInterval(linkRetry.tid);linkRetry=null;}}
+async function linkAttempt(){
+  if(!linkRetry||linkRetry.busy||!device)return;
+  if((Date.now()-linkLostAt)/1000>LINK_GIVEUP_S){stopLinkRetry();setLinkBanner('gaveup');log('🔗 Gave up reconnecting after '+LINK_GIVEUP_S+' s — cut the heat at the machine.');beepReady();return;}
+  linkRetry.busy=true;linkRetry.attempts++;setLinkBanner('trying',linkRetry.attempts);
+  if(linkRetry.attempts%3===1)beepReady();            // keep sounding while the link is down
+  try{await attachDevice();onRelink();}
+  catch(e){log('reconnect attempt '+linkRetry.attempts+' failed: '+e.message);}
+  finally{if(linkRetry)linkRetry.busy=false;}
+}
+$('linkRetryBtn').addEventListener('click',()=>{if(!device){$('btnConnect').click();return;}if(!linkRetry)startLinkRetry();else linkAttempt();});
+$('linkStopBtn').addEventListener('click',()=>{stopLinkRetry();setLinkBanner('gaveup');});
+function onRelink(){
+  stopLinkRetry();const gap=(Date.now()-linkLostAt)/1000;linkLost=false;
+  log('✅ Reconnected after '+fmt(gap)+' — re-sending the current heater command');
+  setLinkBanner('ok',gap);
+  reassertRuns().catch(e=>log('⚠️ re-assert failed: '+e.message));
+}
+async function reassertRuns(){                        // the roaster's state after a gap is unknown: put the running controller's command back
+  const pidOff=async()=>{await send('PID,OFF ');pidEngaged=false;setPidPill();};
+  if(bbp){const b=bbp;await pidOff();
+    if(b.phase==='cool'){await send('OT1,0');await send('IO3,100');}
+    else{await send('IO3,'+b.fanLow);b.sent=-1;}         // heat / stabilise / ready: the next tick re-sends the heater
+    return;}
+  if(profile){profile.lastFan=null;                    // the next tick re-sends the fan
+    const fixed=profile.holdPct!=null?profile.holdPct:profile.soakPct;
+    if(fixed!=null){await pidOff();await send('OT1,'+fixed);}
+    else{const p=interpAt(profile.points,nowT()-profile.startT);pidEngaged=false;await engagePID(p?p.sv:(curSV!=null?curSV:0));}
+    return;}
+  if(etRun){etRun.lastFan=null;await pidOff();const fixed=etRun.holdPct!=null?etRun.holdPct:(etRun.soakPct!=null?etRun.soakPct:etRun.lastOut);await send('OT1,'+fixed);return;}
+  if(pprof){pprof.lastFan=null;await pidOff();await send('OT1,'+pprof.lastOut);return;}
+  if(manRun){manRun.soakPct=null;await pidOff();return;}   // the next tick re-sends the soak step
+  if(fcHold){await pidOff();await send('OT1,'+fcHold.pct);return;}
+  if(pidEngaged&&curSV!=null){pidEngaged=false;await engagePID(curSV);return;}
+  log('Reconnected with hand control active — heater / fan not changed; check the rail.');
+}
 // ---------- Telemetry ----------
 function onNotify(e){
   rxBuffer+=new TextDecoder().decode(e.target.value);
@@ -720,6 +796,7 @@ function processLine(line){
     liveTrack(bt,typeof ror==='number'?ror:null);
   }
   $('tSv').textContent=curSV==null?'—':curSV;
+  live.heat=heat;live.fan=fan;                     // the rail reads these, never a frozen sample
   if(chartFrozen){crRefresh();return;}             // roast dropped: the tiles stay live, the chart keeps the finished curve
   samples.push({t:nowT(),bt,et,heat,fan,sv:curSV,raw:clean});
   $('rowCount').textContent=samples.length+' samples';
@@ -757,12 +834,14 @@ function setSV(v){v=Math.max(0,Math.min(260,Math.round(v)));curSV=v;$('tSv').tex
 function setPidPill(){const p=$('pidPill');if(p){p.textContent='PID '+(pidEngaged?'ON':'off');p.className='pill '+(pidEngaged?'on':'off');}crRefresh();}
 let engaging=false;
 async function engagePID(target){
-  if(engaging)return; engaging=true;
+  if(engaging||!writeChar)return; engaging=true;      // no channel: nothing goes out, so never claim the PID is on
+  const gen=runGen;                                   // a Stop / Drop / hand tap during the sequence abandons it
   try{
     target=Math.max(0,Math.min(260,Math.round(target)));
     setSV(target); await delay(200);
-    await send('PID,ON '); pidEngaged=true; setPidPill();
-    for(let i=0;i<4;i++){await delay(250);setSV(target);}
+    if(gen!==runGen)return;
+    await send('PID,ON '); pidEngaged=(gen===runGen); setPidPill();   // a stop queued PID,OFF behind our PID,ON: the roaster ends up off
+    for(let i=0;i<4&&gen===runGen;i++){await delay(250);if(gen===runGen)setSV(target);}
   }finally{engaging=false;}
 }
 function clampPct(v){v=parseInt(v,10);return Number.isNaN(v)?0:Math.max(0,Math.min(100,v));}
@@ -770,7 +849,7 @@ function clampPct(v){v=parseInt(v,10);return Number.isNaN(v)?0:Math.max(0,Math.m
 // Manual fan override: any hand adjustment during a profile roast pauses the
 // profile's fan commands for the rest of the roast (PID curve keeps running).
 let fanOverride=false;
-function curFan(){for(let i=samples.length-1;i>=0;i--){const f=samples[i].fan;if(f!=null&&!Number.isNaN(f))return f;}return clampPct($('cFanVal').value);}
+function curFan(){if(live.fan!=null&&!Number.isNaN(live.fan))return live.fan;for(let i=samples.length-1;i>=0;i--){const f=samples[i].fan;if(f!=null&&!Number.isNaN(f))return f;}return clampPct($('cFanVal').value);}
 function manualFan(v){v=clampPct(v);$('cFanVal').value=v;send('IO3,'+v);markFanOverride();}
 function markFanOverride(){if((profile||etRun)&&!fanOverride){fanOverride=true;$('fanOvrNote').style.display='';
   log('✋ Manual fan override — automated fan paused (temperature control keeps running)');}}
@@ -806,13 +885,14 @@ $('cFan0').addEventListener('click',()=>{if(fanCtlOk())manualFan(0);});
 // ---------- Control rail (right of the chart) ----------
 // Mirrors the stock app's side column: target/PID tiles, heater and fan steppers, a big
 // event-tagging button that advances DE -> FC, and Stop (= Heater Off / Drop).
-function curHeat(){for(let i=samples.length-1;i>=0;i--){const h=samples[i].heat;if(h!=null&&!Number.isNaN(h))return h;}return 0;}
+function curHeat(){if(live.heat!=null&&!Number.isNaN(live.heat))return live.heat;for(let i=samples.length-1;i>=0;i--){const h=samples[i].heat;if(h!=null&&!Number.isNaN(h))return h;}return 0;}
 function crRefresh(){
   if(!$('crSv'))return;
   $('crSv').textContent=curSV==null?'—':curSV;
   const pe=$('crPid');pe.textContent=pidEngaged?'ON':'OFF';pe.classList.toggle('on',!!pidEngaged);
   const s=samples[samples.length-1];
-  const heat=s&&s.heat!=null&&!Number.isNaN(s.heat)?s.heat:null,fan=s&&s.fan!=null&&!Number.isNaN(s.fan)?s.fan:null;
+  const heat=live.heat!=null&&!Number.isNaN(live.heat)?live.heat:(s&&s.heat!=null&&!Number.isNaN(s.heat)?s.heat:null);
+  const fan=live.fan!=null&&!Number.isNaN(live.fan)?live.fan:(s&&s.fan!=null&&!Number.isNaN(s.fan)?s.fan:null);
   $('crHeat').textContent=heat==null?'—':heat;$('crFan').textContent=fan==null?'—':fan;
   $('crHeatLed').className=heat>0?'on':'';$('crFanLed').className=fan>0?'on':'';
   const b=$('crEvent'),bb=b.querySelector('b'),bs=b.querySelector('span');
@@ -824,7 +904,7 @@ function crRefresh(){
   else{bb.textContent='✓';bs.textContent='DE · FC tagged';b.disabled=true;}
 }
 // Manual heater: stops every automated run (keeping the heat), drops the PID and sends the power.
-function manualHeat(v){
+function manualHeat(v){runGen++;
   v=clampPct(v);
   stopManRun();                                          // a manual-mode soak in progress just yields to the tap
   if(profile||etRun||pprof||ramp||bbp){
@@ -853,7 +933,7 @@ $('cPow0').addEventListener('click',()=>{
   if(chargeMs){dropRoast();return;}                 // roast in progress (even if the link dropped): end it and save it
   if(!writeChar){alert('Connect the roaster first.');return;}
   heaterOff();});
-async function heaterOff(){stopManRun();stopRamp();stopProfile();stopBBP('emergency',true);stopEtRun('emergency',true);stopPProf('emergency',true);clearFcHold();await send('PID,OFF ');pidEngaged=false;setPidPill();setTimeout(()=>send('OT1,0'),300);}
+async function heaterOff(){runGen++;stopManRun();stopRamp();stopProfile();stopBBP('emergency',true);stopEtRun('emergency',true);stopPProf('emergency',true);clearFcHold();await send('PID,OFF ');pidEngaged=false;setPidPill();setTimeout(()=>send('OT1,0'),300);}
 function stopRamp(){if(ramp){clearInterval(ramp.tid);ramp=null;}}
 
 // ---------- Profile designer + playback ----------
@@ -1390,7 +1470,13 @@ function confirmAutoFan(){
               :'There is NO fan schedule — the fan stays where it is and must be driven by hand.')
     +'\n\nStart anyway?\n(Cancel to go back and tick Auto fan — start/mid/end % and shape.)');
 }
-$('profRun').addEventListener('click',()=>{profile?stopProfile():(confirmAutoFan()&&startProfile());});
+function userStopProfile(){                         // the button: nothing supervises the heater after this, so switch it off
+  stopProfile();clearFcHold();
+  send('PID,OFF ');pidEngaged=false;setPidPill();curSV=null;$('tSv').textContent='—';
+  setTimeout(()=>send('OT1,0'),250);
+  log('■ Profile stopped — PID off, heater OFF. The roast stays open: Stop / Drop ends it, Run profile rejoins the curve.');
+}
+$('profRun').addEventListener('click',()=>{profile?userStopProfile():(confirmAutoFan()&&startProfile());});
 function chargeSoak(){                                     // open-loop heater steps after charge (roast clock); the control loop takes over after the last step
   if(!$('soakOn').checked)return null;                     // soak disabled: runs engage the control loop immediately
   const v=(id,d)=>{const x=+$(id).value;return $(id).value!==''&&Number.isFinite(x)?x:d;};
@@ -1414,9 +1500,11 @@ async function startProfile(){
   if(!writeChar){alert('Connect the roaster first.');return;}
   if(!$('enableControl').checked){alert('Tick "Enable control" next to the chart first.');return;}
   ensureCharged('profile');
-  stopManRun();stopRamp();stopEtRun('profile started',true);stopPProf('profile started',true);clearFanOverride();clearFcHold();
+  stopProfile();stopManRun();stopRamp();stopEtRun('profile started',true);stopPProf('profile started',true);clearFanOverride();clearFcHold();
+  const gen=runGen;                                   // any stop path from here on abandons this start (nothing runs after a Drop)
   const af=uiAutoFan(),endSv=Math.max(175,pts[pts.length-1].sv);
   const fan0=af?af.start:(pts[0].fan!=null?Math.round(pts[0].fan):40); send('IO3,'+fan0);noteStartFan(fan0); await delay(300);
+  if(gen!==runGen){log('Profile start abandoned — stopped during start-up');return;}
   // Fresh charge -> fixed-power soak (PID off) per the user's charge-soak settings, timed on the
   // roast clock; the PID takes over after the last step. A run started without a recent Charge
   // (restart mid-roast, manual run) engages the PID immediately as before.
@@ -1429,6 +1517,7 @@ async function startProfile(){
   const clockAfter=soaking&&$('soakClock').value==='after';
   if(soaking){
     if(pidEngaged){await send('PID,OFF ');pidEngaged=false;setPidPill();await delay(200);}
+    if(gen!==runGen){log('Profile start abandoned — stopped during start-up');return;}
     curSV=null;$('tSv').textContent='—';                     // no setpoint while open-loop: keep the SV readout/chart honest
     await send('OT1,'+soak[0].pct);
     log('Charge soak: heater '+soak.map(s=>s.pct+'% to '+fmt(s.until)).join(', then ')
@@ -1436,9 +1525,11 @@ async function startProfile(){
   }else{
     if(!pidEngaged)await engagePID(pts[0].sv); else setSV(pts[0].sv);
   }
+  if(gen!==runGen){log('Profile start abandoned — stopped during start-up');return;}
   // Curve time 0:00 on the app clock: now, or (clock after soak) the moment the last soak step ends on the charge clock
   const startT=clockAfter?(chargeMs+soakEnd*1000-connectMs)/1000:nowT();
   profile={points:pts,startT,autoFan:af,lastFan:null,fanSentAt:null,btMin:null,fanArmed:false,fanOfs:0,soak,soakPct:soaking?soak[0].pct:null,tid:setInterval(()=>{   // lastFan null: first tick re-sends the fan even if the start command was lost
+    if(linkLost)return;                                  // Bluetooth lost: paused, resumed by reassertRuns()
     const e=nowT()-startT,p=interpAt(pts,e);
     if(p){
       if(profile.holdPct!=null){                             // FC hold: fixed heater (PID off) — just verify against telemetry
@@ -1474,7 +1565,7 @@ async function startProfile(){
   $('profRun').textContent='■ Stop profile';$('profRun').classList.remove('green');$('profRun').classList.add('danger');
   log('Running profile ('+pts.length+' points, ends '+fmt(pts[pts.length-1].t)+')');
 }
-function stopProfile(){if(profile){clearInterval(profile.tid);profile=null;}clearFanOverride();const b=$('profRun');if(b){b.textContent='▶ Run profile';b.classList.add('green');b.classList.remove('danger');}}
+function stopProfile(){runGen++;if(profile){clearInterval(profile.tid);profile=null;}clearFanOverride();const b=$('profRun');if(b){b.textContent='▶ Run profile';b.classList.add('green');b.classList.remove('danger');}}
 function finishProfile(){                          // natural end of the curve: stop heating, don't hold the last setpoint
   stopProfile();clearFcHold();
   send('PID,OFF ');pidEngaged=false;setPidPill();
@@ -1560,7 +1651,7 @@ async function startEtRun(){
   if(!etRef)applyEtRef();
   if(!etRef){alert('Pick a reference roast (with ET data) first.');return;}
   ensureCharged('ET-track');
-  stopRamp();stopProfile();stopPProf('ET-track started',true);clearFanOverride();clearFcHold();
+  stopRamp();stopProfile();stopManRun();stopEtRun('restarted',true);stopPProf('ET-track started',true);clearFanOverride();clearFcHold();
   etRef._i=0;
   await send('PID,OFF ');pidEngaged=false;
   curSV=null;$('tSv').textContent='—';                              // no setpoint in ET-track: don't chart a stale SV line
@@ -1579,7 +1670,7 @@ async function startEtRun(){
   log('ET-track started: '+etRef.name+' (drop at BT '+dropBt0+'°, ref length '+fmt(etRef.endE)+', fan '+fan0+'%, '
     +(soaking?'charge soak '+soak.map(s=>s.pct+'% to '+fmt(s.until)).join(', then ')+' — then PID trim':'heater '+out0+'%')+')');
 }
-function stopEtRun(reason,keepHeat){
+function stopEtRun(reason,keepHeat){runGen++;
   if(!etRun)return;clearInterval(etRun.tid);etRun=null;
   $('etSel').disabled=$('etSmooth').disabled=false;
   $('etRunBtn').textContent='▶ Start ET-track run';$('etRunBtn').classList.add('green');$('etRunBtn').classList.remove('danger');
@@ -1602,7 +1693,7 @@ function etMean(t0,t1){                                // mean ET over samples w
   return n?sum/n:null;
 }
 function etTick(){
-  if(!etRun||!etRef)return;
+  if(!etRun||!etRef||linkLost)return;
   const e=nowT()-etRun.startT;
   const kp=+$('etKp').value||0.5,ki=+$('etKi').value||0.02,kd=+$('etKd').value||0;
   const slew=Math.max(2,Math.min(50,+$('etSlew').value||4)),etMax=+$('etMax').value||240;
@@ -1618,7 +1709,8 @@ function etTick(){
     return;
   }
   const dropBt=Math.max(120,Math.min(250,+$('etEndBt').value||etRef.endBt||210));
-  if(bt!=null&&bt>=dropBt){finishEtRun('🎯 Drop temp reached (BT '+Math.round(bt)+'°) — heater OFF. Drop the beans.');return;}
+  if(!etRun.dropArmed&&((bt!=null&&bt<dropBt-10)||e>=60))etRun.dropArmed=true;   // the hot empty drum reads above drop temp right at charge
+  if(etRun.dropArmed&&bt!=null&&bt>=dropBt){finishEtRun('🎯 Drop temp reached (BT '+Math.round(bt)+'°) — heater OFF. Drop the beans.');return;}
   if(e>=etRef.endE+120){finishEtRun('⏱ BT didn\'t reach '+dropBt+'° within 2 min of the reference end — heater OFF.');return;}
   const overrun=e>=etRef.endE;                                      // past the reference clock: hold final ET, wait for BT
   const target=refAt(etRef,e,'et');
@@ -1825,7 +1917,7 @@ async function startPProf(){
   if(!$('enableControl').checked){alert('Tick "Enable control" next to the chart first.');return;}
   const steps=ppSteps();if(!steps){alert('The schedule isn\'t valid — one "time heater% [fan%]" per line, at least 2 lines.');return;}
   ensureCharged('power schedule');
-  stopRamp();stopProfile();stopEtRun('power profile started',true);clearFanOverride();clearFcHold();
+  stopRamp();stopProfile();stopManRun();stopPProf('restarted',true);stopEtRun('power profile started',true);clearFanOverride();clearFcHold();
   await send('PID,OFF ');pidEngaged=false;
   curSV=null;$('tSv').textContent='—';                 // open loop: no setpoint to chart
   const pill=$('pidPill');pill.textContent='OPEN LOOP';pill.className='pill on';
@@ -1840,7 +1932,7 @@ async function startPProf(){
     +(soaking?' — charge soak '+soak.map(s=>s.pct+'% to '+fmt(s.until)).join(', then ')+' first':''));
   $('ppStatus').textContent='⚡ Power profile running — first tick in a second…';
 }
-function stopPProf(reason,keepHeat){
+function stopPProf(reason,keepHeat){runGen++;
   if(!pprof)return;clearInterval(pprof.tid);pprof=null;
   $('ppRunBtn').textContent='▶ Run power profile';$('ppRunBtn').classList.add('green');$('ppRunBtn').classList.remove('danger');
   setPidPill();
@@ -1854,7 +1946,7 @@ function finishPProf(msg){
   fireAlarm(msg||'✅ Power profile complete — heater OFF & roast saved. Drop the beans.');
 }
 function ppTick(){
-  if(!pprof)return;
+  if(!pprof||linkLost)return;
   const e=nowT()-pprof.startT;
   const s=samples[samples.length-1];
   const fresh=s&&(nowT()-s.t)<8;
@@ -1868,7 +1960,8 @@ function ppTick(){
     return;
   }
   const dropBt=Math.max(120,Math.min(250,+$('ppEndBt').value||210));
-  if(bt!=null&&bt>=dropBt){finishPProf('🎯 Drop temp reached (BT '+Math.round(bt)+'°) — heater OFF. Drop the beans.');return;}
+  if(!pprof.dropArmed&&((bt!=null&&bt<dropBt-10)||e>=60))pprof.dropArmed=true;   // the hot empty drum reads above drop temp right at charge
+  if(pprof.dropArmed&&bt!=null&&bt>=dropBt){finishPProf('🎯 Drop temp reached (BT '+Math.round(bt)+'°) — heater OFF. Drop the beans.');return;}
   const steps=pprof.steps,last=steps[steps.length-1];
   if(e>=last.t){finishPProf('⏹ End of the power schedule — heater OFF. Drop the beans.');return;}
   let cur=steps[0];for(const st of steps){if(st.t<=e)cur=st;else break;}
@@ -1953,7 +2046,7 @@ function bbpManOpen(){return{heat:clampPct($('bbpManHeat').value),fan:clampPct($
 function bbpModeUI(){$('bbpManRow').style.display=bbpMode()==='manual'?'':'none';bbpPreviewDraw();saveBbpCfg();drawChart();}
 ['bbpModeProf','bbpModeMan'].forEach(id=>$(id).addEventListener('change',bbpModeUI));
 let manRun=null;                                          // only alive while the charge soak runs before the hand-over
-function stopManRun(){if(manRun){clearInterval(manRun.tid);manRun=null;}}
+function stopManRun(){runGen++;if(manRun){clearInterval(manRun.tid);manRun=null;}}
 function startManualRoast(){
   const o=bbpManOpen(),soak=chargeSoak();
   stopManRun();
@@ -1962,7 +2055,7 @@ function startManualRoast(){
   const handOver=()=>{send('OT1,'+o.heat);log('🎛 Manual roast — heater '+o.heat+'%, fan '+o.fan+'%. Drive Heater / Fan ± from the Controls rail; Stop / Drop ends the roast.');};
   if(!soak){setTimeout(handOver,400);return;}
   const tick=()=>{
-    if(!manRun)return;
+    if(!manRun||linkLost)return;
     if(!chargeMs||events.drop!=null||profile||etRun||pprof||bbp){stopManRun();return;}   // something else took over
     const e=(Date.now()-chargeMs)/1000,st=soak.find(x=>e<x.until);
     if(st){if(st.pct!==manRun.soakPct){send('OT1,'+st.pct);manRun.soakPct=st.pct;log('Charge soak: heater '+st.pct+'%');}}
@@ -2075,7 +2168,7 @@ async function startBBP(){
   if(auto&&!manual&&!ppArmedSteps&&!etArmed&&!haveProfile)log('⚠️ Auto-charge is on but no valid profile is loaded — load one before the beans go in.');
   bbpTick();
 }
-function stopBBP(reason,keepHeat){
+function stopBBP(reason,keepHeat){runGen++;
   if(!bbp)return;clearInterval(bbp.tid);bbp=null;
   $('bbpLight').style.display='none';
   $('bbpStart').textContent='🔄 Start between-batch cycle';$('bbpStart').classList.add('blue');$('bbpStart').classList.remove('danger');
@@ -2084,10 +2177,11 @@ function stopBBP(reason,keepHeat){
   log('BBP '+(reason==='charge'?'→ CHARGE':'stopped: '+reason));
 }
 function bbpTick(){
-  if(!bbp)return;const b=bbp,bt=latestBT();
+  if(!bbp||linkLost)return;const b=bbp,bt=latestBT();
   const last=samples[samples.length-1];
   if(bt==null||(b.phase!=='cool'&&last&&nowT()-last.t>BBP_TELEM_S)){   // open-loop heater with no readings: cut it rather than cook an empty drum
     if(b.sent!==0){send('OT1,0');b.sent=0;b.out=0;log('BBP: no telemetry for '+BBP_TELEM_S+' s — heater off until readings return');}
+    if(b.phase==='soak'||b.phase==='ready'){b.phase='heat';b.readyMax=null;$('bbpLight').style.display='none';log('BBP: back to heating — the drum cooled while readings were missing');}   // never "detect" a bean drop from that sag
     $('bbpStatus').textContent='Waiting for telemetry…';return;}
   if(b.phase==='cool'){
     $('bbpStatus').innerHTML='🧊 Cooling — fan 100%, heater off · BT '+Math.round(bt)+' → '+b.coolTo+' °C';
@@ -2300,7 +2394,9 @@ $('heaterW').addEventListener('change',()=>{
 });
 
 // ---------- Roast timer + events ----------
-$('evCharge').addEventListener('click',()=>{if(chartFrozen)resetRoastView();   // the previous roast leaves the chart now, not at its Drop
+$('evCharge').addEventListener('click',()=>{if(bbp)stopBBP('charge',true);   // a hand-marked Charge ends the cycle too (two controllers must never share the heater)
+  if(chartFrozen)resetRoastView();
+  sessionId='s'+Date.now();sessionClosed=false;chartRoastId=null;   // the previous roast leaves the chart now, not at its Drop
   chargeMs=Date.now();events.charge=0;events.dry=events.fc=events.drop=null;
   roastFan0=curFan();                              // the fan the beans went in at — restored when the roast is dropped
   batchCode=newBatchCode();showBatchCode(batchCode);   // label for the bag
@@ -2330,7 +2426,7 @@ function setFcHoldNote(){const n=$('fcHoldNote');if(!n)return;n.style.display=fc
   if(fcHold){$('fcHoldPctTxt').textContent=fcHold.pct;
     $('fcHoldTimerTxt').textContent=fcHold.until?' — PID auto-resumes in '+Math.max(0,Math.ceil((fcHold.until-Date.now())/1000))+' s':'';}}
 function stopFcHoldTimers(){if(!fcHold)return;if(fcHold.tid)clearTimeout(fcHold.tid);if(fcHold.cid)clearInterval(fcHold.cid);fcHold.tid=fcHold.cid=null;}
-function clearFcHold(){if(!fcHold)return;stopFcHoldTimers();fcHold=null;if(profile)profile.holdPct=null;if(etRun)etRun.holdPct=null;setFcHoldNote();}
+function clearFcHold(){runGen++;if(!fcHold)return;stopFcHoldTimers();fcHold=null;if(profile)profile.holdPct=null;if(etRun)etRun.holdPct=null;setFcHoldNote();}
 async function applyFcHold(){
   if(!$('fcHold').checked)return;
   if(!writeChar||!$('enableControl').checked){log('⚡ FC hold skipped — control not enabled.');return;}
@@ -2338,21 +2434,23 @@ async function applyFcHold(){
   const avg=last30AvgHeat();
   if(avg==null){log('⚡ FC hold skipped — no heater telemetry to average.');return;}
   stopFcHoldTimers();                                // a re-mark restarts the auto-resume clock
-  fcHold={pct:avg,sv:(fcHold&&fcHold.sv!=null)?fcHold.sv:curSV};   // a re-mark keeps the original displaced setpoint
+  fcHold={pct:avg,sv:(fcHold&&fcHold.sv!=null)?fcHold.sv:curSV};
+  const gen=runGen;   // a re-mark keeps the original displaced setpoint
   if(etRun){                                        // ET-track drives OT1 itself: park its loop on the held value
     etRun.holdPct=avg;
     if(etRun.lastOut!==avg){send('OT1,'+avg);etRun.lastOut=avg;}
   }else{                                            // profile / plain PID roast: PID off, fixed manual power
     if(profile){profile.holdPct=avg;profile.holdSentAt=null;}
     stopRamp();
-    await delay(200);                               // settle with the PID still driving — not with the heater at 0
+    await delay(200);if(gen!==runGen||!fcHold)return;                               // settle with the PID still driving — not with the heater at 0
     await send('PID,OFF ');pidEngaged=false;setPidPill();
     curSV=null;$('tSv').textContent='—';            // no setpoint while open-loop: keep the SV readout honest
     await send('OT1,'+avg);                         // back-to-back after PID,OFF: txChain keeps the order, so no gap needed
   }
   const secs=Math.max(0,Math.min(600,Math.round(+$('fcHoldSecs').value)||0));
   if(secs>0){fcHold.until=Date.now()+secs*1000;      // timed hold: hand back to the PID by itself
-    fcHold.tid=setTimeout(()=>{if(fcHold)resumeFromFcHold();},secs*1000);
+    const fire=()=>{if(!fcHold)return;if(linkLost){fcHold.tid=setTimeout(fire,3000);return;}resumeFromFcHold();};   // link down: wait for it
+    fcHold.tid=setTimeout(fire,secs*1000);
     fcHold.cid=setInterval(setFcHoldNote,1000);}
   setFcHoldNote();
   log('⚡ FC hold — heater fixed at '+avg+'% (avg of last 30 s)'+((profile||etRun)?', automated fan paused':'')
@@ -2381,7 +2479,7 @@ $('fcHoldSecs').addEventListener('change',()=>{try{localStorage.setItem('rc_fcho
 $('cEvDry').addEventListener('click',()=>{chargeMs?$('evDry').click():log('Dry End not marked — no roast running (charge first).');});
 $('cEvFc').addEventListener('click',()=>{chargeMs?$('evFc').click():log('First Crack not marked — no roast running (charge first).');});
 $('evDrop').addEventListener('click',dropRoast);
-function dropRoast(){                              // end of roast: mark Drop, cut the heater, fan back to its charge speed, save, reset
+function dropRoast(){runGen++;                              // end of roast: mark Drop, cut the heater, fan back to its charge speed, save, reset
   if(!chargeMs)return;
   events.drop=(Date.now()-chargeMs)/1000;renderEvents();
   stopManRun();stopRamp();stopProfile();stopBBP('drop',true);stopEtRun('drop',true);stopPProf('drop',true);
@@ -2403,7 +2501,7 @@ function dropRoast(){                              // end of roast: mark Drop, c
 function freezeRoastView(){                        // Drop: recording stops, the finished curve (events, phases, TP) stays up for review
   chartFrozen=true;frozenBase=0;
   chargeMs=null;                                   // the roast is closed — Charge starts (and clears for) the next batch
-  invUse.dropped=false;invUse.deducted=0;roastFan0=null;   // the batch's stock deduction is final — a new bean/weight typed now is the NEXT batch's
+  roastFan0=null;                                  // invUse stays: a weight or bean corrected after Drop still adjusts this batch's deduction (Charge / reset / the batch popup close it)
   alarms.temp=false;
   curSV=null;$('tSv').textContent='—';
   $('evTimes').innerHTML+=' — <b>roast saved</b>; the curve stays on the chart until you press <b>Charge</b> for the next batch (or Clear chart).';
@@ -2411,6 +2509,7 @@ function freezeRoastView(){                        // Drop: recording stops, the
 }
 function resetRoastView(){                         // fresh chart for the next batch (the roast was just auto-saved)
   chartFrozen=false;samples.length=0;btHist.length=0;rxBuffer='';
+  sessionId=null;sessionClosed=false;chartRoastId=null;
   Object.assign(events,{charge:null,dry:null,fc:null,drop:null});
   chargeMs=null;if(connectMs)connectMs=Date.now(); // rebase the time axis
   invUse.dropped=false;invUse.deducted=0;roastFan0=null;   // the batch's stock deduction is final — a new bean/weight typed now is the NEXT batch's
@@ -2426,7 +2525,7 @@ function updateLoss(){
   const a=+$('wIn').value,b=+$('wOut').value;
   $('wLoss').innerHTML=(a>0&&b>0&&b<=a)?'Weight loss: <b style="color:var(--text)">'+((1-b/a)*100).toFixed(1)+'%</b> ('+a+' g → '+b+' g)':'';
   syncAutoSaved();
-  if(chargeMs&&events.drop!=null)renderStatsCard(roastStats(),a,b);
+  if((chargeMs||chartFrozen)&&events.drop!=null)renderStatsCard(roastStats(),a,b,batchCode);
 }
 $('wIn').addEventListener('input',()=>{updateLoss();if(invUse.dropped)applyInvDeduction();});  // weight typed after Drop still hits the inventory
 $('wOut').addEventListener('input',updateLoss);
@@ -2761,7 +2860,8 @@ function buildRoastRec(name){
     samples:samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv})),
     events:Object.assign({},events)};
 }
-let autoSaved={charge:null,id:null};
+let autoSaved={session:null,id:null};
+const autoSavedIsLive=()=>!!(sessionId&&autoSaved.id&&autoSaved.session===sessionId);   // the record of the roast on the chart (live or just dropped)
 // ---------- Roast notes + star ----------
 // Notes and the ★ mark belong to the roast selected in the saved-roast dropdown (the box and
 // the dropdown always agree). While a roast is running and nothing is selected, the box holds a
@@ -2786,21 +2886,21 @@ $('roastSelect').addEventListener('change',()=>{                     // browsing
 function autoSaveRoast(){                                   // roast lands in the log at profile completion or Drop
   if(!samples.length)return;
   const a=loadLogs();
-  if(autoSaved.charge===chargeMs&&autoSaved.id){           // already saved this roast -> refresh it with the latest data
+  if(autoSavedIsLive()){                                   // already saved this roast -> refresh it with the latest data
     const r=a.find(x=>x.id===autoSaved.id);
     if(r){r.samples=samples.map(s=>({t:+s.t.toFixed(1),bt:s.bt,et:s.et,heat:s.heat,fan:s.fan,sv:s.sv}));
       r.events=Object.assign({},events);r.stats=roastStats()||r.stats;r.mtime=Date.now();
-      if(r.autoName)r.name=$('beanInfo').value.trim()||'Unknown';
-      if(curRoastId!==r.id){r.notes=liveDraft.notes.trim();r.star=liveDraft.star;}
+      if(r.autoName&&!sessionClosed)r.name=$('beanInfo').value.trim()||'Unknown';   // closed: the fields already describe the NEXT batch
+      if(curRoastId!==r.id&&(liveDraft.notes.trim()||liveDraft.star)){r.notes=liveDraft.notes.trim();r.star=liveDraft.star;}   // an empty draft never wipes typed notes
       saveLogs(a);liveDraft={notes:'',star:false};setCurRoast(r);}
     return;
   }
   const rec=buildRoastRec($('beanInfo').value.trim()||'Unknown');rec.autoName=true;
   a.push(rec);
-  if(saveLogs(a)){autoSaved={charge:chargeMs,id:rec.id};liveDraft={notes:'',star:false};refreshRoastSelect();setCurRoast(rec);log('💾 Roast auto-saved to the log: '+rec.name+(rec.code?' · batch #'+rec.code:''));}
+  if(saveLogs(a)){autoSaved={session:sessionId,id:rec.id};chartRoastId=rec.id;liveDraft={notes:'',star:false};refreshRoastSelect();setCurRoast(rec);log('💾 Roast auto-saved to the log: '+rec.name+(rec.code?' · batch #'+rec.code:''));}
 }
 function syncAutoSaved(){                                   // weights/bean typed after saving update the record
-  if(!autoSaved.id||autoSaved.charge!==chargeMs)return;
+  if(!autoSavedIsLive()||sessionClosed)return;             // works after Drop too (the session outlives the roast clock); not once the next batch is being set up
   const a=loadLogs(),r=a.find(x=>x.id===autoSaved.id);if(!r)return;
   r.bean=$('beanInfo').value.trim();r.weightIn=+$('wIn').value||null;r.weightOut=+$('wOut').value||null;r.mtime=Date.now();
   if(r.autoName)r.name=r.bean||'Unknown';                  // keep the auto-name in step with the bean field
@@ -2812,7 +2912,7 @@ $('btnSaveRoast').addEventListener('click',()=>{
   const bean=$('beanInfo').value.trim(),defName=bean||'Unknown';
   const name=prompt('Name this roast:',defName);if(name==null)return;
   const a=loadLogs();
-  const exId=(autoSaved.id&&autoSaved.charge===chargeMs)?autoSaved.id:curRoastId;   // the live auto-saved roast, else the one shown (just dropped / loaded)
+  const exId=autoSavedIsLive()?autoSaved.id:chartRoastId;   // the roast whose data is on the chart (live, just dropped, or loaded) — never the one merely selected in the list
   const ex=exId?a.find(x=>x.id===exId):null;
   if(ex){                                                   // rename/refresh the auto-saved record instead of duplicating
     ex.name=name||defName;ex.autoName=false;ex.bean=bean;ex.weightIn=+$('wIn').value||null;ex.weightOut=+$('wOut').value||null;ex.mtime=Date.now();
@@ -2821,12 +2921,14 @@ $('btnSaveRoast').addEventListener('click',()=>{
     if(saveLogs(a)){refreshRoastSelect();setCurRoast(ex);log('Roast updated: '+ex.name);}
   }else{
     const rec=buildRoastRec(name||defName);rec.autoName=false;a.push(rec);
-    if(saveLogs(a)){autoSaved={charge:chargeMs,id:rec.id};liveDraft={notes:'',star:false};refreshRoastSelect();setCurRoast(rec);log('Roast saved: '+rec.name);}
+    if(saveLogs(a)){autoSaved={session:sessionId,id:rec.id};chartRoastId=rec.id;liveDraft={notes:'',star:false};refreshRoastSelect();setCurRoast(rec);log('Roast saved: '+rec.name);}
   }
 });
 $('btnLoadRoast').addEventListener('click',()=>{
   const id=$('roastSelect').value;if(!id)return;const r=loadLogs().find(x=>x.id===id);if(!r)return;
+  if(chargeMs||bbp){alert('A roast / between-batch cycle is in progress — Stop / Drop it before loading a saved roast.');return;}
   if(device&&device.gatt&&device.gatt.connected&&!confirm('Load a saved roast into the chart (replaces the current view)?'))return;
+  sessionId=null;sessionClosed=false;chartRoastId=r.id;   // review: the chart now shows this record, no live session
   chartFrozen=true;frozenBase=bgBaseOf(r);          // review mode: live readings must not draw over the loaded roast (Charge / Clear chart go live again)
   liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;   // no stale crossings/turning point from the last live roast
   samples.length=0;r.samples.forEach(s=>samples.push(Object.assign({raw:''},s)));
@@ -3196,6 +3298,7 @@ $('bbmCancel').addEventListener('click',()=>{$('batchBeanModal').style.display='
 $('bbmGo').addEventListener('click',()=>{
   const w=bbmWeight();
   $('batchBeanModal').style.display='none';
+  if(sessionId){if(chargeMs)autoSaveRoast();sessionClosed=true;}   // the previous roast keeps ITS bean / weights: nothing typed from here on syncs into its record
   invUse.dropped=false;invUse.deducted=0;             // new batch: fresh deduction session before touching the fields,
   $('invUseSel').value=bbmSel.itemId;                 // so the previous roast's deduction is never put back or re-adjusted
   $('invUseSel').dispatchEvent(new Event('change'));  // sets invUse.itemId, bean-details line, saved pick

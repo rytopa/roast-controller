@@ -201,7 +201,7 @@ Both are experimental. Do a few normal profile roasts first so you know how your
 - Fan on before heater on. The app enforces airflow in its automated flows, but in manual fan control it is on you.
 - **Enable control** is per session — it resets when you reload, which is intentional.
 - Stay with the machine. Alarms and warnings are aids, not supervision.
-- Losing the Bluetooth link stops every automated run and the app shows **disconnected** — but the roaster's own state persists. If a roast is in progress when the link drops, reconnect immediately or turn the roaster's heater off at the machine.
+- **If the Bluetooth link drops mid-roast** the roaster keeps whatever heater / PID setting it last received — it does not know the app is gone. The app runs a link-loss protocol: it alarms, keeps the roast and any running profile / cycle **paused** (nothing is thrown away), reconnects to the same roaster by itself every few seconds for up to 3 minutes, and on reconnection re-sends the current heater command and resumes the run on the same clock (the chart shows a gap). Watch the red banner: **if it has not reconnected within a minute, cut the heat at the machine.** Pressing **Disconnect** yourself, or a drop with nothing running, simply stops everything as before.
 - If in doubt: **Stop / Drop** on the Controls rail.
 
 ---
@@ -214,6 +214,7 @@ Both are experimental. Do a few normal profile roasts first so you know how your
 | Roaster not in the device list | Power-cycle the roaster, close the vendor app, tick **List all Bluetooth devices**, move closer. |
 | Connected but tiles show `—` | Open **Connection details / advanced**. If the Notify/Write fields are `—`, the service was not found: use the free **nRF Connect** app to read the roaster's Service UUID and paste it into the custom Service UUID box, then reconnect. |
 | Buttons do nothing | **Enable control** is not ticked, or the roaster is disconnected. |
+| Red "Bluetooth lost" banner during a roast | The link dropped. The app is reconnecting by itself and the run is paused, not lost. If it is not back within a minute, cut the heat at the machine; press **Reconnect now** once the roaster is back in range. |
 | Heater will not fire | The fan is at 0. Set a fan speed first. |
 | Auto-charge did not trigger | The bean-probe drop was too small or slow (small batch, low charge temp). Press **▶ Run profile** to start the curve now; next time use a larger batch or a higher charge temperature so the plunge is clearer. |
 | RoR trace is jagged | Increase **RoR smooth** or lengthen **RoR window** under the chart. |
