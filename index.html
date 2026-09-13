@@ -254,7 +254,7 @@
     <div class="row" style="margin-bottom:8px">
       <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Cool to °C</div><input id="bbpCool" type="number" min="40" max="150" value="100"></div>
       <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge temp °C</div><input id="bbpCharge" type="number" min="120" max="240" value="180"></div>
-      <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge fan %</div><input id="bbpFan" type="number" min="10" max="100" value="30"></div>
+      <div style="flex:1;min-width:88px"><div class="small" style="margin-bottom:3px">Charge fan %</div><input id="bbpFan" type="number" min="10" max="100" value="50"></div>
     </div>
     <div class="row" style="margin:0 0 4px;align-items:center">
       <label class="ck" style="margin:0"><input type="checkbox" id="soakOn" checked><span class="small"><b>Charge soak</b></span></label>
@@ -1970,7 +1970,7 @@ async function startBBP(){
   if(!$('enableControl').checked){alert('Tick "Enable control" next to the chart first.');return;}
   const coolTo=Math.max(40,Math.min(150,+$('bbpCool').value||100));
   const chargeT=Math.max(coolTo+10,Math.min(240,+$('bbpCharge').value||180));
-  const fanLow=Math.max(10,Math.min(100,+$('bbpFan').value||30));
+  const fanLow=Math.max(10,Math.min(100,+$('bbpFan').value||50));
   // ---- confirmation summary: what will actually run at bean drop + the air flow it uses ----
   const auto=$('bbpAuto').checked,pts=getPoints(),haveProfile=pts.length>=2;
   const pname=$('profName').value.trim(),af=uiAutoFan();
