@@ -52,7 +52,7 @@ In the **Between batches / charge** panel:
 
 - **Cool to °C** — the machine is fanned down to this before charging (default 100).
 - **Charge temp °C** — the drum temperature at which you drop beans in (default 180). Start with the default.
-- **Charge fan %** — fan speed used while heating to charge and at the moment you pour (default 50).
+- **Charge fan %** — fan speed used while heating to charge and at the moment you pour (default 35).
 - Leave **Charge soak** and **Auto-charge** ticked.
 - **At bean drop** — leave **Run the profile** selected for now. The **Manual** option is described in section 6.
 
