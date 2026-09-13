@@ -237,7 +237,7 @@
   <div class="panel">
     <h2>Between batches / charge</h2>
     <button id="bbpStart" class="blue" style="width:100%">🔄 Start between-batch cycle</button>
-    <div id="bbpStatus" class="small" style="margin-top:7px">Cools the machine (fan 100%, heater off) to the cool-to temp, then ramps gradually to your charge temp over <b>1 min</b> at the charge fan speed, holds it <b>30 s</b>, and lights up when it's time to drop the beans.</div>
+    <div id="bbpStatus" class="small" style="margin-top:7px">Cools the machine (fan 100%, heater off) to the cool-to temp, then ramps the heater up gradually (never more than 1.5% per second, capped at 85%) until the drum reaches your charge temp at the charge fan speed, holds it <b>30 s</b>, and lights up when it's time to drop the beans. The roaster's own PID is not used between batches — power only ever ramps, so there is no full-power surge at start-up or at the bean drop.</div>
     <div id="bbpLight" class="droplight" style="display:none">⬇ DROP BEANS NOW</div>
     <hr style="margin:10px 0">
     <div class="row" style="margin-bottom:6px;align-items:center;gap:12px">
@@ -266,7 +266,7 @@
       <span class="small">· profile clock</span>
       <select id="soakClock" style="width:auto"><option value="charge">runs from charge</option><option value="after">starts after the soak</option></select>
     </div>
-    <div class="small" style="margin-bottom:8px">Fixed heater power right after <b>Charge</b> (open loop, PID off) — then the control loop takes over. Applies to profile runs <b>and ET-track runs</b> started at charge. <b>Untick to skip the soak</b> — the control loop then engages on the curve from the first second after charge. <b>Profile clock</b> (profile runs only): <b>runs from charge</b> — the curve's 0:00 is the charge, so when the soak ends the PID joins the curve part-way in (at 0:45 by default); <b>starts after the soak</b> — the curve's 0:00 is the end of the soak, so the PID starts at the first point and the whole curve plays after it (the roast runs that much longer; the plan on the chart shifts to match). Saved in this browser. ⚡ Charging and the between-batch cycle are <b>hard-capped at 85% power</b> — above that the app pauses the PID and holds 85% until the temperature is nearly there.</div>
+    <div class="small" style="margin-bottom:8px">Fixed heater power right after <b>Charge</b> (open loop, PID off) — then the control loop takes over. Applies to profile runs <b>and ET-track runs</b> started at charge. <b>Untick to skip the soak</b> — the control loop then engages on the curve from the first second after charge. <b>Profile clock</b> (profile runs only): <b>runs from charge</b> — the curve's 0:00 is the charge, so when the soak ends the PID joins the curve part-way in (at 0:45 by default); <b>starts after the soak</b> — the curve's 0:00 is the end of the soak, so the PID starts at the first point and the whole curve plays after it (the roast runs that much longer; the plan on the chart shifts to match). Saved in this browser. ⚡ The between-batch cycle is <b>capped at 85% power</b> and driven open-loop by the app (no PID surge): the heater ramps up slowly and the beans land on the soak's first power the instant the drop is detected.</div>
     <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="bbpAuto" checked><span><b>Auto-charge</b> — when the beans drop (BT plunges), mark Charge and start the profile loaded in the designer automatically. <b>No need to press ▶ Run profile</b> — the whole roast runs from this one button.</span></label>
   </div>
 
@@ -1877,30 +1877,29 @@ function ppTick(){
 
 // ---------- Between-batch protocol ----------
 let bbp=null;
-const BBP_HOLD_S=30,BBP_RAMP_S=60,BBP_DROP_DELTA=10,MAX_CHARGE_PWR=85;
+const BBP_HOLD_S=30,BBP_DROP_DELTA=10,MAX_CHARGE_PWR=85;
 function latestBT(){for(let i=samples.length-1;i>=0;i--){const s=samples[i];if(s.bt!=null&&!Number.isNaN(s.bt))return s.bt;}return null;}
 function latestHeat(){for(let i=samples.length-1;i>=0;i--){const s=samples[i];if(s.heat!=null&&!Number.isNaN(s.heat))return s.heat;}return null;}
-// 85% hard power cap for the between-batch cycle. The firmware PID's output limit
-// isn't adjustable over BLE, so the app supervises it: when telemetry shows the
-// heater above the cap, the PID is paused and the heater held at MAX_CHARGE_PWR
-// open-loop; once BT is nearly at the phase's target the PID is re-engaged (with a
-// 10 s cool-off so a briefly-hot PID doesn't toggle the cap on and off).
-function bbpCap(b,bt,target){
-  if(!b.capped){
-    const h=latestHeat();
-    if(!engaging&&h!=null&&h>MAX_CHARGE_PWR+1&&(b.capRelAt==null||Date.now()-b.capRelAt>=10000)){
-      b.capped=true;
-      send('PID,OFF ');pidEngaged=false;setPidPill();
-      setTimeout(()=>send('OT1,'+MAX_CHARGE_PWR),250);
-      log('BBP: heater '+Math.round(h)+'% — hard cap, holding '+MAX_CHARGE_PWR+'% (PID paused until BT nears '+Math.round(target)+'°)');
-    }
-  }else if(bt>=target-3){
-    b.capped=false;b.capRelAt=Date.now();
-    engagePID(Math.round(target));
-    log('BBP: BT '+Math.round(bt)+'° near target — PID re-engaged ('+MAX_CHARGE_PWR+'% cap released)');
-  }
-  return b.capped;
+// Charge-cycle heater control. The firmware PID is never engaged between batches: its output
+// limit isn't adjustable over BLE and it slams the heater to 100% every time it is switched on
+// or the temperature drops (cool → heat, each cap release, and the bean drop itself) — the
+// surge that trips breakers. The app drives the heater open-loop instead: a slow P+I on BT,
+// capped at MAX_CHARGE_PWR, with the output rate-limited so power only ever ramps
+// (BBP_SLEW_UP %/s up, BBP_SLEW_DN %/s down; 0 → 85% takes about a minute). The integral
+// pauses while the output is capped or still catching up through the rate limit (no wind-up
+// during the ramp) and its steady value is remembered to seed the next cycle.
+const BBP_KP=2.5,BBP_KI=0.05,BBP_SLEW_UP=1.5,BBP_SLEW_DN=4,BBP_TELEM_S=20;
+function bbpDrive(b,bt){
+  const err=b.chargeT-bt,raw=b.base+BBP_KP*err;
+  const limited=(raw>b.out+BBP_SLEW_UP&&err>0)||(raw<b.out-BBP_SLEW_DN&&err<0)||(raw>=MAX_CHARGE_PWR&&err>0)||(raw<=0&&err<0);
+  if(!limited)b.base=Math.max(0,Math.min(MAX_CHARGE_PWR,b.base+BBP_KI*err));
+  const want=Math.max(0,Math.min(MAX_CHARGE_PWR,b.base+BBP_KP*err));
+  b.out=Math.max(b.out-BBP_SLEW_DN,Math.min(b.out+BBP_SLEW_UP,want));   // one tick = 1 s
+  const o=Math.round(b.out);
+  if(o!==b.sent){send('OT1,'+o);b.sent=o;}
+  return o;
 }
+function bbpHoldSeed(){try{const v=+localStorage.getItem('rc_bbp_hold');return Number.isFinite(v)?Math.max(0,Math.min(MAX_CHARGE_PWR,v)):0;}catch(e){return 0;}}
 function beepReady(){
   try{const ac=new (window.AudioContext||window.webkitAudioContext)();
     const o=ac.createOscillator(),g=ac.createGain();o.connect(g);g.connect(ac.destination);
@@ -2032,7 +2031,7 @@ async function startBBP(){
   if(chargeMs||samples.length)resetRoastView();                     // fresh graph for the new batch (idle warm-up telemetry isn't saved)
   await send('PID,OFF ');pidEngaged=false;setPidPill();
   await delay(200);await send('OT1,0');await delay(200);await send('IO3,100');
-  bbp={phase:'cool',coolTo,chargeT,fanLow,heatStart:null,startSv:null,soakStart:null,readyMax:null,capped:false,capRelAt:null,tid:setInterval(bbpTick,1000)};
+  bbp={phase:'cool',coolTo,chargeT,fanLow,heatStart:null,soakStart:null,readyMax:null,out:0,sent:0,base:0,tid:setInterval(bbpTick,1000)};
   $('bbpStart').textContent='■ Cancel cycle';$('bbpStart').classList.remove('blue');$('bbpStart').classList.add('danger');
   log('BBP: cooling to '+coolTo+'°C (fan 100%, heater off), charge '+chargeT+'°C, fan '+fanLow+'%');
   if(auto&&!manual&&!ppArmedSteps&&!etArmed&&!haveProfile)log('⚠️ Auto-charge is on but no valid profile is loaded — load one before the beans go in.');
@@ -2048,35 +2047,37 @@ function stopBBP(reason,keepHeat){
 }
 function bbpTick(){
   if(!bbp)return;const b=bbp,bt=latestBT();
-  if(bt==null){$('bbpStatus').textContent='Waiting for telemetry…';return;}
+  const last=samples[samples.length-1];
+  if(bt==null||(b.phase!=='cool'&&last&&nowT()-last.t>BBP_TELEM_S)){   // open-loop heater with no readings: cut it rather than cook an empty drum
+    if(b.sent!==0){send('OT1,0');b.sent=0;b.out=0;log('BBP: no telemetry for '+BBP_TELEM_S+' s — heater off until readings return');}
+    $('bbpStatus').textContent='Waiting for telemetry…';return;}
   if(b.phase==='cool'){
     $('bbpStatus').innerHTML='🧊 Cooling — fan 100%, heater off · BT '+Math.round(bt)+' → '+b.coolTo+' °C';
-    if(bt<=b.coolTo){b.phase='heat';b.heatStart=Date.now();b.startSv=Math.round(bt);
-      send('IO3,'+b.fanLow);engagePID(b.startSv);
-      log('BBP: cooled — charging to '+b.chargeT+'°C over 1:00 at fan '+b.fanLow+'%');}
+    if(bt<=b.coolTo){b.phase='heat';b.heatStart=Date.now();b.out=0;b.sent=0;b.base=bbpHoldSeed();
+      send('IO3,'+b.fanLow);
+      log('BBP: cooled — heating to '+b.chargeT+'°C at fan '+b.fanLow+'% (open loop, heater ramps ≤'+BBP_SLEW_UP+'%/s to a '+MAX_CHARGE_PWR+'% cap)');}
   }else if(b.phase==='heat'){
-    const e=(Date.now()-b.heatStart)/1000;
-    const target=b.startSv+(b.chargeT-b.startSv)*Math.min(1,e/BBP_RAMP_S);
-    if(!bbpCap(b,bt,target)&&!engaging)setSV(target);
-    $('bbpStatus').innerHTML='🔥 Charging — ramping to '+b.chargeT+' °C over 1:00 (fan '+b.fanLow+'%) · '+fmt(Math.min(BBP_RAMP_S,e))+(b.capped?' · ⚡ '+MAX_CHARGE_PWR+'% cap':'');
-    if(e>=BBP_RAMP_S){b.phase='soak';b.soakStart=null;}
+    const e=(Date.now()-b.heatStart)/1000,o=bbpDrive(b,bt);
+    $('bbpStatus').innerHTML='🔥 Charging — ramping heater to reach '+b.chargeT+' °C (fan '+b.fanLow+'%) · heater '+o+'% · BT '+Math.round(bt)+'° · '+fmt(e);
+    if(bt>=b.chargeT-3){b.phase='soak';b.soakStart=Date.now();}
   }else if(b.phase==='soak'){
-    if(!bbpCap(b,bt,b.chargeT)&&!engaging)setSV(b.chargeT);
-    if(b.soakStart==null){
-      if(bt>=b.chargeT-3)b.soakStart=Date.now();
-      else $('bbpStatus').innerHTML='⏳ Holding '+b.chargeT+' °C — waiting for temp (BT '+Math.round(bt)+')';
-    }
-    if(b.soakStart!=null){const left=BBP_HOLD_S-(Date.now()-b.soakStart)/1000;
-      $('bbpStatus').innerHTML='⏳ At temp — stabilising '+Math.ceil(Math.max(0,left))+' s';
-      if(left<=0){b.phase='ready';b.readyMax=bt;$('bbpLight').style.display='block';beepReady();log('BBP: READY — drop the beans');}}
+    const o=bbpDrive(b,bt);
+    if(bt<b.chargeT-3)b.soakStart=Date.now();                  // dipped out of the band: the 30 s stable count restarts
+    const left=BBP_HOLD_S-(Date.now()-b.soakStart)/1000;
+    $('bbpStatus').innerHTML='⏳ At temp — stabilising '+Math.ceil(Math.max(0,left))+' s · heater '+o+'%';
+    if(left<=0){b.phase='ready';b.readyMax=bt;$('bbpLight').style.display='block';beepReady();
+      try{localStorage.setItem('rc_bbp_hold',String(Math.round(b.base)));}catch(e){}   // remembered hold power seeds the next cycle
+      log('BBP: READY — drop the beans (holding ~'+o+'%)');}
   }else if(b.phase==='ready'){
-    if(!bbpCap(b,bt,b.chargeT)&&!engaging)setSV(b.chargeT);
+    bbpDrive(b,bt);
     b.readyMax=Math.max(b.readyMax,bt);
     const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
     const pname=$('profName').value.trim();
     $('bbpStatus').innerHTML='✅ Holding '+b.chargeT+' °C — drop the beans'+($('bbpAuto').checked?(bbpMode()==='manual'?' · will hand over to manual control':' · will auto-run '+(pname?'“'+esc(pname)+'”':'the loaded profile')):'');
     if($('bbpAuto').checked&&bt<=b.readyMax-BBP_DROP_DELTA){
       log('BBP: bean drop detected (BT '+Math.round(bt)+'° from '+Math.round(b.readyMax)+'°)');
+      const sk=chargeSoak();                                 // no PID is running, so nothing can surge; park the heater at the
+      send('OT1,'+(sk?sk[0].pct:Math.min(b.sent,MAX_CHARGE_PWR)));   // soak's first step now, before the run's own start-up delays
       stopBBP('charge',true);
       $('evCharge').click();
       if(bbpMode()==='manual')startManualRoast();
