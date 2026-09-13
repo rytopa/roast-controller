@@ -107,7 +107,7 @@ Open the **Profile designer** panel. A profile is a target bean-temperature curv
 
 **Hands-on: draw on the graph**
 
-- Press **🔒 Graph locked — tap to edit** to unlock.
+- Press **🔒 Graph locked — tap to edit** to unlock. The graph starts locked every time the page opens; unlocking lasts for the visit only.
 - Drag points to move them, press empty space to add a point, double-tap a point to delete it. The implied RoR of each segment is shown while you edit.
 - The **phase bar** shows the Dry / Maillard / Development split from the **DE at** and **FC at** temperatures beside it — set those to match your beans.
 - Fine-tune numbers in **Details — points table**.
