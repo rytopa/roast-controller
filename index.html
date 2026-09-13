@@ -268,7 +268,7 @@
       <span class="small">· profile clock</span>
       <select id="soakClock" style="width:auto"><option value="charge">runs from charge</option><option value="after">starts after the soak</option></select>
     </div>
-    <div class="small" style="margin-bottom:8px">Fixed heater power right after <b>Charge</b> (open loop, PID off) — then the control loop takes over. Applies to profile runs <b>and ET-track runs</b> started at charge. <b>Untick to skip the soak</b> — the control loop then engages on the curve from the first second after charge. <b>Profile clock</b> (profile runs only): <b>runs from charge</b> — the curve's 0:00 is the charge, so when the soak ends the PID joins the curve part-way in (at 0:45 by default); <b>starts after the soak</b> — the curve's 0:00 is the end of the soak, so the PID starts at the first point and the whole curve plays after it (the roast runs that much longer; the plan on the chart shifts to match). Saved in this browser. ⚡ The between-batch cycle is <b>capped at 85% power</b> and driven open-loop by the app (no PID surge): the heater ramps up slowly and the beans land on the soak's first power the instant the drop is detected.</div>
+    <div class="small" style="margin-bottom:8px">Fixed heater power right after <b>Charge</b> (open loop, PID off) — then the control loop takes over. Applies to profile runs <b>and ET-track runs</b> started by the cycle's auto-charge at the bean drop; <b>▶ Run profile</b> pressed by hand skips it and puts the PID on the curve at once. <b>Untick to skip the soak</b> — the control loop then engages on the curve from the first second after charge. <b>Profile clock</b> (profile runs only): <b>runs from charge</b> — the curve's 0:00 is the charge, so when the soak ends the PID joins the curve part-way in (at 0:45 by default); <b>starts after the soak</b> — the curve's 0:00 is the end of the soak, so the PID starts at the first point and the whole curve plays after it (the roast runs that much longer; the plan on the chart shifts to match). Saved in this browser. ⚡ The between-batch cycle is <b>capped at 85% power</b> and driven open-loop by the app (no PID surge): the heater ramps up slowly and the beans land on the soak's first power the instant the drop is detected.</div>
     <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="bbpAuto" checked><span><b>Auto-charge</b> — when the beans drop (BT plunges), mark Charge and start the profile loaded in the designer automatically. <b>No need to press ▶ Run profile</b> — the whole roast runs from this one button.</span></label>
   </div>
 
@@ -1475,7 +1475,7 @@ function userStopProfile(){                         // the button: nothing super
   setTimeout(()=>send('OT1,0'),250);
   log('■ Profile stopped — PID off, heater OFF. The roast stays open: Stop / Drop ends it, Run profile rejoins the curve.');
 }
-$('profRun').addEventListener('click',()=>{profile?userStopProfile():(confirmAutoFan()&&startProfile());});
+$('profRun').addEventListener('click',()=>{profile?userStopProfile():(confirmAutoFan()&&startProfile({direct:true}));});   // the button: run the curve now, from whatever state the machine is in
 function chargeSoak(){                                     // open-loop heater steps after charge (roast clock); the control loop takes over after the last step
   if(!$('soakOn').checked)return null;                     // soak disabled: runs engage the control loop immediately
   const v=(id,d)=>{const x=+$(id).value;return $(id).value!==''&&Number.isFinite(x)?x:d;};
@@ -1494,10 +1494,15 @@ function saveSoakCfg(){try{localStorage.setItem('rc_soak',JSON.stringify({on:$('
 // mode, restarts recording and the timer, and enables the DE / FC buttons. A run started while
 // a Charge is already active (restart mid-roast, or auto-charge at the bean drop) is untouched.
 function ensureCharged(what){if(!chargeMs){$('evCharge').click();log('Charge marked automatically — '+what+' started without one');}}
-async function startProfile(){
+// direct (the ▶ Run profile button): the curve runs from whatever state the machine is in — any
+// between-batch cycle stops, the charge soak is skipped and the PID engages on the curve at once.
+// Only the cycle's auto-charge (startProfile() without the flag) keeps the soak.
+async function startProfile(opts){
+  const direct=!!(opts&&opts.direct);
   const pts=getPoints();if(pts.length<2){alert('Add at least 2 points.');return;}
   if(!writeChar){alert('Connect the roaster first.');return;}
   if(!$('enableControl').checked){alert('Tick "Enable control" next to the chart first.');return;}
+  if(bbp)stopBBP('profile started',true);              // never two controllers on one heater: the cycle ends here, keeping the heat
   ensureCharged('profile');
   stopProfile();stopRamp();stopEtRun('profile started',true);stopPProf('profile started',true);clearFanOverride();clearFcHold();
   const gen=runGen;                                   // any stop path from here on abandons this start (nothing runs after a Drop)
@@ -1507,7 +1512,7 @@ async function startProfile(){
   // Fresh charge -> fixed-power soak (PID off) per the user's charge-soak settings, timed on the
   // roast clock; the PID takes over after the last step. A run started without a recent Charge
   // (restart mid-roast, manual run) engages the PID immediately as before.
-  const soak=chargeSoak();
+  const soak=direct?null:chargeSoak();
   const soaking=!!(soak&&chargeMs&&(Date.now()-chargeMs)/1000<10&&(Date.now()-chargeMs)/1000<soak[soak.length-1].until);
   const soakEnd=soaking?soak[soak.length-1].until:0;
   // Profile clock option: "runs from charge" keeps the curve's 0:00 at the charge (the PID joins the curve
@@ -1562,7 +1567,7 @@ async function startProfile(){
     if(e>=pts[pts.length-1].t)finishProfile();
   },2000)};
   $('profRun').textContent='■ Stop profile';$('profRun').classList.remove('green');$('profRun').classList.add('danger');
-  log('Running profile ('+pts.length+' points, ends '+fmt(pts[pts.length-1].t)+')');
+  log('Running profile ('+pts.length+' points, ends '+fmt(pts[pts.length-1].t)+')'+(direct?' — PID on the curve from now (no charge soak / between-batch cycle)':''));
 }
 function stopProfile(){runGen++;if(profile){clearInterval(profile.tid);profile=null;}clearFanOverride();const b=$('profRun');if(b){b.textContent='▶ Run profile';b.classList.add('green');b.classList.remove('danger');}}
 function finishProfile(){                          // natural end of the curve: stop heating, don't hold the last setpoint
@@ -1643,12 +1648,14 @@ $('etSmooth').addEventListener('change',()=>{if(!etRun)applyEtRef();});
 $('etArm').addEventListener('change',()=>{if($('etArm').checked&&!etRef&&!etRun)applyEtRef();});
 ['etKp','etKi','etKd','etSlew','etMax','etEndBt'].forEach(id=>$(id).addEventListener('change',saveEtPrefs));
 
-$('etRunBtn').addEventListener('click',()=>{etRun?stopEtRun('stopped by user'):startEtRun();});
-async function startEtRun(){
+$('etRunBtn').addEventListener('click',()=>{etRun?stopEtRun('stopped by user'):startEtRun({direct:true});});   // the button: run now, no cycle / soak
+async function startEtRun(opts){
+  const direct=!!(opts&&opts.direct);                  // hand-started: the cycle stops, the soak is skipped (auto-charge keeps both)
   if(!writeChar){alert('Connect the roaster first.');return;}
   if(!$('enableControl').checked){alert('Tick "Enable control" next to the chart first.');return;}
   if(!etRef)applyEtRef();
   if(!etRef){alert('Pick a reference roast (with ET data) first.');return;}
+  if(bbp)stopBBP('ET-track started',true);
   ensureCharged('ET-track');
   stopRamp();stopProfile();stopEtRun('restarted',true);stopPProf('ET-track started',true);clearFanOverride();clearFcHold();
   etRef._i=0;
@@ -1658,7 +1665,7 @@ async function startEtRun(){
   const fan0=Math.round(refAt(etRef,0,'fan')??40);send('IO3,'+fan0);noteStartFan(fan0);
   // Fresh charge -> the user's standard fixed-power soak (same as profile runs), NOT the reference's
   // recorded heater at t=0; the PID trim takes over after the last soak step.
-  const soak=chargeSoak(),ce0=chargeMs?(Date.now()-chargeMs)/1000:1e9;
+  const soak=direct?null:chargeSoak(),ce0=chargeMs?(Date.now()-chargeMs)/1000:1e9;
   const soaking=!!(soak&&ce0<10&&ce0<soak[soak.length-1].until);
   const out0=soaking?soak[0].pct:Math.max(0,Math.min(100,Math.round(refAt(etRef,0,'heat')??0)));
   send('OT1,'+out0);
@@ -1910,17 +1917,19 @@ $('ppGen').addEventListener('click',()=>{
   ppSummaryDraw();savePProfCfg();drawPProf();
   log('Power profile generated from "'+rec.name+'": '+lines.length+' steps, ends '+fmt(endE)+(endBt!=null?', drop at BT '+Math.round(endBt)+'°':''));
 });
-$('ppRunBtn').addEventListener('click',()=>{pprof?stopPProf('stopped by user'):startPProf();});
-async function startPProf(){
+$('ppRunBtn').addEventListener('click',()=>{pprof?stopPProf('stopped by user'):startPProf({direct:true});});   // the button: run now, no cycle / soak
+async function startPProf(opts){
+  const direct=!!(opts&&opts.direct);                  // hand-started: the cycle stops, the soak is skipped (auto-charge keeps both)
   if(!writeChar){alert('Connect the roaster first.');return;}
   if(!$('enableControl').checked){alert('Tick "Enable control" next to the chart first.');return;}
   const steps=ppSteps();if(!steps){alert('The schedule isn\'t valid — one "time heater% [fan%]" per line, at least 2 lines.');return;}
+  if(bbp)stopBBP('power schedule started',true);
   ensureCharged('power schedule');
   stopRamp();stopProfile();stopPProf('restarted',true);stopEtRun('power profile started',true);clearFanOverride();clearFcHold();
   await send('PID,OFF ');pidEngaged=false;
   curSV=null;$('tSv').textContent='—';                 // open loop: no setpoint to chart
   const pill=$('pidPill');pill.textContent='OPEN LOOP';pill.className='pill on';
-  const soak=chargeSoak(),ce0=chargeMs?(Date.now()-chargeMs)/1000:1e9;
+  const soak=direct?null:chargeSoak(),ce0=chargeMs?(Date.now()-chargeMs)/1000:1e9;
   const soaking=!!(soak&&ce0<10&&ce0<soak[soak.length-1].until);
   const out0=soaking?soak[0].pct:steps[0].heat;
   send('OT1,'+out0);
