@@ -2497,6 +2497,7 @@ function renderStatsCard(st,wIn,wOut,code){
 $('heaterW').addEventListener('change',()=>{
   try{localStorage.setItem('rc_heaterW',$('heaterW').value);}catch(e){}
   if(shownStats)renderStatsCard(shownStats,shownW[0],shownW[1],shownCode);   // re-render live or loaded card with new kWh
+  refreshRoastSelect();                                                       // energy shown in the saved-roast lists also depends on it
 });
 
 // ---------- Roast timer + events ----------
@@ -2950,11 +2951,31 @@ $('btnClear').addEventListener('click',()=>{chartFrozen=false;samples.length=0;b
 const LOG_KEY='rc_logs_v1';
 function loadLogs(){try{return JSON.parse(localStorage.getItem(LOG_KEY)||'[]');}catch(e){return[];}}
 function saveLogs(a){let ok=true;try{localStorage.setItem(LOG_KEY,JSON.stringify(a));}catch(e){alert('Storage full — export & delete old roasts to free space.');ok=false;}cloudSchedulePush();return ok;}
+function recStats(r){                                 // stats of a saved roast, backfilled from its samples/events for roasts saved before a field existed
+  const st=Object.assign({},r.stats||{}),ev=r.events||{},sm=r.samples||[];
+  if(st.total==null&&ev.drop!=null)st.total=ev.drop;
+  if(st.total==null)return null;
+  const b=bgBaseOf(r),end=b+st.total;
+  if((st.dropBt==null||st.maxBt==null)&&sm.length){let bd=1e9,dropBt=null,maxBt=null;
+    for(const s of sm){if(s.bt==null||Number.isNaN(s.bt))continue;if(maxBt==null||s.bt>maxBt)maxBt=s.bt;const d=Math.abs(s.t-end);if(d<bd){bd=d;dropBt=s.bt;}}
+    if(st.dropBt==null)st.dropBt=dropBt;if(st.maxBt==null)st.maxBt=maxBt;}
+  if(st.avgHeat==null&&sm.length){const p=heatLoadOver(sm,b,end);st.heatLoad=p.load;st.avgHeat=p.avg;st.avgFan=p.fanAvg;}
+  return st;
+}
+function recSummary(r){                               // " · 11:32 · 212 °C · 68% · 210 Wh" for the saved-roast lists (blank parts skipped)
+  const st=recStats(r);if(!st)return '';
+  const parts=[fmt(st.total)];
+  if(st.dropBt!=null)parts.push(Math.round(st.dropBt)+' °C');
+  if(st.avgHeat!=null){let pw=st.avgHeat+'%';const w=+$('heaterW').value;
+    if(w>0){const wh=w*(st.avgHeat/100)*(st.total/3600);pw+=' '+(wh>=1000?(wh/1000).toFixed(2)+' kWh':Math.round(wh)+' Wh');}
+    parts.push(pw);}
+  return ' · '+parts.join(' · ');
+}
 function refreshRoastSelect(){const a=loadLogs();
   const fill=(s,first)=>{const cur=s.value;s.innerHTML='<option value="">'+first+'</option>';
     a.slice().reverse().forEach(r=>{const o=document.createElement('option');o.value=r.id;
       const d=r.date?new Date(r.date):null;
-      o.textContent=(r.star?'★ ':'')+(r.code?'#'+r.code+' · ':'')+(d?d.toLocaleDateString(undefined,{month:'short',day:'numeric'})+' '+d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})+' · ':'')+r.name;
+      o.textContent=(r.star?'★ ':'')+(r.code?'#'+r.code+' · ':'')+(d?d.toLocaleDateString(undefined,{month:'short',day:'numeric'})+' '+d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})+' · ':'')+r.name+recSummary(r);
       s.appendChild(o);});
     s.value=cur;if(s.value!==cur)s.value='';};
   fill($('roastSelect'),'— saved roasts ('+a.length+') —');
@@ -3041,10 +3062,8 @@ $('btnLoadRoast').addEventListener('click',()=>{
   samples.length=0;r.samples.forEach(s=>samples.push(Object.assign({raw:''},s)));
   Object.assign(events,{charge:null,dry:null,fc:null,drop:null},r.events||{});
   $('beanInfo').value=r.bean||'';$('wIn').value=r.weightIn||'';$('wOut').value=r.weightOut||'';updateLoss();
-  if(r.stats){if(r.stats.avgHeat==null&&r.samples&&r.samples.length){       // backfill power for roasts saved before this feature
-      const b=bgBaseOf(r),end=r.events&&r.events.drop!=null?b+r.events.drop:1e12;
-      const p=heatLoadOver(r.samples,b,end);r.stats.heatLoad=p.load;r.stats.avgHeat=p.avg;r.stats.avgFan=p.fanAvg;}
-    renderStatsCard(r.stats,r.weightIn,r.weightOut,r.code);}
+  const st=recStats(r);                              // backfills power etc. for roasts saved before those fields existed
+  if(st)renderStatsCard(st,r.weightIn,r.weightOut,r.code);
   else $('statsCard').style.display='none';
   setCurRoast(r);
   $('rowCount').textContent=samples.length+' samples · '+(r.code?'#'+r.code+' ':'')+r.name;renderEvents();updateTimer();updateLiveBar();drawChart();log('Loaded roast: '+(r.code?'#'+r.code+' ':'')+r.name);
