@@ -181,7 +181,7 @@ Optional, but it makes batch planning and weight tracking automatic.
 
 Profiles, roast logs and inventory can be shared between your phone, tablet and computer through a small Cloudflare Worker that **you** own — free, no account in the app.
 
-Setup takes about 10 minutes once and is walked through click by click in **[CLOUD_SYNC.md](CLOUD_SYNC.md)**. In short: create the Worker from `sync-worker.js`, paste its URL into the **Cloud sync** panel, press **Generate** for a sync code, **Connect**, then enter the same URL and code on your other devices.
+Setup takes about 10 minutes once and is walked through click by click in **[CLOUD_SYNC.md](CLOUD_SYNC.md)**. In short: create the Worker from `sync-worker.js`, paste its URL into the **Cloud sync** panel, press **Generate** for a sync code, **Connect**, then enter the same URL and code on your other devices — **📋 Copy** and **Paste** next to the code field move it via the clipboard so you do not have to retype it.
 
 The sync code is the password: anyone with it can read and write your data, so keep it private. Never share your Worker URL publicly either.
 
