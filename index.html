@@ -623,6 +623,10 @@
         <input id="bbmCustom" type="number" min="1" inputmode="decimal" placeholder="custom g" style="width:110px">
       </div>
       <div class="small" id="bbmNote" style="margin-bottom:12px"></div>
+      <div id="bbmNotesBox" style="display:none;margin-bottom:12px">
+        <div class="small"><b>Bean notes</b> — copied into this roast’s notes at Charge. You can add your tasting observations in Roast history.</div>
+        <div id="bbmNotes" class="small" style="white-space:pre-wrap;margin-top:6px"></div>
+      </div>
       <div class="row" style="justify-content:flex-end;gap:8px">
         <button id="bbmCancel" style="flex:0">Cancel</button>
         <button id="bbmGo" class="green" style="flex:0;white-space:nowrap">▶ Start cycle</button>
@@ -3049,7 +3053,13 @@ function showNotesBox(title){$('roastNotesBox').style.display='';$('roastNotesTi
 function setCurRoast(r){curRoastId=r?r.id:null;curStar=!!(r&&r.star);$('roastNotes').value=(r&&r.notes)||'';showNotesBox(r?roastLabel(r):null);
   const s=$('roastSelect');if(r&&[...s.options].some(o=>o.value===r.id))s.value=r.id;}   // dropdown and box always agree
 function showLiveDraft(){curRoastId=null;curStar=liveDraft.star;$('roastNotes').value=liveDraft.notes;showNotesBox((batchCode?'#'+batchCode+' ':'')+'(this roast — not saved yet)');}
-function startNotesForLiveRoast(){liveDraft={notes:'',star:false};$('roastSelect').value='';showLiveDraft();}
+function beanNotesForRoast(itemId){
+  const item=loadInventory().find(x=>x.id===itemId);
+  const notes=item&&typeof item.notes==='string'?item.notes.trim():'';
+  return notes?'Bean notes — '+(item.name||'Unknown')+'\n'+notes:'';
+}
+// Snapshot the selected bean at Charge. Later inventory edits must not rewrite a roast's notes.
+function startNotesForLiveRoast(){liveDraft={notes:beanNotesForRoast(invUse.itemId),star:false};$('roastSelect').value='';showLiveDraft();}
 function hideNotesBox(){curRoastId=null;curStar=false;$('roastNotes').value='';$('roastNotesBox').style.display='none';}
 $('roastNotes').addEventListener('input',()=>{if(!withCurRoast(r=>{r.notes=$('roastNotes').value;})&&chargeMs)liveDraft.notes=$('roastNotes').value;});   // live roast: written to the record at save
 $('btnStar').addEventListener('click',()=>{curStar=!curStar;paintStar();
@@ -3450,6 +3460,9 @@ function bbmNote(){
   $('bbmNote').innerHTML=!it?'Batch: <b>'+trimN(w)+' g</b> — no stock tracking.'
     :w>(it.weight||0)?'⚠ <b>'+trimN(w)+' g</b> is more than the <b>'+trimN(it.weight||0)+' g</b> of '+escapeHtml(it.name)+' left in stock.'
     :'Batch: <b>'+trimN(w)+' g</b> of '+escapeHtml(it.name)+' — '+trimN((it.weight||0)-w)+' g left after Drop.';
+  const notes=beanNotesForRoast(bbmSel.itemId);
+  $('bbmNotesBox').style.display=notes?'':'none';
+  $('bbmNotes').textContent=notes;
 }
 function bbmPaintList(){
   $('bbmList').querySelectorAll('[data-bbm-id]').forEach(d=>{
