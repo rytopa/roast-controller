@@ -190,3 +190,7 @@ summary {min-height:36px;padding:6px 0;font-size:13px}
 .guide[open] {padding-bottom:12px}
 #crEvent:not(:disabled) {background:var(--sv);border-color:var(--sv);color:#102b19}
 body.day #crEvent:not(:disabled) {color:#fff}
+
+/* ETA labels switch between one and two lines; keep the telemetry strip stationary. */
+.ptiles .tile .v {white-space:nowrap}
+.ptiles .tile .u {line-height:1.4;min-height:2.8em}

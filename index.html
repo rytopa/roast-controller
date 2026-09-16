@@ -2741,12 +2741,13 @@ function drawChart(){
   const planStart=profile?profile.startT:((chargeMs&&connectMs?(chargeMs-connectMs)/1000:0)+(chargeMs&&!manMode&&soakClockAfter()?chargeSoak()[1].until:0));   // "clock after soak": the plan sits after the soak steps
   if(planPts.length>=2&&!chartFrozen)tMax=Math.max(tMax,planStart+planPts[planPts.length-1].t);   // reviewing a dropped/loaded roast: fit the axis to the roast, not the plan
   if(chargeMs&&events.drop==null&&samples.length)tMax=Math.max(tMax,samples[samples.length-1].t+70);
-  if(chargeMs&&connectMs&&events.drop==null&&pred){const far=pred.fc?pred.fc.at:(pred.de?pred.de.at:null);   // keep the predicted FC (or DE) marker on the axis
-    if(far!=null)tMax=Math.max(tMax,(chargeMs-connectMs)/1000+far+30);}
   if(chartFrozen&&samples.length)tMax=Math.max(300,samples[samples.length-1].t+30);   // finished roast fills the width (small margin past the drop)
   let bgShift=0;
   if(bg&&bg.samples.length){bgShift=((chargeMs&&connectMs)?(chargeMs-connectMs)/1000:0)-bg.base;
     tMax=Math.max(tMax,bg.samples[bg.samples.length-1].t+bgShift);}
+  // Predictions must not zoom the entire roast in/out as their ETA changes.
+  // Live data grows the domain in two-minute steps; completed roasts still fit tightly.
+  if(!chartFrozen&&chargeMs&&events.drop==null)tMax=Math.ceil(tMax/120)*120;
   const X=t=>pL+t/tMax*pw;
   const Y=v=>tpY+(1-v/yMax)*tpH;                     // temps pane
   const Yr=v=>tpY+(1-v/30)*tpH;                      // RoR axis (temps pane, right)
@@ -2831,10 +2832,13 @@ function drawChart(){
     const deT=+$('phDE').value||160,fcT=Math.max(deT,+$('phFC').value||200);
     ctx.font='700 10px system-ui';
     for(const[k,T,col,name] of [['de',deT,P.ev.dry,'DE'],['fc',fcT,P.ev.fc,'FC']]){
-      const q=Pp[k];if(!q||base+q.at>tMax)continue;
-      const x=X(base+q.at),y=Y(T);
-      ctx.strokeStyle=col;ctx.fillStyle=P.badgeBg;ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.fill();ctx.stroke();
-      ctx.fillStyle=col;const lbl=name+' ~'+fmt(q.at);const tw=ctx.measureText(lbl).width;
+      const q=Pp[k];if(!q)continue;
+      const beyond=base+q.at>tMax,x=X(Math.min(base+q.at,tMax)),y=Y(T);
+      ctx.strokeStyle=col;ctx.fillStyle=P.badgeBg;ctx.lineWidth=1.5;ctx.beginPath();
+      if(beyond){ctx.moveTo(x-5,y-4);ctx.lineTo(x,y);ctx.lineTo(x-5,y+4);} // off-screen prediction, not a point at the chart boundary
+      else{ctx.arc(x,y,4,0,Math.PI*2);ctx.fill();}
+      ctx.stroke();
+      ctx.fillStyle=col;const lbl=name+' ~'+fmt(q.at)+(beyond?' →':'');const tw=ctx.measureText(lbl).width;
       ctx.fillText(lbl,x+8+tw>W-pR?x-8-tw:x+8,y-6);}
     ctx.lineWidth=1;ctx.font='10px system-ui';}
   // ---- event markers: full-height lines with rotated name + temp labels (ROEST-style);
