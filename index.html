@@ -118,30 +118,36 @@
     background:#123a1c;color:#7dffa0;border:1px solid #2c7a44;animation:dlpulse .9s infinite}
   @keyframes dlpulse{0%,100%{opacity:1}50%{opacity:.35}}
 </style>
+<link rel="stylesheet" href="dashboard.css">
 </head>
 <body>
-  <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:nowrap">
-    <h1>🔥 Roast Controller <span id="appVer" class="small" style="font-weight:500;font-size:13px;opacity:.7;white-space:nowrap"></span></h1>
-    <button id="themeBtn" title="Toggle day / night mode" style="padding:6px 11px">☀️</button>
-  </div>
-  <div class="sub">Web-Bluetooth controller for Hamid / Matchbox (TC4) roasters — no vendor app, no WeChat.</div>
-
+  <a class="skip-link" href="#workspace">Skip to roast workspace</a>
+  <header class="app-header">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">◒</span><div><p class="eyebrow">MATCHBOX / TC4</p><h1>Roast Controller</h1></div></div>
+    <div class="header-meta"><span id="appVer" class="small"></span><button id="themeBtn" title="Toggle day / night mode" aria-label="Toggle day / night mode">☀️</button></div>
+  </header>
+  <nav class="workspace-nav" aria-label="Workspace sections">
+    <a href="#workspace">Live roast</a><a href="#preparation">Preparation</a><a href="#profiles">Profiles</a><a href="#history">Roast history</a><a href="#inventory">Green coffee</a><a href="#sync">Sync</a>
+  </nav>
+  <main id="workspace" tabindex="-1">
+  <div class="workspace-heading"><h2>Live roast</h2><p>Your curve, controls, and live readings.</p></div>
   <div id="linkBanner" class="banner err" style="display:none;align-items:center;gap:10px;flex-wrap:wrap"><span id="linkMsg" style="flex:1;min-width:200px"></span><button id="linkRetryBtn" style="padding:6px 11px">🔄 Reconnect now</button><button id="linkStopBtn" style="padding:6px 11px">Stop trying</button></div>
   <div id="supportBanner" class="banner err" style="display:none">
     <b>Web Bluetooth isn't available.</b> Use <b>Chrome</b> or Edge on Android or Windows/macOS/Linux, Bluetooth on. iOS Safari is unsupported.
   </div>
   <div class="banner warn">⚠️ Controls drive a <b>real heating element</b>. They stay locked until you enable them. Keep the fan on, don't leave it unattended, use <b>Heater Off / Drop</b> if anything looks wrong.</div>
 
-  <div class="panel">
-    <h2>Connection</h2>
+  <div class="panel connection-panel" id="connection">
+    <h2>Roaster connection</h2>
     <div class="row" style="margin-bottom:8px">
       <button id="btnConnect" class="primary">Connect roaster</button>
       <button id="btnDisconnect" disabled>Disconnect</button>
-      <span id="state" class="pill off">disconnected</span>
+      <span id="state" class="pill off" role="status">disconnected</span>
     </div>
-    <label class="ck" style="margin-bottom:6px"><input type="checkbox" id="acceptAll"><span>Can't find it by name? List all Bluetooth devices and pick manually.</span></label>
+
     <details>
-      <summary>Connection details / advanced</summary>
+      <summary>Device discovery &amp; connection details</summary>
+    <label class="ck" style="margin-bottom:6px"><input type="checkbox" id="acceptAll"><span>Can't find it by name? List all Bluetooth devices and pick manually.</span></label>
       <div style="margin-top:8px">
         <div class="ctl-row" style="grid-template-columns:1fr"><input type="text" id="customSvc" placeholder="custom Service UUID from nRF Connect (if auto-detect fails)"></div>
         <div class="kv"><span>Device</span><b id="devName">—</b></div>
@@ -155,7 +161,7 @@
 
   <div class="stage">
     <div class="panel liverail">
-      <h2>Live</h2>
+      <h2>At a glance</h2>
       <div class="row" style="justify-content:space-between;margin-bottom:4px">
         <div class="small">Roast time <span id="tCode" class="pill" style="display:none;margin-left:6px;background:var(--panel2);color:var(--text);font-family:ui-monospace,monospace;letter-spacing:1px" title="Batch code — write it on the bag"></span></div>
         <span id="pidPill" class="pill off">PID off</span>
@@ -173,15 +179,15 @@
         <div class="tile"><div class="v" id="tHeat">—</div><div class="u">Heater %</div></div>
         <div class="tile"><div class="v" id="tFan">—</div><div class="u">Fan %</div></div>
       </div>
-      <div class="small" style="margin-top:8px">Previous event</div>
-      <div id="evPrev" style="font-size:22px;font-weight:700;color:var(--text);line-height:1.15">—</div>
+      <div class="event-summary"><span class="small">Previous event</span><span id="evPrev">—</span></div>
       <div id="liveBar" style="display:none;height:26px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin-top:8px;font-size:11px;font-weight:700"></div>
       <div class="small" style="margin-top:8px"><span id="bgDelta"></span> <span id="etaInfo"></span> <span id="tDev"></span></div>
     </div>
 
-    <div class="panel">
-      <h2>Chart</h2>
-      <canvas id="chart"></canvas>
+    <div class="panel chart-panel">
+      <div class="section-heading"><h2>Roast curve</h2><span class="small">Temperature · rate of rise · output</span></div>
+      <p class="chart-context">Dashed curves show your planned profile. Live traces appear when telemetry arrives.</p>
+      <canvas id="chart" role="img" aria-label="Roast chart: bean, exhaust and target temperatures, rate of rise, heater and fan output over time. Current readings appear in At a glance."></canvas>
       <div class="legend">
         <span><i style="background:var(--bt)"></i>Bean (BT)</span>
         <span><i style="background:var(--et)"></i>Exhaust (ET)</span>
@@ -192,7 +198,7 @@
         <span><i style="background:#e6b84d"></i>Σ heat <span class="small">(cumulative)</span></span>
         <span class="small">hover / drag to inspect values · top pane: temps (left axis) + RoR 0–30 °C/min (right axis) · bottom pane: heater &amp; fan %, dashed gold = cumulative heat used · bar = phases · dashed = plan · faded = background roast</span>
       </div>
-      <label class="ck" style="margin:8px 0 0"><input type="checkbox" id="enableControl"><span class="small"><b style="color:var(--warn)">Enable control</b> — commands real heater/fan hardware (Heater / Fan ± and the event buttons are on the Controls rail)</span></label>
+      <label class="ck" style="margin:8px 0 0"><input type="checkbox" id="enableControl"><span class="small"><b style="color:var(--warn)">Enable control</b> — unlocks real heater and fan commands. Connect your roaster first.</span></label>
       <!-- Legacy Mark / FC-hold / fan rows: hidden per user request now that the Controls rail
            covers them. The elements stay in the DOM because the rail and the automation still
            use them (cEvDry/cEvFc clicks, cFanVal + cPow0, fcHold settings). -->
@@ -229,38 +235,40 @@
       <div id="alarmBanner" class="banner err" style="display:none;margin:8px 0 0"></div>
     </div>
     <div class="panel ctlrail">
-      <h2>Controls</h2>
+      <h2>Roast controls</h2>
+      <p class="control-note">Heater changes take manual control and stop automation.</p>
       <div class="ctiles">
         <div class="ctile sv"><div class="v"><span id="crSv">—</span><small>°C</small></div><div class="u">Target temp</div></div>
         <div class="ctile"><div class="v" id="crPid">OFF</div><div class="u">PID</div></div>
       </div>
       <div class="stepper">
-        <button class="slabel" id="crHeatOff" title="Heater OFF (manual control)">Heater<i id="crHeatLed"></i></button>
-        <button id="crHeatM" title="Heater −1% (manual)">−</button><div class="sval" id="crHeat" role="button" tabindex="0" title="Tap for −5 / +5">—</div><button id="crHeatP" title="Heater +1% (manual)">+</button>
+        <button class="slabel" id="crHeatOff" title="Heater OFF (manual control)">Heater<small>OFF</small><i id="crHeatLed"></i></button>
+        <button id="crHeatM" title="Heater −1% (manual)">−</button><div class="sval" id="crHeat" role="button" tabindex="0" aria-label="Heater percentage: show or hide five percent adjustments" aria-controls="crHeatQ" aria-expanded="false" title="Tap for −5 / +5">—</div><button id="crHeatP" title="Heater +1% (manual)">+</button>
       </div>
       <div class="qrow" id="crHeatQ"><span class="qlbl">Heater ±5</span><button id="crHeatM5" title="Heater −5% (manual)">−5</button><button id="crHeatP5" title="Heater +5% (manual)">+5</button></div>
       <div class="stepper">
-        <button class="slabel" id="crFanOff" title="Fan OFF">Fan<i id="crFanLed"></i></button>
-        <button id="crFanM" title="Fan −1%">−</button><div class="sval" id="crFan" role="button" tabindex="0" title="Tap for −5 / +5">—</div><button id="crFanP" title="Fan +1%">+</button>
+        <button class="slabel" id="crFanOff" title="Fan OFF">Fan<small>OFF</small><i id="crFanLed"></i></button>
+        <button id="crFanM" title="Fan −1%">−</button><div class="sval" id="crFan" role="button" tabindex="0" aria-label="Fan percentage: show or hide five percent adjustments" aria-controls="crFanQ" aria-expanded="false" title="Tap for −5 / +5">—</div><button id="crFanP" title="Fan +1%">+</button>
       </div>
       <div class="qrow" id="crFanQ"><span class="qlbl">Fan ±5</span><button id="crFanM5" title="Fan −5%">−5</button><button id="crFanP5" title="Fan +5%">+5</button></div>
       <div class="bigrow">
         <button id="crEvent" class="bigbtn green" disabled><b>DE</b><span>Event tagging</span></button>
-        <button id="crStop" class="bigbtn stop"><b>Stop</b><span>Drop</span></button>
+        <button id="crStop" class="bigbtn stop"><b>Heater off</b><span>Stop / Drop</span></button>
       </div>
-      <div class="small" style="margin-top:8px">Heater ± takes <b>manual control</b> (PID off, any running profile or cycle stops). Fan ± nudges the fan 1% at a time; tap the <b>value</b> itself for <b>−5 / +5</b> buttons; tap the <b>Heater</b> or <b>Fan</b> tile itself to switch that output <b>OFF</b> (during a profile this pauses the automated fan — resume options appear under the chart). The green button tags the next event (DE, then FC); <b>Stop</b> is Heater Off / Drop.</div>
+      <p class="control-note">± adjusts by 1%. Tap a value for ±5%.</p>
+      <details class="control-help"><summary>How controls work</summary>      <div class="small" style="margin-top:8px">Heater ± takes <b>manual control</b> (PID off, any running profile or cycle stops). Fan ± nudges the fan 1% at a time; tap the <b>value</b> itself for <b>−5 / +5</b> buttons; tap the <b>Heater</b> or <b>Fan</b> tile itself to switch that output <b>OFF</b> (during a profile this pauses the automated fan — resume options appear under the chart). The green button tags the next event (DE, then FC); <b>Stop</b> is Heater Off / Drop.</div></details>
     </div>
   </div>
 
-  <div class="panel">
-    <h2>Manual roast</h2>
+  <section class="panel work-panel" id="preparation" aria-labelledby="preparationTitle">
+    <h2 id="preparationTitle">Manual roast</h2>
     <button id="manStart" class="green" style="width:100%">🎛 Start manual roast</button>
     <div class="row" style="margin-top:8px;align-items:center;gap:6px">
       <span class="small"><b>Opening</b> heater</span><input id="manHeat" type="number" min="0" max="100" value="60" style="width:66px"><span class="small">% · fan</span>
       <input id="manFan" type="number" min="0" max="100" value="60" style="width:66px"><span class="small">%</span>
     </div>
     <div id="manStatus" class="small" style="margin-top:7px"></div>
-  </div>
+  </section>
 
   <div class="panel">
     <h2>Between batches / charge</h2>
@@ -285,12 +293,12 @@
       <span class="small">· profile clock</span>
       <select id="soakClock" style="width:auto"><option value="charge">runs from charge</option><option value="after">starts after the soak</option></select>
     </div>
-    <div class="small" style="margin-bottom:8px">Fixed heater power right after <b>Charge</b> (open loop, PID off) — then the control loop takes over. Applies to profile runs <b>and ET-track runs</b> started by the cycle's auto-charge at the bean drop; <b>▶ Run profile</b> pressed by hand skips it and puts the PID on the curve at once. <b>Untick to skip the soak</b> — the control loop then engages on the curve from the first second after charge. <b>Profile clock</b> (profile runs only): <b>runs from charge</b> — the curve's 0:00 is the charge, so when the soak ends the PID joins the curve part-way in (at 0:45 by default); <b>starts after the soak</b> — the curve's 0:00 is the end of the soak, so the PID starts at the first point and the whole curve plays after it (the roast runs that much longer; the plan on the chart shifts to match). Saved in this browser. ⚡ The between-batch cycle is <b>capped at 85% power</b> and driven open-loop by the app (no PID surge): the heater ramps up slowly and the beans land on the soak's first power the instant the drop is detected.</div>
+    <details class="guide"><summary>How charge soak and the profile clock work</summary><div class="small" style="margin-bottom:8px">Fixed heater power right after <b>Charge</b> (open loop, PID off) — then the control loop takes over. Applies to profile runs <b>and ET-track runs</b> started by the cycle's auto-charge at the bean drop; <b>▶ Run profile</b> pressed by hand skips it and puts the PID on the curve at once. <b>Untick to skip the soak</b> — the control loop then engages on the curve from the first second after charge. <b>Profile clock</b> (profile runs only): <b>runs from charge</b> — the curve's 0:00 is the charge, so when the soak ends the PID joins the curve part-way in (at 0:45 by default); <b>starts after the soak</b> — the curve's 0:00 is the end of the soak, so the PID starts at the first point and the whole curve plays after it (the roast runs that much longer; the plan on the chart shifts to match). Saved in this browser. ⚡ The between-batch cycle is <b>capped at 85% power</b> and driven open-loop by the app (no PID surge): the heater ramps up slowly and the beans land on the soak's first power the instant the drop is detected.</div></details>
     <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="bbpAuto" checked><span><b>Auto-charge</b> — when the beans drop (BT plunges), mark Charge and start the profile loaded in the designer automatically. <b>No need to press ▶ Run profile</b> — the whole roast runs from this one button.</span></label>
   </div>
 
-  <div class="panel">
-    <h2>Profile designer</h2>
+  <section class="panel work-panel" id="profiles" aria-labelledby="profilesTitle">
+    <h2 id="profilesTitle">Profile designer</h2>
     <div class="row" style="margin-bottom:8px">
       <select id="profSelect" style="flex:1;min-width:130px"><option value="">— New profile —</option></select>
       <button id="profNew">New</button>
@@ -361,7 +369,7 @@
       <button id="pcLock" style="padding:5px 11px;font-size:12.5px">🔒 Graph locked — tap to edit</button>
     </div>
     <canvas id="profCanvas" style="height:200px;touch-action:none;margin-bottom:6px"></canvas>
-    <div class="small" style="margin-bottom:8px">✏️ Unlock the graph, then <b>drag points</b> to shape the curve · <b>press empty space</b> to add a point · <b>double-tap a point</b> to delete. Dashed pink = the RoR each segment implies (0–30 °C/min) · dashed grey = fan % (right scale; auto-fan curve or the table's fan values). With Auto fan off, the <b>🌡/💨 button</b> switches the graph between editing the temp curve and the fan curve — in <b>fan mode</b> just press or drag in a point's column to set its fan % (0–100), <b>press between points</b> to add a fan point there (it lands on the temp line, so the temp shape is unchanged), <b>double-tap</b> to clear; the temp curve can't be disturbed. Fine-tune times/temps and set fan % in the table.</div>
+    <details class="guide"><summary>How to edit temperature and fan curves</summary><div class="small" style="margin-bottom:8px">✏️ Unlock the graph, then <b>drag points</b> to shape the curve · <b>press empty space</b> to add a point · <b>double-tap a point</b> to delete. Dashed pink = the RoR each segment implies (0–30 °C/min) · dashed grey = fan % (right scale; auto-fan curve or the table's fan values). With Auto fan off, the <b>🌡/💨 button</b> switches the graph between editing the temp curve and the fan curve — in <b>fan mode</b> just press or drag in a point's column to set its fan % (0–100), <b>press between points</b> to add a fan point there (it lands on the temp line, so the temp shape is unchanged), <b>double-tap</b> to clear; the temp curve can't be disturbed. Fine-tune times/temps and set fan % in the table.</div></details>
     <div class="row" style="gap:6px;align-items:center;margin-bottom:6px">
       <span class="small"><b>Phases</b> — DE at</span><input id="phDE" type="number" min="100" max="200" value="160" style="width:64px"><span class="small">°C · FC at</span><input id="phFC" type="number" min="150" max="240" value="200" style="width:64px"><span class="small">°C · end <b id="phEnd" style="color:var(--text)">—</b> °C</span>
     </div>
@@ -393,7 +401,7 @@
     <input type="file" id="profFile" accept=".json,application/json" style="display:none">
     <div class="small" style="margin-bottom:10px">Build a target-temperature curve: <b>time from Charge → target °C</b>, with optional fan %. When you Run it, the app ramps the PID setpoint smoothly along the curve (leave fan blank to control the fan by hand). Saved in this browser. <b>Import JSON</b> loads a profile file — e.g. one generated by an AI assistant (format in the README); review it, then Save.</div>
     <button id="profRun" class="green" style="width:100%">▶ Run profile</button>
-  </div>
+  </section>
 
   <label class="ck" style="margin:2px 4px 10px"><input type="checkbox" id="advMode"><span class="small"><b>Advanced mode</b> — show the ET-track and power-profile (open-loop) roast tools</span></label>
 
@@ -480,14 +488,14 @@
     <div id="statsCard" class="small" style="display:none;margin-top:10px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 11px"></div>
   </div>
 
-  <div class="panel">
-    <h2>Data</h2>
+  <section class="panel work-panel" id="history" aria-labelledby="historyTitle">
+    <h2 id="historyTitle">Roast history</h2>
     <div class="row" style="margin-bottom:8px"><button id="btnCsv" class="blue">Download CSV</button><button id="btnClear">Clear chart</button><span class="small" id="rowCount">0 samples</span></div>
     <hr>
     <div class="row">
       <button id="btnSaveRoast" class="green">Save this roast</button>
       <select id="roastSelect" style="flex:1;min-width:120px"><option value="">— saved roasts —</option></select>
-      <button id="btnLoadRoast">Load</button><button id="btnDelRoast" class="danger">Del</button>
+      <button id="btnLoadRoast">Load</button><button id="btnDelRoast" class="danger">Delete</button>
     </div>
     <div id="roastNotesBox" style="display:none;margin-top:8px">
       <div class="row" style="align-items:center;gap:6px;margin-bottom:4px">
@@ -507,10 +515,10 @@
       <div id="allFields" class="tiles" style="grid-template-columns:repeat(6,1fr);margin:8px 0"></div>
       <div id="log"></div>
     </details>
-  </div>
+  </section>
 
-  <div class="panel">
-    <h2>Cloud sync</h2>
+  <section class="panel work-panel" id="sync" aria-labelledby="syncTitle">
+    <h2 id="syncTitle">Cloud sync</h2>
     <div class="ctl-row" style="grid-template-columns:auto 1fr;margin-bottom:8px">
       <span class="small">Worker URL</span><input type="text" id="syncUrl" placeholder="https://roast-sync.you.workers.dev">
     </div>
@@ -526,12 +534,12 @@
       <span class="small" id="syncStatus">Not connected.</span>
     </div>
     <div class="small">Syncs your <b>profiles &amp; roast logs</b> across devices. Enter the same code on another device to share them — anyone with the code can read/write, so keep it private. Needs a free Cloudflare Worker (see README).</div>
-  </div>
+  </section>
 
   <div class="small" style="text-align:center;margin:4px 0 20px">Device must advertise as <b>MATCHBOX</b>/<b>MBOX</b>. Frame decode: <b>ET</b>=field 0, <b>BT</b>=field 1, heater=field 2, fan=field 3 (4-field form).</div>
 
-  <div class="panel">
-    <h2>Green coffee inventory</h2>
+  <section class="panel work-panel" id="inventory" aria-labelledby="inventoryTitle">
+    <h2 id="inventoryTitle">Green coffee</h2>
     <div class="row" style="margin-bottom:8px">
       <button id="btnAddInventory" class="green">+ Add bean</button>
       <button id="btnPhotoLabel" class="blue">📷 Photo label (OCR)</button>
@@ -577,7 +585,7 @@
         <div id="batchResult" class="small" style="line-height:1.6"></div>
       </div>
     </details>
-  </div>
+  </section>
 
   <div id="inventoryModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:1000;padding:12px;overflow:auto">
     <div style="background:var(--panel);border-radius:var(--r);padding:16px;max-width:500px;margin:auto;margin-top:40px">
@@ -620,6 +628,9 @@
     </div>
   </div>
 
+</main>
+  <div class="safety-dock" aria-label="Quick roast actions"><a href="#workspace">↑ Live roast</a><button type="button" id="quickStop" class="danger">Heater off / Drop</button></div>
+  <footer class="app-footer">Roast with intention. Stay with your roaster.<span>Hamid / Matchbox · Web Bluetooth</span></footer>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
 <script>
 "use strict";
@@ -935,7 +946,7 @@ function manualHeat(v){runGen++;
 }
 $('crHeatM').addEventListener('click',()=>{if(fanCtlOk())manualHeat(curHeat()-1);});
 // Tapping a value tile opens a −5 / +5 row under that stepper (tap again to close); the buttons go the same way as ±1.
-function qrowToggle(valId,rowId){const v=$(valId),r=$(rowId),open=!r.classList.contains('open');r.classList.toggle('open',open);v.classList.toggle('open',open);}
+function qrowToggle(valId,rowId){const v=$(valId),r=$(rowId),open=!r.classList.contains('open');r.classList.toggle('open',open);v.classList.toggle('open',open);v.setAttribute('aria-expanded',String(open));}
 [['crHeat','crHeatQ'],['crFan','crFanQ']].forEach(([v,r])=>{$(v).addEventListener('click',()=>qrowToggle(v,r));
   $(v).addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();qrowToggle(v,r);}});});
 $('crHeatM5').addEventListener('click',()=>{if(fanCtlOk())manualHeat(curHeat()-5);});
@@ -1057,7 +1068,7 @@ applyPcLock();
 function drawProfEditor(){
   const ctx=pcv.getContext('2d'),dpr=window.devicePixelRatio||1;
   const W=pcv.clientWidth,H=pcv.clientHeight;
-  if(pcv.width!==Math.round(W*dpr)){pcv.width=W*dpr;pcv.height=H*dpr;}
+  if(pcv.width!==Math.round(W*dpr)||pcv.height!==Math.round(H*dpr)){pcv.width=W*dpr;pcv.height=H*dpr;}
   ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
   const pL=32,pR=30,pT=10,pB=16,pw=W-pL-pR,ph=H-pT-pB;
   const pts=editPts.map((p,i)=>({i,t:+p.t||0,sv:+p.sv||0})).sort((a,b)=>a.t-b.t);
@@ -1857,7 +1868,7 @@ function drawPProf(){                                  // schedule (step lines) 
   const cv=$('ppCv');if(!cv)return;
   const ctx=cv.getContext('2d'),dpr=window.devicePixelRatio||1;
   const W=cv.clientWidth,H=cv.clientHeight;if(!W)return;
-  if(cv.width!==Math.round(W*dpr)){cv.width=W*dpr;cv.height=H*dpr;}
+  if(cv.width!==Math.round(W*dpr)||cv.height!==Math.round(H*dpr)){cv.width=W*dpr;cv.height=H*dpr;}
   ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
   const P=pal(),steps=ppSteps();
   const rec=loadLogs().find(r=>r.id===$('ppSrc').value);
@@ -2077,7 +2088,7 @@ function saveBbpCfg(){try{localStorage.setItem('rc_bbp',JSON.stringify({cool:$('
 ['bbpCool','bbpCharge','bbpFan'].forEach(id=>$(id).addEventListener('change',saveBbpCfg));
 // ---- Manual roast: one tap marks Charge (timer + chart recording), sets the opening fan / heater
 // with the PID off and hands the roast to the Controls rail. No between-batch cycle, no soak, no profile.
-const MAN_HELP='One tap: asks for the <b>bean and green weight</b> (same dialog as the cycle), marks <b>Charge</b> (timer and chart recording start), sets the fan then the heater to the opening values above with the PID <b>off</b>, and hands the roast to you. Drive <b>Heater / Fan ±</b> on the Controls rail, tag DE / FC with the green button; <b>Stop / Drop</b> ends and saves the roast. No between-batch cycle, soak or profile involved — use it whenever the drum is where you want it and the beans are going in. Opening values are remembered.';
+const MAN_HELP='Choose opening power, then select your bean and weight. You control heat and airflow; Stop / Drop saves the roast.<details class="guide"><summary>How a manual roast works</summary>One tap: asks for the <b>bean and green weight</b> (same dialog as the cycle), marks <b>Charge</b> (timer and chart recording start), sets the fan then the heater to the opening values above with the PID <b>off</b>, and hands the roast to you. Drive <b>Heater / Fan ±</b> on the Controls rail, tag DE / FC with the green button; <b>Stop / Drop</b> ends and saves the roast. No between-batch cycle, soak or profile involved — use it whenever the drum is where you want it and the beans are going in. Opening values are remembered.</details>';
 let manMode=false;                                        // a manual roast is on the chart: the designer plan stays off it until the next Charge
 function manOpen(){return{heat:clampPct($('manHeat').value),fan:clampPct($('manFan').value)};}
 function saveManCfg(){try{localStorage.setItem('rc_man',JSON.stringify({heat:$('manHeat').value,fan:$('manFan').value}));}catch(e){}}
@@ -2678,6 +2689,7 @@ function pal(){return themeDay?PALETTES.day:PALETTES.night;}
 function applyTheme(day){
   themeDay=day;document.body.classList.toggle('day',day);
   $('themeBtn').textContent=day?'🌙':'☀️';
+  $('themeBtn').setAttribute('aria-label',day?'Switch to night theme':'Switch to day theme');
   try{localStorage.setItem('rc_theme',day?'day':'night');}catch(e){}
   drawChart();drawProfEditor();drawPProf();
 }
@@ -2686,7 +2698,7 @@ $('themeBtn').addEventListener('click',()=>applyTheme(!themeDay));
 // ---------- Chart ----------
 function drawChart(){
   const c=$('chart'),ctx=c.getContext('2d'),dpr=window.devicePixelRatio||1;
-  const W=c.clientWidth,H=c.clientHeight; if(c.width!==Math.round(W*dpr)){c.width=W*dpr;c.height=H*dpr;}
+  const W=c.clientWidth,H=c.clientHeight; if(c.width!==Math.round(W*dpr)||c.height!==Math.round(H*dpr)){c.width=W*dpr;c.height=H*dpr;}
   ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
   const P=pal();
   // ---- layout: temps pane / time axis / controls pane / phase strip ----
@@ -3721,5 +3733,6 @@ try{const iu=localStorage.getItem('rc_invuse')||'';                        // re
   if(iu){$('invUseSel').value=iu;if($('invUseSel').value===iu)invUse.itemId=iu;}}catch(e){}
 if(cloudConfigured()){cloudStatus('Connecting…');cloudSyncNow();}
 </script>
+<script src="dashboard.js"></script>
 </body>
 </html>
