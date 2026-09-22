@@ -129,7 +129,7 @@
     <div class="header-meta"><span id="appVer" class="small"></span><button id="themeBtn" title="Toggle day / night mode" aria-label="Toggle day / night mode">☀️</button></div>
   </header>
   <nav class="workspace-nav" aria-label="Workspace sections">
-    <a href="#workspace">Live roast</a><a href="#preparation">Preparation</a><a href="#profiles">Profiles</a><a href="#history">Roast history</a><a href="#inventory">Green coffee</a><a href="#sync">Sync</a>
+    <a href="#workspace">Live roast</a><a href="#preparation">Preparation</a><a href="#profiles">Profiles</a><a href="#history">Roast history</a><a href="#comparison">Compare</a><a href="#inventory">Green coffee</a><a href="#sync">Sync</a>
   </nav>
   <main id="workspace" tabindex="-1">
   <div class="workspace-heading"><h2>Live roast</h2><p>Your curve, controls, and live readings.</p></div>
@@ -517,6 +517,35 @@
       <div id="allFields" class="tiles" style="grid-template-columns:repeat(6,1fr);margin:8px 0"></div>
       <div id="log"></div>
     </details>
+  </section>
+
+  <section class="panel work-panel" id="comparison" aria-labelledby="comparisonTitle">
+    <h2 id="comparisonTitle">Compare roasts</h2>
+    <p class="small">Compare two completed roasts: actual curves, phase timing, weight loss, heater/fan output, and tasting notes.</p>
+    <div class="comparison-selectors">
+      <div><label for="compareA">Roast A</label><select id="compareA"></select></div>
+      <button id="compareSwap" type="button" aria-label="Swap roast A and roast B">⇄ Swap</button>
+      <div><label for="compareB">Roast B</label><select id="compareB"></select></div>
+    </div>
+    <p id="compareStatus" class="small" role="status"></p>
+    <div id="compareResults" hidden>
+      <div class="comparison-legend"><span id="compareNameA" class="comparison-key-a"></span><span id="compareNameB" class="comparison-key-b"></span></div>
+      <label for="compareSignal">Compare curve</label><select id="compareSignal"><option value="bt">Bean temperature (BT)</option><option value="et">Exhaust temperature (ET)</option><option value="heat">Heater output</option><option value="fan">Fan output</option></select>
+      <svg id="compareChart" viewBox="0 0 800 330" role="img" aria-label="Comparison of recorded roast curves"></svg>
+      <label for="compareTime">Inspect at <output id="compareAt" for="compareTime">0:00</output></label>
+      <input id="compareTime" type="range" min="0" max="600" step="1" value="0" aria-label="Comparison time in seconds">
+      <p id="compareReading" class="small"></p>
+      <p id="comparePhaseHint" class="small"></p>
+      <div class="comparison-table" tabindex="0" role="region" aria-label="Roast comparison summary">
+        <table><caption>Summary · differences are B minus A; pp = percentage points</caption><thead><tr><th scope="col">Measure</th><th scope="col">A</th><th scope="col">B</th><th scope="col">Difference</th></tr></thead><tbody id="compareSummary"></tbody></table>
+      </div>
+      <div class="comparison-notes"><div><h3>Roast A notes</h3><p id="compareBeanA"></p><p id="compareNotesA"></p></div><div><h3>Roast B notes</h3><p id="compareBeanB"></p><p id="compareNotesB"></p></div></div>
+      <details><summary>Temperature and output values by time</summary>
+        <p class="small">Values between recorded samples are interpolated for comparison. Each curve stops at its own Drop; shorter roasts are not extended.</p>
+        <p id="compareTableHint" class="small"></p>
+        <div class="comparison-table" tabindex="0" role="region" aria-label="Roast values by time"><table><caption>Recorded bean temperature and output</caption><thead><tr><th scope="col">Time</th><th scope="col">A °C</th><th scope="col">B °C</th><th scope="col">Δ °C</th><th scope="col">A heat %</th><th scope="col">B heat %</th><th scope="col">A fan %</th><th scope="col">B fan %</th></tr></thead><tbody id="compareValues"></tbody></table></div>
+      </details>
+    </div>
   </section>
 
   <section class="panel work-panel" id="sync" aria-labelledby="syncTitle">
@@ -3000,7 +3029,7 @@ $('btnClear').addEventListener('click',()=>{chartFrozen=false;samples.length=0;b
 
 const LOG_KEY='rc_logs_v1';
 function loadLogs(){try{return JSON.parse(localStorage.getItem(LOG_KEY)||'[]');}catch(e){return[];}}
-function saveLogs(a){let ok=true;try{localStorage.setItem(LOG_KEY,JSON.stringify(a));}catch(e){alert('Storage full — export & delete old roasts to free space.');ok=false;}cloudSchedulePush();return ok;}
+function saveLogs(a){let ok=true;try{localStorage.setItem(LOG_KEY,JSON.stringify(a));}catch(e){alert('Storage full — export & delete old roasts to free space.');ok=false;}cloudSchedulePush();if(ok)document.dispatchEvent(new Event('roasts-updated'));return ok;}
 function recStats(r){                                 // stats of a saved roast, backfilled from its samples/events for roasts saved before a field existed
   const st=Object.assign({},r.stats||{}),ev=r.events||{},sm=r.samples||[];
   if(st.total==null&&ev.drop!=null)st.total=ev.drop;
@@ -3031,7 +3060,7 @@ function refreshRoastSelect(){const a=loadLogs();
     s.value=cur;if(s.value!==cur)s.value='';};
   fill($('roastSelect'),'— saved roasts ('+a.length+') —');
   fill($('etSel'),'— pick a reference roast —');
-  fill($('ppSrc'),'— pick a source roast —');}
+  fill($('ppSrc'),'— pick a source roast —');document.dispatchEvent(new Event('roasts-updated'));}
 function buildRoastRec(name){
   return{id:'r'+Date.now(),name,date:new Date().toISOString(),mtime:Date.now(),code:batchCode||newBatchCode(),notes:liveDraft.notes.trim(),star:liveDraft.star,
     chargeT:(chargeMs&&connectMs)?+(((chargeMs-connectMs)/1000).toFixed(1)):null,stats:roastStats(),
@@ -3779,5 +3808,6 @@ try{const iu=localStorage.getItem('rc_invuse')||'';                        // re
 if(cloudConfigured()){cloudStatus('Connecting…');cloudSyncNow();}
 </script>
 <script src="dashboard.js"></script>
+<script src="roast-comparison.js"></script>
 </body>
 </html>

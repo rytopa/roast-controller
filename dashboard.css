@@ -194,3 +194,34 @@ body.day #crEvent:not(:disabled) {color:#fff}
 /* ETA labels switch between one and two lines; keep the telemetry strip stationary. */
 .ptiles .tile .v {white-space:nowrap}
 .ptiles .tile .u {line-height:1.4;min-height:2.8em}
+
+/* Read-only completed-roast comparison. */
+.comparison-selectors {display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:16px;align-items:end}
+.comparison-selectors label {font-size:13px;font-weight:600;min-width:0}
+.comparison-selectors select {display:block;margin-top:6px}
+.comparison-legend {display:flex;gap:24px;flex-wrap:wrap;margin:20px 0 12px;font-weight:600;overflow-wrap:anywhere}
+.comparison-key-a::before,.comparison-key-b::before {content:'';display:inline-block;width:25px;border-top:3px solid var(--bt);margin-right:8px;vertical-align:middle}
+.comparison-key-b::before {border-top:3px dashed var(--et)}
+#compareChart {display:block;width:100%;height:auto;background:var(--canvas);border:1px solid var(--line);border-radius:12px;margin-bottom:16px}
+#compareChart text {fill:var(--dim);font:12px system-ui,sans-serif}
+.comparison-grid {stroke:var(--line);stroke-width:1}
+.comparison-a {stroke:var(--bt)} .comparison-b {stroke:var(--et)}
+.comparison-cursor {stroke:var(--dim);stroke-width:1;stroke-dasharray:3 4}
+#compareTime {width:100%;padding:0;accent-color:var(--bt)}
+#compareReading {min-height:3.3em;font-variant-numeric:tabular-nums}
+.comparison-table {overflow-x:auto;margin:16px 0;border:1px solid var(--line);border-radius:10px}
+.comparison-table table {width:100%;border-collapse:collapse;min-width:460px;font-size:13px;font-variant-numeric:tabular-nums}
+.comparison-table caption {text-align:left;padding:12px;background:var(--panel2);font-weight:600}
+.comparison-table th,.comparison-table td {padding:12px;text-align:left;border-bottom:1px solid var(--line)}
+.comparison-table thead {background:var(--panel2)}
+.comparison-table tbody th {font-weight:500}
+.comparison-notes {display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.comparison-notes>div {padding:16px;background:var(--panel2);border-radius:12px;min-width:0}
+.comparison-notes h3 {margin:0 0 8px;font-size:13px}
+.comparison-notes p {margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;color:var(--dim)}
+@media(max-width:600px){.comparison-selectors,.comparison-notes {grid-template-columns:1fr}.comparison-selectors button {justify-self:start}.comparison-legend{gap:8px;flex-direction:column}}
+
+#compareSignal {width:auto;max-width:100%;margin:0 0 14px 10px}
+#compareBeanA,#compareBeanB {font-weight:600;margin-bottom:8px}
+
+.comparison-selectors>div {min-width:0}
