@@ -38,7 +38,7 @@ It talks to the roaster over the open **TC4 / Artisan "Matchbox" serial protocol
 
 ## Comparing completed roasts
 
-Open **Compare** and choose two completed records from Roast history as **Roast A** and **Roast B**. The curves align at Charge; switch between bean temperature, exhaust temperature, heater output, and fan output. Move the time slider to inspect both recordings at the same time.
+Open **Compare** and choose two completed records from Roast history as **Roast A** and **Roast B**. The curves align at Charge; switch between bean and exhaust temperature, with dedicated heater and fan charts visible below. Each chart names both roasts: A uses a solid line and B a dashed line, with matching labels on the curves. Move the time slider to inspect both recordings at the same time.
 
 The summary compares actual DE/FC timings, development, weights, and average outputs, with tasting notes alongside. Differences are **B minus A**; percentage differences use percentage points (pp). Missing events stay blank, telemetry gaps over 30 seconds remain gaps, and a shorter recording is never extended. Older records without a saved Charge offset use the existing background-overlay alignment convention and show a notice. Comparison is read-only and does not change the live roast.
 

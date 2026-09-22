@@ -530,8 +530,9 @@
     <p id="compareStatus" class="small" role="status"></p>
     <div id="compareResults" hidden>
       <div class="comparison-legend"><span id="compareNameA" class="comparison-key-a"></span><span id="compareNameB" class="comparison-key-b"></span></div>
-      <label for="compareSignal">Compare curve</label><select id="compareSignal"><option value="bt">Bean temperature (BT)</option><option value="et">Exhaust temperature (ET)</option><option value="heat">Heater output</option><option value="fan">Fan output</option></select>
-      <svg id="compareChart" viewBox="0 0 800 330" role="img" aria-label="Comparison of recorded roast curves"></svg>
+      <label for="compareSignal">Temperature curve</label><select id="compareSignal"><option value="bt">Bean temperature (BT)</option><option value="et">Exhaust temperature (ET)</option></select>
+      <svg class="comparison-chart" id="compareChart" viewBox="0 0 800 330" role="img" aria-label="Comparison of recorded roast curves"></svg>
+      <div class="comparison-output-charts"><article><h3>Heater settings</h3><div class="comparison-legend" data-compare-legend></div><svg class="comparison-chart" id="compareHeatChart" role="img" aria-label="Heater settings for both roasts"></svg><p id="compareHeatReading" class="small"></p></article><article><h3>Fan settings</h3><div class="comparison-legend" data-compare-legend></div><svg class="comparison-chart" id="compareFanChart" role="img" aria-label="Fan settings for both roasts"></svg><p id="compareFanReading" class="small"></p></article></div>
       <label for="compareTime">Inspect at <output id="compareAt" for="compareTime">0:00</output></label>
       <input id="compareTime" type="range" min="0" max="600" step="1" value="0" aria-label="Comparison time in seconds">
       <p id="compareReading" class="small"></p>

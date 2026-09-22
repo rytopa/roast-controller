@@ -83,7 +83,9 @@
     $('compareStatus').textContent='Recorded roasts aligned at Charge. Comparing does not load a roast into the live chart.';
     $('compareResults').hidden=false;
     $('comparePhaseHint').textContent='Timing comes from saved DE / FC / Drop events. Missing events stay blank. Telemetry gaps over 30 seconds are not interpolated.'+(pair.some(p=>p.inferred)?' A legacy record has no saved Charge offset; alignment uses the same inferred offset as background overlays.':'');
-    $('compareNameA').textContent='A · '+roastName(a);$('compareNameB').textContent='B · '+roastName(b);
+    $('compareNameA').textContent='A · '+roastName(a)+' — solid line';$('compareNameB').textContent='B · '+roastName(b)+' — dashed line';
+    document.querySelectorAll('[data-compare-legend]').forEach(legend=>legend.replaceChildren($('compareNameA').cloneNode(true),$('compareNameB').cloneNode(true)));
+    document.querySelectorAll('[data-compare-legend] [id]').forEach(el=>el.removeAttribute('id'));
     $('compareNotesA').textContent=a.notes||'No tasting notes saved.';$('compareNotesB').textContent=b.notes||'No tasting notes saved.';
     $('compareBeanA').textContent=a.bean||'Bean not recorded';$('compareBeanB').textContent=b.bean||'Bean not recorded';
     const [sa,sb]=pair.map(summary);
@@ -118,14 +120,16 @@
     $('compareTime').setAttribute('aria-valuetext',clock(t));
     const key=$('compareSignal').value,unit=signals[key][1];
     $('compareReading').textContent='A: '+numeric(a?.[key]??null,unit)+' · B: '+numeric(b?.[key]??null,unit)+' · Difference (B − A): '+delta(a?.[key]??null,b?.[key]??null,v=>numeric(v,unit));
-    const line=$('compareCursor');if(line){const x=44+t/(+$('compareChart').dataset.end)*(+$('compareChart').dataset.plotWidth);line.setAttribute('x1',x);line.setAttribute('x2',x);}
+    for(const [id,key] of [['compareHeatReading','heat'],['compareFanReading','fan']])$(id).textContent='A: '+numeric(a?.[key]??null,'%')+' · B: '+numeric(b?.[key]??null,'%')+' · Difference (B − A): '+delta(a?.[key]??null,b?.[key]??null,v=>numeric(v,'pp'));
+    document.querySelectorAll('.comparison-chart').forEach(chart=>{const line=chart.querySelector('.comparison-cursor');if(line){const x=44+t/(+chart.dataset.end)*(+chart.dataset.plotWidth);line.setAttribute('x1',x);line.setAttribute('x2',x);}});
   }
   function svgEl(tag,attrs={},text){const n=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.entries(attrs).forEach(([k,v])=>n.setAttribute(k,v));if(text!==undefined)n.textContent=text;return n;}
-  function draw(){
-    const svg=$('compareChart');svg.replaceChildren();
+  function draw(){drawChart('compareChart',$('compareSignal').value);drawChart('compareHeatChart','heat');drawChart('compareFanChart','fan');}
+  function drawChart(id,key){
+    const svg=$(id);svg.replaceChildren();
     svg.append(svgEl('title',{},'Recorded roast comparison: A is solid, B is dashed. Use the time slider to inspect values.'));
     const end=Math.max(60,Math.ceil(Math.max(...pair.map(p=>p.end))/60)*60);
-    const key=$('compareSignal').value,unit=signals[key][1];
+    const unit=signals[key][1];
     const ymax=unit==='%'?100:Math.max(50,Math.ceil(pair.reduce((max,p)=>p.points.reduce((m,q)=>Math.max(m,q[key]??0),max),0)/25)*25);
     const width=Math.max(320,svg.clientWidth),right=width-24,plotWidth=right-44;
     svg.setAttribute('viewBox','0 0 '+width+' 330');svg.dataset.plotWidth=plotWidth;
@@ -137,6 +141,9 @@
       svg.append(svgEl('text',{x,y:294,'text-anchor':'middle'},clock(t)));
     }
     svg.append(svgEl('text',{x:44,y:18},signals[key][0]+' '+unit),svgEl('text',{x:right,y:320,'text-anchor':'end'},'Time since Charge (m:ss)'));
+    const ends=pair.map(p=>p.points.findLast(q=>q[key]!==null));
+    const labelYs=ends.map((q,i)=>q?Math.max(42,Math.min(258,Y(q[key])+(i?18:-10))):null);
+    if(labelYs.every(y=>y!==null)&&Math.abs(labelYs[0]-labelYs[1])<22){const top=Math.min(236,Math.min(...labelYs)),upper=ends[0][key]>=ends[1][key]?0:1;labelYs[upper]=top;labelYs[1-upper]=top+22;}
     pair.forEach((p,i)=>{
       let path='',previous=null;
       for(const q of p.points){
@@ -144,9 +151,11 @@
         path+=(previous&&q.t-previous.t<=30?'L':'M')+X(q.t)+','+Y(q[key])+' ';
         previous=q;
       }
-      svg.append(svgEl('path',{d:path,fill:'none',class:i?'comparison-b':'comparison-a','stroke-width':2.5,'stroke-dasharray':i?'9 5':'none','vector-effect':'non-scaling-stroke'}));
+      svg.append(svgEl('path',{d:path,fill:'none',class:i?'comparison-b':'comparison-a','stroke-width':3,'stroke-dasharray':i?'9 5':'none','vector-effect':'non-scaling-stroke'}));
+      const last=ends[i];
+      if(last){const label=svgEl('text',{x:Math.min(right-8,X(last.t)),y:labelYs[i],'text-anchor':'end',class:'comparison-end-label '+(i?'comparison-label-b':'comparison-label-a')},i?'B · dashed':'A · solid');svg.append(label);}
     });
-    svg.append(svgEl('line',{id:'compareCursor',x1:44,x2:44,y1:30,y2:270,class:'comparison-cursor'}));
+    svg.append(svgEl('line',{id:id+'Cursor',x1:44,x2:44,y1:30,y2:270,class:'comparison-cursor'}));
   }
   $('compareA').addEventListener('change',render);$('compareB').addEventListener('change',render);
   $('compareSwap').addEventListener('click',()=>{const a=$('compareA').value;$('compareA').value=$('compareB').value;$('compareB').value=a;render();});
