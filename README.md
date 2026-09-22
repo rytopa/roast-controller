@@ -36,6 +36,12 @@ It talks to the roaster over the open **TC4 / Artisan "Matchbox" serial protocol
 - **Fan override during a roast** — adjust the fan by hand at any time (quick buttons, ±5 nudges, or a set value); doing so pauses the profile's fan commands for the rest of the roast while the PID temperature curve keeps running, with a one-tap "Resume profile fan" to hand it back.
 - **Day / night mode** — ☀️/🌙 toggle in the header; charts re-render with a matching palette and the choice is remembered.
 
+## Comparing completed roasts
+
+Open **Compare** and choose two completed records from Roast history as **Roast A** and **Roast B**. The curves align at Charge; switch between bean temperature, exhaust temperature, heater output, and fan output. Move the time slider to inspect both recordings at the same time.
+
+The summary compares actual DE/FC timings, development, weights, and average outputs, with tasting notes alongside. Differences are **B minus A**; percentage differences use percentage points (pp). Missing events stay blank, telemetry gaps over 30 seconds remain gaps, and a shorter recording is never extended. Older records without a saved Charge offset use the existing background-overlay alignment convention and show a notice. Comparison is read-only and does not change the live roast.
+
 ## Requirements
 
 - **Chrome or Edge** on **Android, Windows, macOS, Linux, or ChromeOS**, with Bluetooth on.
