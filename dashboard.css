@@ -202,8 +202,8 @@ body.day #crEvent:not(:disabled) {color:#fff}
 .comparison-legend {display:flex;gap:24px;flex-wrap:wrap;margin:20px 0 12px;font-weight:600;overflow-wrap:anywhere}
 .comparison-key-a::before,.comparison-key-b::before {content:'';display:inline-block;width:25px;border-top:3px solid var(--bt);margin-right:8px;vertical-align:middle}
 .comparison-key-b::before {border-top:3px dashed var(--et)}
-#compareChart {display:block;width:100%;height:auto;background:var(--canvas);border:1px solid var(--line);border-radius:12px;margin-bottom:16px}
-#compareChart text {fill:var(--dim);font:12px system-ui,sans-serif}
+.comparison-chart {display:block;width:100%;height:auto;background:var(--canvas);border:1px solid var(--line);border-radius:12px;margin-bottom:16px}
+.comparison-chart text {fill:var(--dim);font:12px system-ui,sans-serif}
 .comparison-grid {stroke:var(--line);stroke-width:1}
 .comparison-a {stroke:var(--bt)} .comparison-b {stroke:var(--et)}
 .comparison-cursor {stroke:var(--dim);stroke-width:1;stroke-dasharray:3 4}
@@ -225,3 +225,13 @@ body.day #crEvent:not(:disabled) {color:#fff}
 #compareBeanA,#compareBeanB {font-weight:600;margin-bottom:8px}
 
 .comparison-selectors>div {min-width:0}
+
+.comparison-output-charts {display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.comparison-output-charts article {min-width:0}
+.comparison-output-charts h3 {margin:8px 0;font-size:16px}
+.comparison-output-charts .comparison-legend {font-size:12px;gap:6px;flex-direction:column;margin:8px 0 12px}
+.comparison-chart .comparison-end-label {fill:var(--text);font-weight:700;paint-order:stroke;stroke:var(--canvas);stroke-width:4px;stroke-linejoin:round}
+@media(max-width:800px){.comparison-output-charts {grid-template-columns:1fr}}
+
+.comparison-chart .comparison-label-a {fill:var(--bt)}
+.comparison-chart .comparison-label-b {fill:var(--et)}
