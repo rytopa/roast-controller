@@ -24,3 +24,13 @@ test('invalid ranges cannot be armed',()=>{
   assert.match(RoastCreator.validate({...config,fanMin:5}),/Fan floor/);
   assert.match(RoastCreator.validate({...config,maxTime:NaN}),/number/);
 });
+
+test('fan interval can be changed to 3°C and rejects zero',()=>{
+  const c={...config,fanInterval:3};
+  assert.equal(RoastCreator.validate(c),null);
+  assert.equal(RoastCreator.at(c,150).fan,60);
+  assert.equal(RoastCreator.at(c,153).fan,59);
+  assert.equal(RoastCreator.at(c,156).fan,58);
+  assert.equal(RoastCreator.at(c,186).fan,48);
+  assert.match(RoastCreator.validate({...c,fanInterval:0}),/interval/);
+});
