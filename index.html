@@ -440,25 +440,51 @@
 
   <div class="panel" id="ppPanel">
     <h2>Power profile (open loop)</h2>
-    <div class="banner warn" style="margin-bottom:8px">⚠️ Drives the heater <b>directly in manual mode</b>. The creator uses measured bean temperature to select power and fan; the fixed schedule uses time. Stay at the machine — <b>Heater Off / Drop</b> always works.</div>
-    <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="ppCreatorOn"><span><b>Use temperature-driven profile creator</b></span></label>
+    <div class="banner warn" style="margin-bottom:8px">⚠️ Drives the heater <b>directly in manual mode</b>. The creator follows your chosen temperature or time rules for heater and fan. Stay at the machine — <b>Heater Off / Drop</b> always works.</div>
+    <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="ppCreatorOn"><span><b>Use profile creator</b></span></label>
     <div id="ppCreator" style="display:none;border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px">
-      <div class="small" style="margin-bottom:8px">Heater climbs smoothly as BT rises, then holds at its maximum. Fan eases down as BT rises. The values below are a starting point to tune from your best roast.</div>
+      <div class="small" style="margin-bottom:8px">Choose how heater power rises and fan speed falls. Settings save automatically for the next run; a running profile keeps the settings it started with.</div>
+      <fieldset style="border:1px solid var(--line);border-radius:8px;margin:0 0 10px;padding:10px">
+        <legend>Heater ramp</legend>
+        <div class="row" style="align-items:center;margin-bottom:8px;gap:8px">
+          <label>Start % <input id="ppCrHeat0" type="number" min="0" max="100" value="60" style="width:70px"></label>
+          <label>Maximum % <input id="ppCrHeat1" type="number" min="0" max="100" value="80" style="width:70px"></label>
+          <label>Follow <select id="ppCrHeatBasis"><option value="bt">Bean temperature</option><option value="time">Time from Charge</option></select></label>
+          <label>Curve <select id="ppCrHeatShape"><option value="linear">Linear</option><option value="front">Faster early, slower later</option><option value="back">Slower early, faster later</option></select></label>
+        </div>
+        <div class="row" id="ppCrHeatBtRow" style="align-items:center;gap:8px">
+          <label>Begin ramp at BT <input id="ppCrBt0" type="number" min="0" max="230" value="40" style="width:70px"> °C</label>
+          <label>Reach maximum at BT <input id="ppCrBt1" type="number" min="0" max="230" value="160" style="width:70px"> °C</label>
+        </div>
+        <div class="row" id="ppCrHeatTimeRow" style="display:none;align-items:center;gap:8px">
+          <label>Begin ramp at <input id="ppCrHeatTime0" type="text" value="0:00" placeholder="m:ss" style="width:76px"></label>
+          <label>Reach maximum at <input id="ppCrHeatTime1" type="text" value="3:20" placeholder="m:ss" style="width:76px"></label>
+          <span class="small">m:ss from Charge</span>
+        </div>
+      </fieldset>
+      <fieldset style="border:1px solid var(--line);border-radius:8px;margin:0 0 10px;padding:10px">
+        <legend>Fan reduction</legend>
+        <div class="row" style="align-items:center;margin-bottom:8px;gap:8px">
+          <label>Starting fan % <input id="ppCrFan0" type="number" min="10" max="100" value="60" style="width:70px"></label>
+          <label>Minimum fan % <input id="ppCrFanMin" type="number" min="10" max="100" value="48" style="width:70px"></label>
+          <label>Reduce by <input id="ppCrFanStep" type="number" min="0" max="20" step="0.1" value="1" style="width:70px"> %</label>
+        </div>
+        <div class="row" style="align-items:center;margin-bottom:8px;gap:8px">
+          <label>Follow <select id="ppCrFanBasis"><option value="bt">Bean temperature</option><option value="time">Time from Charge</option></select></label>
+          <label>Change style <select id="ppCrFanMode"><option value="smooth">Smooth</option><option value="steps">Steps at each interval</option></select></label>
+        </div>
+        <div class="row" id="ppCrFanBtRow" style="align-items:center;gap:8px">
+          <label>Begin reducing at BT <input id="ppCrFanBt" type="number" min="0" max="230" value="150" style="width:70px"> °C</label>
+          <label>Every <input id="ppCrFanInterval" type="number" min="1" max="50" step="1" value="5" style="width:70px"> °C</label>
+        </div>
+        <div class="row" id="ppCrFanTimeRow" style="display:none;align-items:center;gap:8px">
+          <label>Begin reducing at <input id="ppCrFanTime0" type="text" value="3:00" placeholder="m:ss" style="width:76px"> m:ss</label>
+          <label>Every <input id="ppCrFanTimeInterval" type="number" min="1" max="600" value="20" style="width:70px"> seconds</label>
+        </div>
+        <div class="small" style="margin-top:8px">Smooth interpolates between intervals. Steps holds the fan until each full interval is reached. Set reduction to 0% to hold the starting fan. Output commands use whole percentages.</div>
+      </fieldset>
       <div class="row" style="align-items:center;margin-bottom:8px;gap:6px">
-        <b class="small">Heater</b><input id="ppCrHeat0" type="number" min="1" max="100" value="60" style="width:62px"><span class="small">% →</span>
-        <input id="ppCrHeat1" type="number" min="1" max="100" value="80" style="width:62px"><span class="small">% from BT</span>
-        <input id="ppCrBt0" type="number" min="0" max="230" value="40" style="width:62px"><span class="small">°C →</span>
-        <input id="ppCrBt1" type="number" min="0" max="230" value="160" style="width:62px"><span class="small">°C</span>
-      </div>
-      <div class="row" style="align-items:center;margin-bottom:8px;gap:6px">
-        <b class="small">Fan</b><input id="ppCrFan0" type="number" min="10" max="100" value="60" style="width:62px"><span class="small">% · reduce from BT</span>
-        <input id="ppCrFanBt" type="number" min="0" max="230" value="150" style="width:62px"><span class="small">°C by</span>
-        <input id="ppCrFanStep" type="number" min="0.1" max="20" step="0.1" value="1" style="width:62px" aria-label="Fan reduction percentage"><span class="small">% every</span>
-        <input id="ppCrFanInterval" type="number" min="1" max="50" step="1" value="5" style="width:62px" aria-label="Fan reduction temperature interval"><span class="small">°C · floor</span>
-        <input id="ppCrFanMin" type="number" min="10" max="100" value="48" style="width:62px"><span class="small">%</span>
-      </div>
-      <div class="row" style="align-items:center;margin-bottom:8px;gap:6px">
-        <b class="small">Maximum time</b><input id="ppCrTime" type="text" inputmode="numeric" value="9:00" style="width:76px"><span class="small">from Charge; drop BT uses the setting below</span>
+        <label>Maximum roast time <input id="ppCrTime" type="text" value="9:00" placeholder="m:ss" style="width:76px"> m:ss</label><span class="small">from Charge; drop BT uses the setting below</span>
       </div>
       <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="ppCrSoak"><span>Use charge soak first (overrides starting heater until soak ends)</span></label>
       <div id="ppCrPreview" class="small" style="margin-bottom:8px"></div>
@@ -479,7 +505,7 @@
     </div>
     <label class="ck" style="margin-bottom:8px"><input type="checkbox" id="ppArm"><span><b>Arm for auto-charge</b> — the bean-drop detection runs this power schedule (takes priority over ET-track and the normal profile).</span></label>
     <button id="ppRunBtn" class="green" style="width:100%">▶ Run power profile</button>
-    <div class="small" id="ppStatus" style="margin-top:7px">Choose the temperature-driven creator or a fixed power schedule above. Both are saved in this browser; the selected mode runs when you press Run or arm auto-charge. Heater Off / Drop stops either mode.</div>
+    <div class="small" id="ppStatus" style="margin-top:7px">Choose the profile creator or a fixed power schedule above. Both are saved in this browser; the selected mode runs when you press Run or arm auto-charge. Heater Off / Drop stops either mode.</div>
   </div>
 
   <!-- Roast session panel hidden per user request: the elements stay in the DOM because the
@@ -693,10 +719,10 @@
   <div class="safety-dock" aria-label="Quick roast actions"><a href="#workspace">↑ Live roast</a><button type="button" id="quickStop" class="danger">Heater off / Drop</button></div>
   <footer class="app-footer">Roast with intention. Stay with your roaster.<span>Hamid / Matchbox · Web Bluetooth</span></footer>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
-<script src="profile-creator.js?v=1.3.1"></script>
+<script src="profile-creator.js?v=1.4.0"></script>
 <script>
 "use strict";
-const APP_VERSION='1.3.1',APP_DATE='2026-09-27';   // bump both on every release — shown in the header, logged at start-up
+const APP_VERSION='1.4.0',APP_DATE='2026-09-27';   // bump both on every release — shown in the header, logged at start-up
 const CANDIDATE_SERVICES=[0xffe0,0xfff0,'6e400001-b5a3-f393-e0a9-e50e24dcca9e','49535343-fe7d-4ae5-8fa9-9fafd205e455',0xffe5,0xfee0,0xff00];
 const $=id=>document.getElementById(id);
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -1897,24 +1923,44 @@ function etTick(){
 
 // ---------- Power profile: replay a saved roast's heater curve as fixed open-loop steps ----------
 let pprof=null;
-const PP_CR_FIELDS={heat0:'ppCrHeat0',heat1:'ppCrHeat1',bt0:'ppCrBt0',bt1:'ppCrBt1',fan0:'ppCrFan0',fanBt:'ppCrFanBt',fanStep:'ppCrFanStep',fanInterval:'ppCrFanInterval',fanMin:'ppCrFanMin'};
-function ppCreatorCfg(){const c={};for(const [k,id] of Object.entries(PP_CR_FIELDS))c[k]=$(''+id).value.trim()===''?NaN:+$(id).value;
-  c.maxTime=$('ppCrTime').value.trim()?parseTime($('ppCrTime').value):NaN;return c;}
+const PP_CR_FIELDS={heat0:'ppCrHeat0',heat1:'ppCrHeat1',bt0:'ppCrBt0',bt1:'ppCrBt1',fan0:'ppCrFan0',fanBt:'ppCrFanBt',fanStep:'ppCrFanStep',fanInterval:'ppCrFanInterval',fanMin:'ppCrFanMin',fanTimeInterval:'ppCrFanTimeInterval'};
+const PP_CR_CLOCKS={heatTime0:'ppCrHeatTime0',heatTime1:'ppCrHeatTime1',fanTime0:'ppCrFanTime0',maxTime:'ppCrTime'};
+const PP_CR_MODES={heatBasis:'ppCrHeatBasis',heatShape:'ppCrHeatShape',fanBasis:'ppCrFanBasis',fanMode:'ppCrFanMode'};
+const PP_CR_IDS=[...Object.values(PP_CR_FIELDS),...Object.values(PP_CR_CLOCKS),...Object.values(PP_CR_MODES)];
+function ppCreatorCfg(){const c={};
+  for(const [k,id] of Object.entries(PP_CR_FIELDS))c[k]=$(id).value.trim()===''?NaN:+$(id).value;
+  for(const [k,id] of Object.entries(PP_CR_CLOCKS))c[k]=RoastCreator.parseClock($(id).value);
+  for(const [k,id] of Object.entries(PP_CR_MODES))c[k]=$(id).value;
+  return c;
+}
 function ppCreatorValid(){const c=ppCreatorCfg();return RoastCreator.validate(c)?null:c;}
 function ppPlan(){return $('ppCreatorOn').checked?ppCreatorValid():ppSteps();}
 function ppCreatorPreview(){
   const box=$('ppCrPreview'),c=ppCreatorCfg(),error=RoastCreator.validate(c);
   if(error){box.textContent='⚠ '+error;return;}
-  const temps=[c.bt0,Math.min(c.bt1,c.bt0+20),Math.round((c.bt0+c.bt1)/2),c.bt1,c.fanBt,c.fanBt+c.fanInterval,c.fanBt+5*c.fanInterval,+$('ppEndBt').value||209];
-  box.textContent='BT → heater / fan: '+[...new Set(temps.map(Math.round))].sort((a,b)=>a-b).map(bt=>{const p=RoastCreator.at(c,bt);return bt+'° '+p.heat+'% / '+p.fan+'%';}).join(' · ');
+  const timedHeat=c.heatBasis==='time',timedFan=c.fanBasis==='time';
+  const begin=timedHeat?c.heatTime0:c.bt0,end=timedHeat?c.heatTime1:c.bt1;
+  const heat=Array.from({length:5},(_,i)=>{const x=begin+(end-begin)*i/4;
+    return (timedHeat?fmt(x):Math.round(x)+'°C')+' → '+RoastCreator.at(c,timedHeat?c.bt0:x,timedHeat?x:0).heat+'%';});
+  const fan=Array.from({length:5},(_,i)=>{const x=(timedFan?c.fanTime0:c.fanBt)+i*(timedFan?c.fanTimeInterval:c.fanInterval);
+    return (timedFan?fmt(x):Math.round(x)+'°C')+' → '+RoastCreator.at(c,timedFan?c.bt0:x,timedFan?x:0).fan+'%';});
+  box.style.whiteSpace='pre-line';
+  box.textContent='Heater: '+heat.join(' · ')+'\nFan: '+fan.join(' · ');
+}
+function ppCreatorRows(){
+  const heatTime=$('ppCrHeatBasis').value==='time',fanTime=$('ppCrFanBasis').value==='time';
+  $('ppCrHeatBtRow').style.display=heatTime?'none':'';$('ppCrHeatTimeRow').style.display=heatTime?'':'none';
+  $('ppCrFanBtRow').style.display=fanTime?'none':'';$('ppCrFanTimeRow').style.display=fanTime?'':'none';
 }
 function ppCreatorUi(){const on=$('ppCreatorOn').checked;$('ppCreator').style.display=on?'':'none';$('ppFixed').style.display=on?'none':'';
-  ppCreatorPreview();savePProfCfg();bbpPreviewDraw();}
+  ppCreatorRows();ppCreatorPreview();savePProfCfg();bbpPreviewDraw();}
 $('ppCreatorOn').addEventListener('change',ppCreatorUi);
 $('ppCrSoak').addEventListener('change',()=>{savePProfCfg();bbpPreviewDraw();});
 $('ppCrApply').addEventListener('click',()=>{const c=ppCreatorValid();if(!c){alert(RoastCreator.validate(ppCreatorCfg()));return;}
-  ppCreatorPreview();savePProfCfg();bbpPreviewDraw();log('Temperature-driven power profile ready: '+c.heat0+'% → '+c.heat1+'%, fan '+c.fan0+'% → '+c.fanMin+'%.');});
-for(const id of [...Object.values(PP_CR_FIELDS),'ppCrTime'])$(id).addEventListener('change',()=>{ppCreatorPreview();savePProfCfg();bbpPreviewDraw();});
+  ppCreatorPreview();savePProfCfg();bbpPreviewDraw();
+  if(!pprof)$('ppStatus').textContent='Creator settings saved — ready to run. Heater '+c.heat0+'% → '+c.heat1+'%; fan '+c.fan0+'% → floor '+c.fanMin+'%.';
+  log('Creator settings saved for the next run.');});
+for(const id of PP_CR_IDS)$(id).addEventListener('change',()=>{ppCreatorRows();ppCreatorPreview();savePProfCfg();bbpPreviewDraw();});
 function ppSteps(){                                    // parse the schedule: "time heater% [fan%]" per line
   const out=[];
   for(const raw of $('ppText').value.split('\n')){
@@ -1954,7 +2000,7 @@ function ppSummaryDraw(){
   }else if($('ppText').value.trim())txt='⚠ schedule not valid — one "time heater% [fan%]" per line';
   $('ppSummary').textContent=txt;
 }
-function savePProfCfg(){try{localStorage.setItem('rc_pprof',JSON.stringify({text:$('ppText').value,endBt:$('ppEndBt').value,arm:$('ppArm').checked,step:$('ppStep').value,src:$('ppSrc').value,creatorOn:$('ppCreatorOn').checked,creatorSoak:$('ppCrSoak').checked,creator:Object.fromEntries([...Object.values(PP_CR_FIELDS),'ppCrTime'].map(id=>[id,$(id).value]))}));}catch(e){}}
+function savePProfCfg(){try{localStorage.setItem('rc_pprof',JSON.stringify({text:$('ppText').value,endBt:$('ppEndBt').value,arm:$('ppArm').checked,step:$('ppStep').value,src:$('ppSrc').value,creatorOn:$('ppCreatorOn').checked,creatorSoak:$('ppCrSoak').checked,creator:Object.fromEntries(PP_CR_IDS.map(id=>[id,$(id).value]))}));}catch(e){}}
 $('ppText').addEventListener('change',()=>{ppSummaryDraw();savePProfCfg();drawPProf();});
 ['ppEndBt','ppStep','ppSrc'].forEach(id=>$(id).addEventListener('change',savePProfCfg));
 $('ppSrc').addEventListener('change',drawPProf);
@@ -2082,9 +2128,9 @@ async function startPProf(opts){
   const fan0=creator?creator.fan0:steps[0].fan;
   if(fan0!=null){send('IO3,'+fan0);noteStartFan(fan0);}
   send('OT1,'+out0);
-  pprof={steps,creator,startT:nowT(),lastOut:out0,lastFan:fan0??null,soak,soakPct:soaking?soak[0].pct:null,btMin:null,btArmed:false,tid:setInterval(ppTick,1000)};
+  pprof={steps,creator,startT:creator&&chargeMs?(chargeMs-connectMs)/1000:nowT(),lastOut:out0,lastFan:fan0??null,soak,soakPct:soaking?soak[0].pct:null,btMin:null,btArmed:false,tid:setInterval(ppTick,1000)};
   $('ppRunBtn').textContent='■ Stop power profile';$('ppRunBtn').classList.remove('green');$('ppRunBtn').classList.add('danger');
-  log('Power profile started: '+(creator?'BT-driven, maximum '+fmt(creator.maxTime):steps.length+' steps, ends '+fmt(steps[steps.length-1].t))
+  log('Power profile started: '+(creator?'creator, maximum '+fmt(creator.maxTime):steps.length+' steps, ends '+fmt(steps[steps.length-1].t))
     +(soaking?' — charge soak '+soak.map(s=>s.pct+'% to '+fmt(s.until)).join(', then ')+' first':''));
   $('ppStatus').textContent='⚡ Power profile running — first tick in a second…';
 }
@@ -2126,9 +2172,9 @@ function ppTick(){
     if(bt!=null){pprof.btMin=pprof.btMin==null?bt:Math.min(pprof.btMin,bt);
       // The empty chamber can read hot at Charge. Wait for the post-charge turning point
       // before a high initial reading can advance heater power or reduce airflow.
-      if(pprof.btMin<=c.bt1&&bt>=pprof.btMin+3)pprof.btArmed=true;
+      if(pprof.dropArmed&&bt>=pprof.btMin+3)pprof.btArmed=true;
     }
-    cur=bt!=null&&pprof.btArmed?RoastCreator.at(c,bt):{heat:c.heat0,fan:c.fan0};
+    cur=RoastCreator.at(c,bt,e,pprof.btArmed);
   }else{cur=steps[0];for(const st of steps){if(st.t<=e)cur=st;else break;}}
   let heat=cur.heat;
   if(pprof.soakPct!=null){                             // fresh charge: the standard fixed-power soak overrides the schedule's opening
@@ -2143,7 +2189,7 @@ function ppTick(){
     +'heater <b style="color:var(--text)">'+pprof.lastOut+'%</b>'
     +(pprof.lastFan!=null?' · fan '+pprof.lastFan+'%':'')
     +' · '+fmt(e)+' / '+fmt(end)+' · → drop @ '+dropBt+'°'+(bt!=null?' (BT '+Math.round(bt)+'°)':'')
-    +(c&&!pprof.btArmed?' · waiting for BT turning point':'');
+    +(c&&!pprof.btArmed&&(c.heatBasis!=='time'||c.fanBasis!=='time')?' · BT controls waiting for turning point':'');
 }
 
 // ---------- Between-batch protocol ----------
@@ -2247,7 +2293,7 @@ function bbpPreviewDraw(){
   const ppArmedSteps=$('ppArm').checked?ppPlan():null;
   const etArmed=!ppArmedSteps&&$('etArm').checked&&!!(etRef||$('etSel').value);
   if(ppArmedSteps){
-    el.innerHTML=lbl+'<b>⚡ Power profile (open loop)</b><div class="small">'+($('ppCreatorOn').checked?'BT-driven · heater '+ppArmedSteps.heat0+' → '+ppArmedSteps.heat1+'% · maximum '+fmt(ppArmedSteps.maxTime):ppArmedSteps.length+' fixed steps · '+fmt(ppArmedSteps[ppArmedSteps.length-1].t))+' · drop at BT '+Math.max(120,Math.min(250,+$('ppEndBt').value||210))+'°</div>';
+    el.innerHTML=lbl+'<b>⚡ Power profile (open loop)</b><div class="small">'+($('ppCreatorOn').checked?'Creator · heater '+ppArmedSteps.heat0+' → '+ppArmedSteps.heat1+'% · maximum '+fmt(ppArmedSteps.maxTime):ppArmedSteps.length+' fixed steps · '+fmt(ppArmedSteps[ppArmedSteps.length-1].t))+' · drop at BT '+Math.max(120,Math.min(250,+$('ppEndBt').value||210))+'°</div>';
   }else if(etArmed){
     const n=etRef?etRef.name:($('etSel').selectedOptions[0]?$('etSel').selectedOptions[0].textContent.trim():'selected reference');
     el.innerHTML=lbl+'<b>🔁 ET-track replay — '+escapeHtml(n)+'</b><div class="small">follows that roast’s recorded exhaust curve · drop at BT '+Math.max(120,Math.min(250,+$('etEndBt').value||(etRef&&etRef.endBt)||210))+'°</div>';
@@ -2276,8 +2322,8 @@ async function startBBP(){
   const etArmed=!ppArmedSteps&&$('etArm').checked&&!!(etRef||$('etSel').value);   // etArm diverts auto-charge to the ET-track run
   let runLine,airLine;
   if(ppArmedSteps){
-    runLine=$('ppCreatorOn').checked?'Power creator — BT-driven '+ppArmedSteps.heat0+' → '+ppArmedSteps.heat1+'%, open loop':'Power profile — '+ppArmedSteps.length+' fixed steps, open loop';
-    airLine=$('ppCreatorOn').checked?'fan from BT, '+ppArmedSteps.fan0+'% → '+ppArmedSteps.fanMin+'%':ppArmedSteps.some(x=>x.fan!=null)?'fan from the power schedule':'— (manual fan)';
+    runLine=$('ppCreatorOn').checked?'Power creator — heater '+ppArmedSteps.heat0+' → '+ppArmedSteps.heat1+'%, open loop':'Power profile — '+ppArmedSteps.length+' fixed steps, open loop';
+    airLine=$('ppCreatorOn').checked?'fan from '+(ppArmedSteps.fanBasis==='time'?'time':'BT')+', '+ppArmedSteps.fan0+'% → '+ppArmedSteps.fanMin+'%':ppArmedSteps.some(x=>x.fan!=null)?'fan from the power schedule':'— (manual fan)';
   }else if(etArmed){
     const etName=etRef?etRef.name:($('etSel').selectedOptions[0]?$('etSel').selectedOptions[0].textContent.trim():'selected reference');
     runLine='ET-track — '+etName;
@@ -3847,7 +3893,7 @@ try{const pp=JSON.parse(localStorage.getItem('rc_pprof')||'null');          // r
     if(pp.src){$('ppSrc').value=pp.src;}
     $('ppCreatorOn').checked=!!pp.creatorOn;
     $('ppCrSoak').checked=!!pp.creatorSoak;
-    if(pp.creator)for(const id of [...Object.values(PP_CR_FIELDS),'ppCrTime'])if(pp.creator[id]!=null)$(id).value=pp.creator[id];
+    if(pp.creator)for(const id of PP_CR_IDS)if(pp.creator[id]!=null)$(id).value=pp.creator[id];
     ppSummaryDraw();drawPProf();}}catch(e){}
 ppCreatorUi();
 // Advanced mode: the ET-track and power-profile panels stay hidden unless enabled;
