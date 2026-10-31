@@ -259,3 +259,7 @@ body.day #crEvent:not(:disabled) {color:#fff}
   .chart-panel {padding-top:14px}
   #chart {height:clamp(300px,calc(100vh - var(--nav-h,52px) - var(--glance-h,90px) - 110px),600px)}
 }
+
+/* Fan step-down toggle on the Controls rail */
+.fanstep {width:100%;margin:2px 0 4px;font-size:13px;min-height:44px}
+.fanstep.on {background:var(--et);border-color:var(--et);color:#06222e}

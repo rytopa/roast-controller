@@ -253,6 +253,7 @@
         <button id="crFanM" title="Fan −1%">−</button><div class="sval" id="crFan" role="button" tabindex="0" aria-label="Fan percentage: show or hide five percent adjustments" aria-controls="crFanQ" aria-expanded="false" title="Tap for −5 / +5">—</div><button id="crFanP" title="Fan +1%">+</button>
       </div>
       <div class="qrow" id="crFanQ"><span class="qlbl">Fan ±5</span><button id="crFanM5" title="Fan −5%">−5</button><button id="crFanP5" title="Fan +5%">+5</button></div>
+      <button id="crFanStep" class="fanstep" aria-pressed="false" title="From now on, lower the fan a little every time the bean temperature rises (settings in Manual roast). Tap again to stop.">🌬 Fan step-down <span id="crFanStepTxt">OFF</span></button>
       <div class="bigrow">
         <button id="crEvent" class="bigbtn green" disabled><b>DE</b><span>Event tagging</span></button>
         <button id="crStop" class="bigbtn stop"><b>Heater off</b><span>Stop / Drop</span></button>
@@ -270,8 +271,7 @@
       <input id="manFan" type="number" min="0" max="100" value="60" style="width:66px"><span class="small">%</span>
     </div>
     <div class="row" style="margin-top:8px;align-items:center;gap:6px">
-      <label class="ck" style="margin:0"><input type="checkbox" id="manStepOn" checked><span class="small"><b>Fan step-down</b></span></label>
-      <span class="small">— lower the fan</span><input id="manStepPct" type="number" min="1" max="20" value="1" style="width:60px">
+      <span class="small"><b>🌬 Fan step-down</b> (tap it on the Controls rail when you want it, e.g. after dry end) — lower the fan</span><input id="manStepPct" type="number" min="1" max="20" value="1" style="width:60px">
       <span class="small">% every time the bean temp rises</span><input id="manStepC" type="number" min="1" max="50" value="5" style="width:60px">
       <span class="small">°C, but not below</span><input id="manStepMin" type="number" min="0" max="100" value="30" style="width:60px"><span class="small">%</span>
     </div>
@@ -728,7 +728,7 @@
 <script src="profile-creator.js?v=1.4.0"></script>
 <script>
 "use strict";
-const APP_VERSION='1.5.0',APP_DATE='2026-10-31';   // bump both on every release — shown in the header, logged at start-up
+const APP_VERSION='1.5.1',APP_DATE='2026-10-31';   // bump both on every release — shown in the header, logged at start-up
 const CANDIDATE_SERVICES=[0xffe0,0xfff0,'6e400001-b5a3-f393-e0a9-e50e24dcca9e','49535343-fe7d-4ae5-8fa9-9fafd205e455',0xffe5,0xfee0,0xff00];
 const $=id=>document.getElementById(id);
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -737,7 +737,7 @@ document.title='Roast Controller v'+APP_VERSION;
 let device=null,server=null,notifyChar=null,writeChar=null,rxBuffer='';
 let connectMs=null,chargeMs=null,curSV=null,ramp=null,profile=null,pidEngaged=false;
 let runGen=0;                                      // bumped by every stop path; a start sequence that spans awaits abandons itself when it changes
-const live={heat:null,fan:null};                   // latest heater / fan telemetry, kept even while the chart is frozen (the rail acts on these)
+const live={heat:null,fan:null,bt:null};                   // latest heater / fan telemetry, kept even while the chart is frozen (the rail acts on these)
 let sessionId=null,sessionClosed=false,chartRoastId=null;   // roast session (Charge → next Charge/reset); the saved record the chart currently shows
 // Batch code: 3 characters, unique among the saved roasts, assigned at Charge so it can go
 // straight onto the bag. Alphabet skips look-alikes (0/O, 1/I/L, 5/S, 8/B, 2/Z) for handwriting.
@@ -921,7 +921,7 @@ function processLine(line){
     liveTrack(bt,typeof ror==='number'?ror:null);
   }
   $('tSv').textContent=curSV==null?'—':curSV;
-  live.heat=heat;live.fan=fan;                     // the rail reads these, never a frozen sample
+  live.heat=heat;live.fan=fan;live.bt=bt;                    // the rail reads these, never a frozen sample
   if(chartFrozen){crRefresh();return;}             // roast dropped: the tiles stay live, the chart keeps the finished curve
   samples.push({t:nowT(),bt,et,heat,fan,sv:curSV,raw:clean});
   $('rowCount').textContent=samples.length+' samples';
@@ -2260,35 +2260,46 @@ function saveBbpCfg(){try{localStorage.setItem('rc_bbp',JSON.stringify({cool:$('
 ['bbpCool','bbpCharge','bbpFan'].forEach(id=>$(id).addEventListener('change',saveBbpCfg));
 // ---- Manual roast: one tap marks Charge (timer + chart recording), sets the opening fan / heater
 // with the PID off and hands the roast to the Controls rail. No between-batch cycle, no soak, no profile.
-const MAN_HELP='Choose opening power, then select your bean and weight. You control heat and airflow; Stop / Drop saves the roast.<details class="guide"><summary>How a manual roast works</summary>One tap: asks for the <b>bean and green weight</b> (same dialog as the cycle), marks <b>Charge</b> (timer and chart recording start), sets the fan then the heater to the opening values above with the PID <b>off</b>, and hands the roast to you. Drive <b>Heater / Fan ±</b> on the Controls rail, tag DE / FC with the green button; <b>Stop / Drop</b> ends and saves the roast. <b>Fan step-down</b> (ticked): from the moment you press Start, each time the bean temperature climbs another 5 °C (counted from its lowest point after the beans go in) the fan drops 1% on its own — never below the floor you set; your own fan changes are kept and later steps go down from them. No between-batch cycle, soak or profile involved — use it whenever the drum is where you want it and the beans are going in. Opening values are remembered.</details>';
+const MAN_HELP='Choose opening power, then select your bean and weight. You control heat and airflow; Stop / Drop saves the roast.<details class="guide"><summary>How a manual roast works</summary>One tap: asks for the <b>bean and green weight</b> (same dialog as the cycle), marks <b>Charge</b> (timer and chart recording start), sets the fan then the heater to the opening values above with the PID <b>off</b>, and hands the roast to you. Drive <b>Heater / Fan ±</b> on the Controls rail, tag DE / FC with the green button; <b>Stop / Drop</b> ends and saves the roast. <b>🌬 Fan step-down</b> (button on the Controls rail): tap it whenever you like — e.g. after dry end — and from then on each time the bean temperature climbs another 5 °C above where it was when you tapped, the fan drops 1% on its own — never below the floor you set; your own fan changes are kept and later steps go down from them. No between-batch cycle, soak or profile involved — use it whenever the drum is where you want it and the beans are going in. Opening values are remembered.</details>';
 let manMode=false;                                        // a manual roast is on the chart: the designer plan stays off it until the next Charge
 function manOpen(){return{heat:clampPct($('manHeat').value),fan:clampPct($('manFan').value)};}
 function saveManCfg(){try{localStorage.setItem('rc_man',JSON.stringify({heat:$('manHeat').value,fan:$('manFan').value,
-  stepOn:$('manStepOn').checked,stepPct:$('manStepPct').value,stepC:$('manStepC').value,stepMin:$('manStepMin').value}));}catch(e){}}
-['manHeat','manFan','manStepOn','manStepPct','manStepC','manStepMin'].forEach(id=>$(id).addEventListener('change',()=>{saveManCfg();manStatus();}));
-// ---- Manual roast fan step-down: from the moment Start manual roast is pressed, every time the bean
-// temperature has risen another N °C the fan drops by P % (never below the floor, never raised).
-// The rise is counted from the lowest BT seen (the turning point after the beans go in), so the
-// post-charge plunge doesn't count; once the first step has fired that base is fixed. Hand changes
-// to the fan are respected: later steps go down from whatever the fan is set to.
-const manStep={low:null,steps:0};
-function manStepCfg(){return{on:$('manStepOn').checked,pct:Math.max(1,Math.min(20,parseInt($('manStepPct').value,10)||1)),
+  stepPct:$('manStepPct').value,stepC:$('manStepC').value,stepMin:$('manStepMin').value}));}catch(e){}}
+['manHeat','manFan','manStepPct','manStepC','manStepMin'].forEach(id=>$(id).addEventListener('change',()=>{saveManCfg();manStatus();}));
+// ---- Fan step-down: tapped on the Controls rail at any point in a roast (typically after dry end).
+// From that moment, every time the bean temperature has risen another N °C above the BT at the tap,
+// the fan drops by P % (never below the floor, never raised). Hand changes to the fan are respected:
+// later steps go down from whatever the fan is set to. Tap again to stop; Drop / a new roast ends it.
+const manStep={on:false,base:null,steps:0};
+function manStepCfg(){return{pct:Math.max(1,Math.min(20,parseInt($('manStepPct').value,10)||1)),
   c:Math.max(1,Math.min(50,+$('manStepC').value||5)),min:clampPct($('manStepMin').value)};}
-function manStepReset(){manStep.low=null;manStep.steps=0;}
+function manStepDraw(){const b=$('crFanStep');if(!b)return;const cfg=manStepCfg();
+  b.classList.toggle('on',manStep.on);b.setAttribute('aria-pressed',String(manStep.on));
+  $('crFanStepTxt').textContent=manStep.on?'ON · −'+cfg.pct+'% / +'+cfg.c+'°C from '+manStep.base.toFixed(0)+'°':'OFF';}
+function manStepStop(why){if(!manStep.on)return;manStep.on=false;manStep.base=null;manStep.steps=0;manStepDraw();if(why)log('🌬 Fan step-down off ('+why+')');}
+function manStepStart(){
+  if(!chargeMs||events.drop!=null||chartFrozen){alert('Fan step-down works during a roast — press it after Charge.');return;}
+  const bt=live.bt;if(bt==null||Number.isNaN(bt)){alert('No bean temperature yet.');return;}
+  markFanOverride();                                      // a running profile / replay stops driving the fan — you (and the step-down) have it
+  manStep.on=true;manStep.base=bt;manStep.steps=0;manStepDraw();
+  const cfg=manStepCfg();log('🌬 Fan step-down on at BT '+bt.toFixed(1)+'°: −'+cfg.pct+'% fan per +'+cfg.c+'°C, not below '+cfg.min+'%');
+}
+function manStepReset(){manStepStop();}
 function manStepTick(bt){
-  if(!manMode||!chargeMs||events.drop!=null||chartFrozen||bt==null||Number.isNaN(bt))return;
-  const cfg=manStepCfg();if(!cfg.on||!writeChar)return;
-  if(manStep.steps===0&&(manStep.low==null||bt<manStep.low))manStep.low=bt;
-  const want=Math.floor((bt-manStep.low)/cfg.c);
+  if(!manStep.on)return;
+  if(!chargeMs||events.drop!=null||chartFrozen){manStepStop('roast ended');return;}
+  if(bt==null||Number.isNaN(bt)||!writeChar)return;
+  const cfg=manStepCfg(),want=Math.floor((bt-manStep.base)/cfg.c);
   if(want<=manStep.steps)return;
   const n=want-manStep.steps;manStep.steps=want;
   const cur=clampPct($('cFanVal').value),next=Math.max(cfg.min,cur-n*cfg.pct);
   if(next>=cur)return;                                    // already at / below the floor: leave the fan alone
   $('cFanVal').value=next;send('IO3,'+next);
-  log('🌬 Fan step-down: BT '+bt.toFixed(1)+'° (+'+(want*cfg.c)+'° from '+manStep.low.toFixed(1)+'°) → fan '+cur+'% → '+next+'%');
+  log('🌬 Fan step-down: BT '+bt.toFixed(1)+'° (+'+(want*cfg.c)+'° since '+manStep.base.toFixed(1)+'°) → fan '+cur+'% → '+next+'%');
 }
+$('crFanStep').addEventListener('click',()=>{if(manStep.on){manStepStop('turned off');return;}if(fanCtlOk())manStepStart();});
 function manStatus(){const el=$('manStatus');if(!el)return;
-  const sc=manStepCfg(),stepTxt=sc.on?' 🌬 Fan step-down on: −'+sc.pct+'% fan per +'+sc.c+' °C bean temp (not below '+sc.min+'%).':'';
+  const stepTxt=' Tap <b>🌬 Fan step-down</b> on the Controls rail when you want the fan to start easing off.';
   el.innerHTML=(manMode&&chargeMs)?'🎛 <b>Manual roast running</b> — PID off, you have the heater and fan.'+stepTxt+' Tag DE / FC with the green button; <b>Stop / Drop</b> ends and saves the roast.':MAN_HELP;}
 async function startManualRoast(){
   if(!writeChar){alert('Connect the roaster first.');return;}
@@ -2299,7 +2310,7 @@ async function startManualRoast(){
   else if(chargeMs&&!manMode&&!confirm('A roast is already running — switch it to manual control (PID off, heater '+o.heat+'% / fan '+o.fan+'%)?'))return;
   stopRamp();stopProfile();stopBBP('manual roast',true);stopEtRun('manual roast',true);stopPProf('manual roast',true);clearFanOverride();clearFcHold();
   if(!chargeMs)$('evCharge').click();                     // fresh roast: Charge = timer + recording + batch code (a running roast just changes hands)
-  manMode=true;manStepReset();drawChart();manStatus();
+  manMode=true;drawChart();manStatus();
   const gen=runGen;                                       // a Stop / Drop during the start-up sends abandons it
   await send('PID,OFF ');pidEngaged=false;curSV=null;$('tSv').textContent='—';setPidPill();
   await delay(200);if(gen!==runGen)return;
@@ -2825,14 +2836,14 @@ function freezeRoastView(){                        // Drop: recording stops, the
   alarms.temp=false;
   curSV=null;$('tSv').textContent='—';
   $('evTimes').innerHTML+=' — <b>roast saved</b>; the curve stays on the chart until you press <b>Charge</b> for the next batch (or Clear chart).';
-  clearFcHold();updateEvBtns();updateTimer();updateLiveBar();drawChart();manStatus();
+  clearFcHold();manStepStop('drop');updateEvBtns();updateTimer();updateLiveBar();drawChart();manStatus();
 }
 function resetRoastView(){                         // fresh chart for the next batch (the roast was just auto-saved)
   chartFrozen=false;samples.length=0;btHist.length=0;rxBuffer='';
   sessionId=null;sessionClosed=false;chartRoastId=null;
   Object.assign(events,{charge:null,dry:null,fc:null,drop:null});
   chargeMs=null;if(connectMs)connectMs=Date.now(); // rebase the time axis
-  manMode=false;manStatus();
+  manMode=false;manStatus();manStepReset();
   invUse.dropped=false;invUse.deducted=0;roastFan0=null;   // the batch's stock deduction is final — a new bean/weight typed now is the NEXT batch's
   batchCode=null;showBatchCode(null);
   liveCross.de=liveCross.fc=null;liveTP.min=null;liveTP.t=null;liveTP.armed=false;alarms.temp=false;bgIdx=0;pred=null;renderPred();
@@ -3922,7 +3933,7 @@ try{const bb=JSON.parse(localStorage.getItem('rc_bbp')||'null');           // re
   if(bb){if(bb.cool)$('bbpCool').value=bb.cool;if(bb.charge)$('bbpCharge').value=bb.charge;if(bb.fan)$('bbpFan').value=bb.fan;}}catch(e){}
 try{const mc=JSON.parse(localStorage.getItem('rc_man')||'null');           // restore the manual roast's opening heater / fan (60 / 60 by default)
   if(mc){if(mc.heat!=null&&mc.heat!=='')$('manHeat').value=mc.heat;if(mc.fan!=null&&mc.fan!=='')$('manFan').value=mc.fan;
-    if(mc.stepOn!=null)$('manStepOn').checked=!!mc.stepOn;if(mc.stepPct)$('manStepPct').value=mc.stepPct;
+    if(mc.stepPct)$('manStepPct').value=mc.stepPct;
     if(mc.stepC)$('manStepC').value=mc.stepC;if(mc.stepMin!=null&&mc.stepMin!=='')$('manStepMin').value=mc.stepMin;}}catch(e){}
 manStatus();
 try{const sk=JSON.parse(localStorage.getItem('rc_soak')||'null');          // restore the charge-soak fixed-power steps
