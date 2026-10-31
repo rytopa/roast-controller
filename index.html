@@ -728,7 +728,7 @@
 <script src="profile-creator.js?v=1.4.0"></script>
 <script>
 "use strict";
-const APP_VERSION='1.5.1',APP_DATE='2026-10-31';   // bump both on every release — shown in the header, logged at start-up
+const APP_VERSION='1.5.2',APP_DATE='2026-10-31';   // bump both on every release — shown in the header, logged at start-up
 const CANDIDATE_SERVICES=[0xffe0,0xfff0,'6e400001-b5a3-f393-e0a9-e50e24dcca9e','49535343-fe7d-4ae5-8fa9-9fafd205e455',0xffe5,0xfee0,0xff00];
 const $=id=>document.getElementById(id);
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -2260,14 +2260,14 @@ function saveBbpCfg(){try{localStorage.setItem('rc_bbp',JSON.stringify({cool:$('
 ['bbpCool','bbpCharge','bbpFan'].forEach(id=>$(id).addEventListener('change',saveBbpCfg));
 // ---- Manual roast: one tap marks Charge (timer + chart recording), sets the opening fan / heater
 // with the PID off and hands the roast to the Controls rail. No between-batch cycle, no soak, no profile.
-const MAN_HELP='Choose opening power, then select your bean and weight. You control heat and airflow; Stop / Drop saves the roast.<details class="guide"><summary>How a manual roast works</summary>One tap: asks for the <b>bean and green weight</b> (same dialog as the cycle), marks <b>Charge</b> (timer and chart recording start), sets the fan then the heater to the opening values above with the PID <b>off</b>, and hands the roast to you. Drive <b>Heater / Fan ±</b> on the Controls rail, tag DE / FC with the green button; <b>Stop / Drop</b> ends and saves the roast. <b>🌬 Fan step-down</b> (button on the Controls rail): tap it whenever you like — e.g. after dry end — and from then on each time the bean temperature climbs another 5 °C above where it was when you tapped, the fan drops 1% on its own — never below the floor you set; your own fan changes are kept and later steps go down from them. No between-batch cycle, soak or profile involved — use it whenever the drum is where you want it and the beans are going in. Opening values are remembered.</details>';
+const MAN_HELP='Choose opening power, then select your bean and weight. You control heat and airflow; Stop / Drop saves the roast.<details class="guide"><summary>How a manual roast works</summary>One tap: asks for the <b>bean and green weight</b> (same dialog as the cycle), marks <b>Charge</b> (timer and chart recording start), sets the fan then the heater to the opening values above with the PID <b>off</b>, and hands the roast to you. Drive <b>Heater / Fan ±</b> on the Controls rail, tag DE / FC with the green button; <b>Stop / Drop</b> ends and saves the roast. <b>🌬 Fan step-down</b> (button on the Controls rail): tap it whenever you like — e.g. after dry end — and the fan drops 1% straight away; from then on each time the bean temperature climbs another 5 °C above where it was when you tapped, the fan drops 1% on its own — never below the floor you set; your own fan changes are kept and later steps go down from them. No between-batch cycle, soak or profile involved — use it whenever the drum is where you want it and the beans are going in. Opening values are remembered.</details>';
 let manMode=false;                                        // a manual roast is on the chart: the designer plan stays off it until the next Charge
 function manOpen(){return{heat:clampPct($('manHeat').value),fan:clampPct($('manFan').value)};}
 function saveManCfg(){try{localStorage.setItem('rc_man',JSON.stringify({heat:$('manHeat').value,fan:$('manFan').value,
   stepPct:$('manStepPct').value,stepC:$('manStepC').value,stepMin:$('manStepMin').value}));}catch(e){}}
 ['manHeat','manFan','manStepPct','manStepC','manStepMin'].forEach(id=>$(id).addEventListener('change',()=>{saveManCfg();manStatus();}));
 // ---- Fan step-down: tapped on the Controls rail at any point in a roast (typically after dry end).
-// From that moment, every time the bean temperature has risen another N °C above the BT at the tap,
+// The first step happens right at the tap; after that, every time the bean temperature has risen another N °C above the BT at the tap,
 // the fan drops by P % (never below the floor, never raised). Hand changes to the fan are respected:
 // later steps go down from whatever the fan is set to. Tap again to stop; Drop / a new roast ends it.
 const manStep={on:false,base:null,steps:0};
@@ -2282,7 +2282,9 @@ function manStepStart(){
   const bt=live.bt;if(bt==null||Number.isNaN(bt)){alert('No bean temperature yet.');return;}
   markFanOverride();                                      // a running profile / replay stops driving the fan — you (and the step-down) have it
   manStep.on=true;manStep.base=bt;manStep.steps=0;manStepDraw();
-  const cfg=manStepCfg();log('🌬 Fan step-down on at BT '+bt.toFixed(1)+'°: −'+cfg.pct+'% fan per +'+cfg.c+'°C, not below '+cfg.min+'%');
+  const cfg=manStepCfg();log('🌬 Fan step-down on at BT '+bt.toFixed(1)+'°: −'+cfg.pct+'% fan now, then per +'+cfg.c+'°C, not below '+cfg.min+'%');
+  const cur=clampPct($('cFanVal').value),next=Math.max(cfg.min,cur-cfg.pct);   // first step right at the tap
+  if(next<cur){$('cFanVal').value=next;send('IO3,'+next);log('🌬 Fan step-down: BT '+bt.toFixed(1)+'° (at tap) → fan '+cur+'% → '+next+'%');}
 }
 function manStepReset(){manStepStop();}
 function manStepTick(bt){
