@@ -236,28 +236,34 @@ body.day #crEvent:not(:disabled) {color:#fff}
 .comparison-chart .comparison-label-a {fill:var(--bt)}
 .comparison-chart .comparison-label-b {fill:var(--et)}
 
-/* Short landscape screens (tablets, laptops): keep the live readings in view while watching the
-   curve. "At a glance" collapses to one slim strip pinned under the section tabs, and the chart is
-   sized so the whole graph fits underneath it. */
-@media (min-width:800px) and (max-height:900px) {
-  .stage>.liverail {position:sticky;top:var(--nav-h,52px);z-index:9;grid-template-columns:auto minmax(0,1fr) auto;
-    column-gap:16px;row-gap:0;padding:8px 16px;align-items:center;box-shadow:0 6px 18px #0000001f}
-  .liverail h2,.liverail .event-summary,.liverail>#liveBar {display:none!important}
-  .liverail>.row {grid-column:1;grid-row:1;margin:0!important;gap:8px;flex-wrap:nowrap}
+/* Landscape tablets and wider: three columns — live readings on the left, the curve in the middle,
+   controls on the right — so the readings sit right next to the chart instead of squeezing it from
+   above. The readings column and the controls stay pinned under the section tabs while scrolling,
+   and the chart is sized to the screen height. */
+@media (min-width:1000px) {
+  .stage {grid-template-columns:190px minmax(0,1fr) 280px}
+  .stage>.liverail {grid-column:1;grid-row:1;position:sticky;top:calc(var(--nav-h,52px) + 10px);z-index:2;
+    display:flex;flex-direction:column;gap:6px;padding:14px;max-height:calc(100vh - var(--nav-h,52px) - 20px);overflow:auto}
+  .liverail h2 {margin:0}
+  .liverail>.row {margin:0!important;gap:6px;flex-wrap:nowrap}
   .liverail>.row .pill {font-size:11px;padding:1px 7px}
-  #tTimer {grid-column:1;grid-row:2;font-size:32px!important;margin:0!important}
-  .liverail .tiles {grid-column:2;grid-row:1/3;grid-template-columns:repeat(6,minmax(0,1fr));row-gap:0}
-  .liverail .tiles .tile {padding:2px 10px}
-  .liverail .tiles .tile .v,.liverail .tiles .tile.bt .v {font-size:26px;line-height:1.15}
-  .liverail .tiles .tile.bt .v {font-size:30px}
-  .liverail .tiles .tile .u {margin-top:0}
-  .liverail .ptiles {grid-column:3;grid-row:1/3;align-self:center;margin:0;padding-left:14px;border-left:1px solid var(--line)}
+  #tTimer {font-size:38px!important;margin:0!important;line-height:1.1!important}
+  .liverail .ptiles {display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0;padding:0 0 4px;border:0}
   .ptiles .tile .u {min-height:0}
-  .liverail>.small {grid-column:1/-1;grid-row:3;margin-top:2px!important}
-  .ctlrail {top:calc(var(--nav-h,52px) + var(--glance-h,90px) + 10px)}
+  .liverail .tiles {display:grid;grid-template-columns:1fr 1fr;gap:0}
+  .liverail .tiles .tile {border:0;border-top:1px solid var(--line);border-radius:0;padding:6px 2px;text-align:left}
+  .liverail .tiles .tile.bt,.liverail .tiles .tile.et {grid-column:1/-1}
+  .liverail .tiles .tile .v {font-size:24px;line-height:1.15}
+  .liverail .tiles .tile.bt .v {font-size:40px}
+  .liverail .tiles .tile.et .v {font-size:30px}
+  .liverail .tiles .tile .u {margin-top:0}
+  .liverail .event-summary {display:flex;flex-wrap:wrap;gap:4px 8px;padding:6px 0 0;border-top:1px solid var(--line)}
+  .liverail .event-summary #evPrev {font-size:13px}
+  .liverail>.small {margin-top:0!important}
+  .chart-panel {grid-column:2;grid-row:1;padding-top:14px}
+  .ctlrail {grid-column:3;grid-row:1;top:calc(var(--nav-h,52px) + 10px)}
   .chart-context {display:none}
-  .chart-panel {padding-top:14px}
-  #chart {height:clamp(300px,calc(100vh - var(--nav-h,52px) - var(--glance-h,90px) - 110px),600px)}
+  #chart {height:clamp(320px,calc(100vh - var(--nav-h,52px) - 150px),760px)}
 }
 
 /* Fan step-down toggle on the Controls rail */
