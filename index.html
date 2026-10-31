@@ -273,7 +273,7 @@
     <div class="row" style="margin-top:8px;align-items:center;gap:6px">
       <span class="small"><b>🌬 Fan step-down</b> (tap it on the Controls rail when you want it, e.g. after dry end) — lower the fan</span><input id="manStepPct" type="number" min="1" max="20" value="1" style="width:60px">
       <span class="small">% every time the bean temp rises</span><input id="manStepC" type="number" min="1" max="50" value="5" style="width:60px">
-      <span class="small">°C, but not below</span><input id="manStepMin" type="number" min="0" max="100" value="30" style="width:60px"><span class="small">%</span>
+      <span class="small">°C, but not below</span><input id="manStepMin" type="number" min="40" max="100" value="40" style="width:60px"><span class="small">%</span>
     </div>
     <div id="manStatus" class="small" style="margin-top:7px"></div>
   </section>
@@ -728,7 +728,7 @@
 <script src="profile-creator.js?v=1.4.0"></script>
 <script>
 "use strict";
-const APP_VERSION='1.5.2',APP_DATE='2026-10-31';   // bump both on every release — shown in the header, logged at start-up
+const APP_VERSION='1.5.3',APP_DATE='2026-10-31';   // bump both on every release — shown in the header, logged at start-up
 const CANDIDATE_SERVICES=[0xffe0,0xfff0,'6e400001-b5a3-f393-e0a9-e50e24dcca9e','49535343-fe7d-4ae5-8fa9-9fafd205e455',0xffe5,0xfee0,0xff00];
 const $=id=>document.getElementById(id);
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -2272,7 +2272,7 @@ function saveManCfg(){try{localStorage.setItem('rc_man',JSON.stringify({heat:$('
 // later steps go down from whatever the fan is set to. Tap again to stop; Drop / a new roast ends it.
 const manStep={on:false,base:null,steps:0};
 function manStepCfg(){return{pct:Math.max(1,Math.min(20,parseInt($('manStepPct').value,10)||1)),
-  c:Math.max(1,Math.min(50,+$('manStepC').value||5)),min:clampPct($('manStepMin').value)};}
+  c:Math.max(1,Math.min(50,+$('manStepC').value||5)),min:Math.max(40,clampPct($('manStepMin').value))};}   // hard floor: never below 40 % fan
 function manStepDraw(){const b=$('crFanStep');if(!b)return;const cfg=manStepCfg();
   b.classList.toggle('on',manStep.on);b.setAttribute('aria-pressed',String(manStep.on));
   $('crFanStepTxt').textContent=manStep.on?'ON · −'+cfg.pct+'% / +'+cfg.c+'°C from '+manStep.base.toFixed(0)+'°':'OFF';}
@@ -3936,7 +3936,7 @@ try{const bb=JSON.parse(localStorage.getItem('rc_bbp')||'null');           // re
 try{const mc=JSON.parse(localStorage.getItem('rc_man')||'null');           // restore the manual roast's opening heater / fan (60 / 60 by default)
   if(mc){if(mc.heat!=null&&mc.heat!=='')$('manHeat').value=mc.heat;if(mc.fan!=null&&mc.fan!=='')$('manFan').value=mc.fan;
     if(mc.stepPct)$('manStepPct').value=mc.stepPct;
-    if(mc.stepC)$('manStepC').value=mc.stepC;if(mc.stepMin!=null&&mc.stepMin!=='')$('manStepMin').value=mc.stepMin;}}catch(e){}
+    if(mc.stepC)$('manStepC').value=mc.stepC;if(mc.stepMin!=null&&mc.stepMin!=='')$('manStepMin').value=Math.max(40,clampPct(mc.stepMin));}}catch(e){}
 manStatus();
 try{const sk=JSON.parse(localStorage.getItem('rc_soak')||'null');          // restore the charge-soak fixed-power steps
   if(sk){if(sk.p1!==''&&sk.p1!=null)$('soakP1').value=sk.p1;if(sk.t1)$('soakT1').value=sk.t1;
