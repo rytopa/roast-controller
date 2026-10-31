@@ -722,7 +722,7 @@
 <script src="profile-creator.js?v=1.4.0"></script>
 <script>
 "use strict";
-const APP_VERSION='1.4.1',APP_DATE='2026-10-31';   // bump both on every release — shown in the header, logged at start-up
+const APP_VERSION='1.4.2',APP_DATE='2026-10-31';   // bump both on every release — shown in the header, logged at start-up
 const CANDIDATE_SERVICES=[0xffe0,0xfff0,'6e400001-b5a3-f393-e0a9-e50e24dcca9e','49535343-fe7d-4ae5-8fa9-9fafd205e455',0xffe5,0xfee0,0xff00];
 const $=id=>document.getElementById(id);
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -3112,6 +3112,11 @@ function requestChartDraw(){if(chartRaf)return;chartRaf=true;requestAnimationFra
  cc.addEventListener('pointerdown',setH);
  cc.addEventListener('pointerleave',()=>{chartHover=null;requestChartDraw();});}
 window.addEventListener('resize',()=>{drawChart();drawProfEditor();drawPProf();});
+// Pinned "At a glance" strip (short landscape screens): publish the real heights of the sticky
+// section tabs and the strip so the strip sits right under the tabs and the chart fits beneath.
+{const nav=document.querySelector('.workspace-nav'),gl=document.querySelector('.liverail'),rs=document.documentElement.style;
+ const upd=()=>{rs.setProperty('--nav-h',(nav?nav.offsetHeight:52)+'px');rs.setProperty('--glance-h',(gl?gl.offsetHeight:90)+'px');};
+ upd();if(window.ResizeObserver){const ro=new ResizeObserver(()=>{upd();requestChartDraw();});nav&&ro.observe(nav);gl&&ro.observe(gl);}}
 setInterval(()=>{if(connectMs){updateTimer();updateLiveBar();if(events.fc!=null){updateEvBtns();crRefresh();}}},1000);
 
 // ---------- Data: CSV + saved roasts ----------
